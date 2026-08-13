@@ -17,7 +17,7 @@ import * as staffRepository from './services/staffRepository.js';
 import * as appointmentsRepository from './services/appointmentsRepository.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
-import { validateForm } from './core/validate.js';
+import { validateForm, toIndianE164 } from './core/validate.js';
 import { sanitizeDOM, esc } from './core/sanitize.js';
 import { refreshIcons } from './ui/icons.js';
 import showNotification from './ui/notification.js';
@@ -533,12 +533,18 @@ const actions = {
         const result = await authService.signInWithGoogle();
         if (result.ok && result.redirecting) {
             showNotification('Redirecting to Google…');
-        } else if (result.ok) {
-            const name = store.getState().currentUser?.displayName;
-            showNotification(name ? `Signed in as ${name}!` : 'Signed in successfully!');
-        } else {
-            showNotification(result.error || 'Sign-in failed.', 'error');
+            return;
         }
+        if (!result.ok) {
+            showNotification(result.error || 'Sign-in failed.', 'error');
+            return;
+        }
+        // The auth-state change already routed the owner to their dashboard;
+        // re-resolve the salon scope so tenant data loads as soon as their
+        // salons arrive (never a stale/default salon id).
+        syncSalonScope();
+        const name = store.getState().currentUser?.displayName;
+        showNotification(name ? `Signed in as ${name}!` : 'Signed in successfully!');
     },
 
     async 'email-auth'(form) {
@@ -631,7 +637,8 @@ const actions = {
 
     async 'submit-customer'(form, event, data) {
         const id = data.id;
-        const payload = { name: data.name, phone: data.phone, email: data.email };
+        // Validation already guarantees 10 digits; store the full +91 number.
+        const payload = { name: data.name, phone: toIndianE164(data.phone), email: data.email };
         if (id) {
             await customersRepository.updateCustomer(id, payload);
             showNotification('Client updated successfully!');
@@ -661,7 +668,7 @@ const actions = {
 
     async 'submit-staff'(form, event, data) {
         const id = data.id;
-        const payload = { name: data.name, role: data.role, phone: data.phone };
+        const payload = { name: data.name, role: data.role, phone: toIndianE164(data.phone) };
         if (id) {
             await staffRepository.updateStaff(id, payload);
             showNotification('Staff details updated!');
@@ -700,7 +707,7 @@ const actions = {
         await salonsRepository.addSalon({
             name: data.name,
             ownerEmail: data.email,
-            phone: data.phone,
+            phone: toIndianE164(data.phone),
             address: data.address,
         });
         showNotification('New salon branch provisioned!');
@@ -816,7 +823,8 @@ async function bootstrap() {
         });
         await authService.restoreSession();
         // Consume any pending Google OAuth redirect callback (mobile flow).
-        // Fire-and-forget: onAuthStateChanged is the source of truth for state.
+        // onAuthStateChanged is the source of truth for state; real callback
+        // failures are surfaced to the user by authService itself.
         authService.handleRedirectResult().catch((err) => {
             console.warn('Redirect result handling failed:', err);
         });

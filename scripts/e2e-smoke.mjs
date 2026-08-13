@@ -196,7 +196,7 @@ async function main() {
     await new Promise((r) => setTimeout(r, 150));
     await click(`[data-action="modal"][data-modal="customer"]`);
     await waitFor(`document.querySelector('form[data-action="submit-customer"]') !== null`);
-    await fillForm({ name: 'Test Client', phone: '+1 555-0000', email: 'test@client.com' });
+    await fillForm({ name: 'Test Client', phone: '9876500000', email: 'test@client.com' });
     await click('form[data-action="submit-customer"] button[type="submit"]');
     await waitFor(`document.body.innerText.includes('Test Client')`);
     assert(true, 'new client appears in list (real button click)');
@@ -357,7 +357,7 @@ async function main() {
         const evil = '<img src=x onerror=window.__pwned=1><script>window.__pwned=1<\\/script><b>bold</b>';
         const f = document.querySelector('form[data-action="submit-customer"]');
         f.querySelector('[name="name"]').value = evil;
-        f.querySelector('[name="phone"]').value = '+1 555-9999';
+        f.querySelector('[name="phone"]').value = '9876599999';
         f.querySelector('[name="email"]').value = 'evil@x.com';
         f.requestSubmit();
         return true;
@@ -389,7 +389,7 @@ async function main() {
     await waitFor(`document.querySelector('[data-action="modal"][data-modal="salon"]') !== null`);
     await click(`[data-action="modal"][data-modal="salon"]`);
     await waitFor(`document.querySelector('form[data-action="submit-salon"]') !== null`);
-    await fillForm({ name: 'Luxe Glow Test Branch', email: 'branch@test.com', phone: '+1 555-7777', address: '1 Test Ave' });
+    await fillForm({ name: 'Luxe Glow Test Branch', email: 'branch@test.com', phone: '9876577777', address: '1 Test Ave' });
     // Real user path: click the actual Provision button (click delegation must
     // NOT hijack the form submit, see submit-salon handler signature).
     await click('form[data-action="submit-salon"] button[type="submit"]');

@@ -4,9 +4,10 @@
  * components never touch the auth SDK directly.
  *
  * Modes:
- *  - demo:  no real backend; email/anon sign-in simulates a local session.
- *           Google Sign-In NEVER fabricates a session in demo mode — it
- *           requires real Firebase OAuth and returns a clear error instead.
+ *  - demo:  no real backend; the local preview can simulate an owner session
+ *           for offline browsing. Google Sign-In NEVER fabricates a session in
+ *           demo mode — it requires real Firebase OAuth and returns a clear
+ *           error instead. Anonymous sign-in is likewise never faked.
  *  - firebase: email/password, real Google OAuth (popup on desktop, redirect
  *    on mobile), anonymous, custom token and sign-out against the injected
  *    Firebase project. The user's real profile (uid, email, displayName) is
@@ -19,6 +20,7 @@ import { getFirebase, isDemoMode } from './firebase.js';
 import { getInitialAuthToken } from '../config.js';
 import { store } from '../core/store.js';
 import { makeId } from '../core/utils.js';
+import showNotification from '../ui/notification.js';
 import {
     signInWithPopup,
     signInWithRedirect,
@@ -69,8 +71,22 @@ function toSafeUser(user) {
     };
 }
 
+/** In-flight profile loads, keyed by uid, so concurrent auth-state events (a
+ * popup result plus the onAuthStateChanged listener) share one Firestore read
+ * and can never race two profile creations. */
+const profileLoads = new Map();
+
 /** Ensure a users/{uid} profile document exists for the signed-in user. */
-async function ensureUserProfile(user) {
+export function ensureUserProfile(user) {
+    const uid = user && user.uid;
+    if (!uid) return Promise.resolve(null);
+    if (profileLoads.has(uid)) return profileLoads.get(uid);
+    const pending = doEnsureUserProfile(user).finally(() => profileLoads.delete(uid));
+    profileLoads.set(uid, pending);
+    return pending;
+}
+
+async function doEnsureUserProfile(user) {
     const fb = getFirebase();
     if (!fb || !user) return null;
 
@@ -111,6 +127,16 @@ export async function handleAuthStateChanged(user) {
         return;
     }
 
+    // A signed-in but unidentified session (anonymous, no verified identity)
+    // is not a real account — keep these users on the login screen instead of
+    // fabricating an owner dashboard for them.
+    if (user.isAnonymous && !user.email && !user.phoneNumber) {
+        store.setState({ authReady: true, currentUser: null, userRole: 'guest' });
+        return;
+    }
+
+    // Resolve the authenticated user's profile BEFORE any dashboard render so
+    // navigation is always driven by a verified identity and role.
     const profile = await ensureUserProfile(user);
     store.setState({
         authReady: true,
@@ -189,25 +215,35 @@ export async function signInWithGoogle() {
  * Consume a Google OAuth redirect callback. Call once on every app load when
  * Firebase is configured: after the user returns from the Google login page,
  * this resolves the pending sign-in and triggers the auth-state listener.
- * Safe to call when no redirect is pending (resolves to null).
+ * Safe to call when no redirect is pending (resolves to { ok: true, noop: true }).
+ *
+ * Real failures (e.g. an unauthorised domain) are surfaced to the user instead
+ * of silently leaving them on the login screen.
  */
 export async function handleRedirectResult() {
     const fb = getFirebase();
-    if (!fb) return;
+    if (!fb) return { ok: true, noop: true };
     try {
         const result = await getRedirectResult(fb.auth);
         if (result && result.user) {
             await handleAuthStateChanged(result.user);
+            return { ok: true };
         }
+        return { ok: true, noop: true };
     } catch (err) {
-        // Redirects that were cancelled by the user or failed to complete are
-        // surfaced gracefully — never an uncaught exception on boot.
-        if (err.code === 'auth/redirect-cancelled-by-user') return;
+        if (err.code === 'auth/redirect-cancelled-by-user') {
+            return { ok: false, error: 'Google sign-in was cancelled.' };
+        }
+        const message = friendlyAuthError(err);
         console.warn('Google redirect callback error:', err.code || err.message);
+        showNotification(message, 'error');
+        return { ok: false, error: message };
     }
 }
 
-/** Email + password sign-in. */
+/** Email + password sign-in. Demo-mode fallback exists only for the offline
+ * local preview (no backend is configured); it never runs against real
+ * Firebase. */
 export async function signInWithEmail(email, password) {
     const fb = getFirebase();
     if (!fb) return demoSignIn();
@@ -237,10 +273,12 @@ export async function signUpWithEmail(email, password) {
     }
 }
 
-/** Anonymous sign-in (used to seed real Firestore when no token provided). */
+/** Anonymous sign-in against real Firebase. Never fabricates a session. */
 export async function signInAnonymouslyNow() {
     const fb = getFirebase();
-    if (!fb) return demoSignIn();
+    if (!fb) {
+        return { ok: false, error: 'Anonymous sign-in requires Firebase Authentication.' };
+    }
     try {
         await signInAnonymously(fb.auth);
         return { ok: true };

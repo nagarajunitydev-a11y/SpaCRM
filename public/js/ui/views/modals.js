@@ -6,7 +6,7 @@
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
-import { formField, textInput, selectControl, dateTimeInput } from '../components.js';
+import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '../components.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
 import { scopedBySalon } from '../../core/utils.js';
@@ -76,7 +76,7 @@ function renderForm(state, type) {
             <form data-action="submit-customer" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}
-                ${formField('Phone', textInput('phone', '+1 555-0143', { type: 'tel', autocomplete: 'tel', value: rec?.phone }))}
+                ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 ${formField('Email', textInput('email', 'olivia@example.com', { type: 'email', autocomplete: 'email', value: rec?.email }))}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client (100 Bonus Pts)'}</button>
             </form>
@@ -103,7 +103,7 @@ function renderForm(state, type) {
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${formField('Staff Name', textInput('name', 'Chloe Grace', { value: rec?.name }))}
                 ${formField('Role / Specialization', textInput('role', 'Senior Hair Stylist', { value: rec?.role }))}
-                ${formField('Phone', textInput('phone', '+1 555-0182', { type: 'tel', autocomplete: 'tel', value: rec?.phone }))}
+                ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Register Staff'}</button>
             </form>
         `;
@@ -143,7 +143,7 @@ function renderForm(state, type) {
             ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
             ${formField('Salon Branch Name', textInput('name', 'Luxe Glow SoHo', { value: rec?.name }))}
             ${formField('Owner Email', textInput('email', 'owner@sohostudio.com', { type: 'email', autocomplete: 'email', value: rec?.ownerEmail ?? rec?.email }))}
-            ${formField('Phone', textInput('phone', '+1 555-0177', { type: 'tel', autocomplete: 'tel', value: rec?.phone }))}
+            ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
             ${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}
             <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Provision Branch'}</button>
         </form>

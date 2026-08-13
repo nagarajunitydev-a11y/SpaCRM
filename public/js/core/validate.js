@@ -13,6 +13,37 @@ export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Default country dial code (India). */
+export const IN_DIAL_CODE = '91';
+
+/**
+ * Reduce any phone input to its national digits. Non-digit characters are
+ * stripped and a leading +91 country code is removed when it is followed by
+ * more than the expected 10 digits (a bare national number that merely starts
+ * with 91 is left untouched).
+ */
+export function normalizePhoneDigits(value) {
+    let digits = String(value == null ? '' : value).replace(/\D/g, '');
+    if (digits.startsWith(IN_DIAL_CODE) && digits.length > 10) {
+        digits = digits.slice(IN_DIAL_CODE.length);
+    }
+    return digits;
+}
+
+/** True when the value is a valid 10-digit Indian mobile number. */
+export function isValidIndianPhone(value) {
+    return normalizePhoneDigits(value).length === 10;
+}
+
+/**
+ * Normalise a valid input to the +91XXXXXXXXXX E.164 form so records always
+ * store the full international number. Returns '' when the input is invalid.
+ */
+export function toIndianE164(value) {
+    const digits = normalizePhoneDigits(value);
+    return digits.length === 10 ? `+${IN_DIAL_CODE}${digits}` : '';
+}
+
 /** True for empty, null, undefined, or whitespace-only values. */
 export function isBlank(value) {
     return value === null || value === undefined || String(value).trim() === '';
@@ -47,6 +78,7 @@ const numberMin = (min, msg) => (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n >= min ? null : msg;
 };
+const indianPhone = (msg) => (v) => (isBlank(v) ? null : isValidIndianPhone(v) ? null : msg);
 
 /** Runs every validator for a field, stopping at the first failure. */
 function check(errors, field, value, validators) {
@@ -94,7 +126,7 @@ export function validateForm(formKey, data, ctx = {}) {
 
     if (formKey === 'submit-customer') {
         check(errors, 'name', v('name'), [required('Name is required.')]);
-        check(errors, 'phone', v('phone'), [required('Phone number is required.')]);
+        check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'email', v('email'), [required('Email is required.'), email('Enter a valid email address.')]);
         return errors;
     }
@@ -109,7 +141,7 @@ export function validateForm(formKey, data, ctx = {}) {
     if (formKey === 'submit-staff') {
         check(errors, 'name', v('name'), [required('Staff name is required.')]);
         check(errors, 'role', v('role'), [required('Role / specialization is required.')]);
-        check(errors, 'phone', v('phone'), [required('Phone number is required.')]);
+        check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         return errors;
     }
 
@@ -118,7 +150,7 @@ export function validateForm(formKey, data, ctx = {}) {
         // Forms post `email`; the stored field is `ownerEmail` (ownerAuth seed).
         const salonEmail = data.ownerEmail ?? data.email;
         check(errors, 'email', salonEmail, [required('Owner email is required.'), email('Enter a valid email address.')]);
-        check(errors, 'phone', v('phone'), [required('Phone number is required.')]);
+        check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'address', v('address'), [required('Location address is required.')]);
         return errors;
     }
@@ -136,4 +168,4 @@ export function validateForm(formKey, data, ctx = {}) {
     return errors;
 }
 
-export default { validateForm, isBlank, isValidDate, EMAIL_RE, TIME_RE, DATE_RE };
+export default { validateForm, isBlank, isValidDate, isValidIndianPhone, toIndianE164, normalizePhoneDigits, EMAIL_RE, TIME_RE, DATE_RE };

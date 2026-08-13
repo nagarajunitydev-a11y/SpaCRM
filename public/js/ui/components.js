@@ -10,6 +10,7 @@
 
 import { esc, escAttr } from '../core/sanitize.js';
 import { icon } from './icons.js';
+import { normalizePhoneDigits } from '../core/validate.js';
 
 /** Lucide icon element. */
 export function iconEl(name, cls = 'w-4 h-4') {
@@ -194,6 +195,26 @@ export function textInput(name, placeholder, opts = {}) {
     `;
 }
 
+/**
+ * Indian phone input: a fixed +91 country-code prefix beside a 10-digit
+ * national-number field. The placeholder is a reference/example only — it is
+ * never submitted, and records only ever store what the user actually types.
+ * Stored values are reduced to their national digits for pre-filling.
+ */
+export function phoneInput(name, opts = {}) {
+    const { required = true, className = '', autocomplete = 'tel-national', value = '' } = opts;
+    const digits = normalizePhoneDigits(value);
+    return `
+        <div class="flex w-full bg-slate-950 border border-slate-800 rounded-xl focus-within:border-brand-500 overflow-hidden ${escAttr(className)}">
+            <span class="px-3.5 border-r border-slate-800 bg-slate-900/40 flex items-center text-xs font-bold text-slate-300 select-none" aria-hidden="true">+91</span>
+            <input type="tel" inputmode="numeric" name="${escAttr(name)}" ${required ? 'required' : ''}
+                placeholder="98765 43210" ${digits ? `value="${escAttr(digits)}"` : ''}
+                autocomplete="${escAttr(autocomplete)}"
+                class="w-full min-w-0 bg-transparent px-4 py-3 text-xs text-slate-100 focus:outline-none">
+        </div>
+    `;
+}
+
 /** Select control. `value` marks the currently selected option. */
 export function selectControl(name, options, placeholder, opts = {}) {
     const { required = true, className = '', value = '' } = opts;
@@ -246,6 +267,7 @@ export default {
     networkBanner,
     formField,
     textInput,
+    phoneInput,
     selectControl,
     dateTimeInput,
     card,
