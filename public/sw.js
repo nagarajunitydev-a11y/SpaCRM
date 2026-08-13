@@ -7,12 +7,13 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'luxeglow-crm-v3';
+const CACHE_NAME = 'luxeglow-crm-v4';
 const APP_SHELL = [
     '/',
     '/index.html',
     '/styles/tailwind.css',
     '/styles/main.css',
+    '/vendor/lucide.min.js',
     '/manifest.webmanifest',
     '/icons/icon-192.png',
     '/icons/icon-512.png',

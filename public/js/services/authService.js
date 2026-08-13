@@ -115,7 +115,7 @@ async function doEnsureUserProfile(user) {
     }
 }
 
-export async function handleAuthStateChanged(user) {
+export function handleAuthStateChanged(user) {
     const fb = getFirebase();
     if (!fb) {
         store.setState({ authReady: true, currentUser: null });
@@ -135,19 +135,34 @@ export async function handleAuthStateChanged(user) {
         return;
     }
 
-    // Resolve the authenticated user's profile BEFORE any dashboard render so
-    // navigation is always driven by a verified identity and role.
-    const profile = await ensureUserProfile(user);
+    // Navigate immediately: the Firebase identity is already verified, so the
+    // owner proceeds straight to their dashboard. The Firestore profile read is
+    // reconciled in the background, so a slow or denied read can never leave the
+    // user stuck on the login screen after a successful sign-in.
     store.setState({
         authReady: true,
-        accountRole: profile && profile.role === 'super_admin' ? 'super_admin' : 'salon_owner',
+        accountRole: 'salon_owner',
         currentUser: toSafeUser(user),
-        userRole: profile && profile.role === 'super_admin' ? 'super_admin' : 'salon_owner',
-        // Resume the salon the user last worked in (falls back to whatever is
-        // currently active). resolveSalonScope validates it against the salons
-        // the user actually owns before any tenant data is subscribed.
-        currentSalonId: profile && profile.salonId ? profile.salonId : store.getState().currentSalonId,
+        userRole: 'salon_owner',
     });
+
+    ensureUserProfile(user)
+        .then((profile) => {
+            if (!profile) return;
+            const role = profile.role === 'super_admin' ? 'super_admin' : 'salon_owner';
+            store.setState({
+                accountRole: role,
+                userRole: role,
+                // Resume the salon the user last worked in (falls back to the
+                // current one). resolveSalonScope validates ownership against
+                // the salons the user actually owns before any tenant data is
+                // subscribed.
+                currentSalonId: profile.salonId ? profile.salonId : store.getState().currentSalonId,
+            });
+        })
+        .catch((err) => {
+            console.warn('Could not reconcile user profile after sign-in:', err);
+        });
 }
 
 /**

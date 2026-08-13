@@ -17,8 +17,9 @@
 
     <!-- Tailwind CSS (production build — see npm run build:css) -->
     <link rel="stylesheet" href="/styles/tailwind.css">
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Lucide Icons (self-hosted so Tracking Prevention / CDN issues can
+         never block icon rendering; falls back to the CDN if unavailable) -->
+    <script src="/vendor/lucide.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/lucide@1.31.0/dist/umd/lucide.min.js'"></script>
     <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
