@@ -15,8 +15,11 @@ export const seed = [
 ];
 
 let unsub = null;
+let subscribedFor = null; // scope (ownerId or 'all') of the active listener
+let subscribing = false;  // guards re-entrant store-triggered subscribes
 
 function subscribe() {
+    if (subscribing) return;
     if (unsub) {
         unsub();
         unsub = null;
@@ -32,10 +35,24 @@ function subscribe() {
     if (state.accountRole === 'salon_owner' && state.currentUser) {
         opts.where = [['ownerId', '==', state.currentUser.uid]];
     }
+    const scopeKey = opts.where ? opts.where[0][2] : 'all';
+    if (scopeKey !== subscribedFor && state.salonsLoaded) {
+        // The subscription scope changed (e.g. owner-filtered → all-salons once
+        // the admin's profile reconciles). Mark the list as loading again so a
+        // stale owner-filtered result is never mistaken for an empty admin list.
+        subscribing = true;
+        store.setState({ salonsList: [], salonsLoaded: false, salonsError: null });
+        subscribing = false;
+    }
+    subscribedFor = scopeKey;
     unsub = listenCollection(
         ['salons'],
-        (rows) => store.setState({ salonsList: rows, salonsLoaded: true }),
-        () => store.setState({ salonsList: [], salonsLoaded: true }),
+        (rows) => store.setState({ salonsList: rows, salonsLoaded: true, salonsError: null }),
+        (err) => store.setState({
+            salonsList: [],
+            salonsLoaded: true,
+            salonsError: err && err.message ? err.message : 'Failed to load salons.',
+        }),
         opts,
     );
 }

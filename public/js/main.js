@@ -401,7 +401,7 @@ function updateCustomerSuggestions(el) {
 const actions = {
     async 'role'(el) {
         const role = el.dataset.role;
-        if (role === 'auth_select') store.setState({ authFormMode: 'signup' });
+        if (role === 'auth_select') store.setState({ authFormMode: el.dataset.mode === 'signin' ? 'signin' : 'signup' });
         setRole(role);
         syncSalonScope();
     },
