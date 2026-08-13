@@ -25,6 +25,8 @@ import {
     signInWithPopup,
     signInWithRedirect,
     getRedirectResult,
+    setPersistence,
+    browserLocalPersistence,
     signInWithCustomToken,
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
@@ -51,13 +53,17 @@ function googleProvider() {
 /**
  * Popup sign-in is unreliable on mobile browsers (iOS Safari blocks new
  * windows). Use the full-page redirect flow there; keep the smoother popup on
- * desktop.
+ * desktop. Detects real phones/tablets plus iPadOS Safari, which reports a
+ * desktop MacIntel user-agent but is still a touch device.
  */
 function isMobileDevice() {
     if (typeof navigator === 'undefined') return false;
     const ua = navigator.userAgent || '';
-    return /Android|iPhone|iPad|iPod|Mobile|SamsungBrowser|Tablet/i.test(ua)
-        || (navigator.maxTouchPoints > 0 && window.innerWidth <= 900);
+    if (/Android|iPhone|iPad|iPod|Mobile|SamsungBrowser|Tablet|Windows Phone/i.test(ua)) return true;
+    // iPadOS Safari ("request desktop site" or recent iOS) reports MacIntel.
+    if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1 && window.innerWidth <= 1200) return true;
+    // Any other small, touch-capable screen (foldables, in-app browsers…).
+    return navigator.maxTouchPoints > 0 && window.innerWidth <= 900;
 }
 
 /** Map a Firebase User to a plain safe object for the store. */
@@ -185,9 +191,10 @@ export async function setUserSalon(salonId) {
  *
  * Uses the configured Firebase project's Google provider. Never falls back to
  * a fabricated/demo account:
+ *  - Mobile: full-page redirect flow (`signInWithRedirect`). Popup OAuth is
+ *    blocked or mis-handled on iOS Safari / Android, so mobile never uses it.
  *  - Desktop: popup flow, falling back to the redirect flow if the popup is
  *    blocked or cancelled by the browser.
- *  - Mobile: redirect flow (full-page navigation to Google).
  *
  * Returns { ok, redirecting } on success, { ok: false, error } on failure.
  * The OAuth callback is consumed by `handleRedirectResult()` on the next load.
@@ -201,27 +208,43 @@ export async function signInWithGoogle() {
         };
     }
 
+    if (isMobileDevice()) {
+        console.info('[auth] Google sign-in: mobile device detected, using redirect flow.');
+        return signInWithGoogleRedirect(fb);
+    }
+    console.info('[auth] Google sign-in: desktop device detected, using popup flow.');
+    return signInWithGooglePopup(fb);
+}
+
+/** Mobile Google OAuth: full-page redirect. Safe under strict storage/cookie
+ * policies and popup blockers. Session persists in local storage. */
+async function signInWithGoogleRedirect(fb) {
     try {
-        if (isMobileDevice()) {
-            await signInWithRedirect(fb.auth, googleProvider());
-            return { ok: true, redirecting: true };
-        }
+        // Ensure the signed-in session survives the redirect round-trip and
+        // every subsequent reload (mobile Safari / ITP friendly).
+        await setPersistence(fb.auth, browserLocalPersistence);
+        await signInWithRedirect(fb.auth, googleProvider());
+        return { ok: true, redirecting: true };
+    } catch (err) {
+        console.error('[auth] Google redirect sign-in failed:', err.code || err.message, err.message);
+        return { ok: false, error: friendlyAuthError(err) };
+    }
+}
+
+/** Desktop Google OAuth: popup, with redirect as the blocked-popup fallback. */
+async function signInWithGooglePopup(fb) {
+    try {
         const result = await signInWithPopup(fb.auth, googleProvider());
-        await handleAuthStateChanged(result.user);
-        return { ok: true };
+        handleAuthStateChanged(result.user);
+        return { ok: true, redirecting: false };
     } catch (err) {
         // Popups may be blocked inside restricted preview iframes — fall back
         // to the redirect flow instead of simulating a session.
         if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
-            try {
-                await signInWithRedirect(fb.auth, googleProvider());
-                return { ok: true, redirecting: true };
-            } catch (redirectErr) {
-                console.warn('Google redirect sign-in error:', redirectErr.code || redirectErr.message);
-                return { ok: false, error: friendlyAuthError(redirectErr) };
-            }
+            console.warn('[auth] Popup blocked/cancelled — falling back to redirect flow:', err.code);
+            return signInWithGoogleRedirect(fb);
         }
-        console.warn('Google sign-in error:', err.code || err.message);
+        console.error('[auth] Google popup sign-in failed:', err.code || err.message, err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
 }
@@ -238,21 +261,29 @@ export async function signInWithGoogle() {
 export async function handleRedirectResult() {
     const fb = getFirebase();
     if (!fb) return { ok: true, noop: true };
+
     try {
         const result = await getRedirectResult(fb.auth);
         if (result && result.user) {
-            await handleAuthStateChanged(result.user);
+            const u = result.user;
+            console.info(`[auth] Redirect sign-in completed for ${u.email || u.uid}.`);
+            // Navigate straight to the owner dashboard with the verified identity.
+            handleAuthStateChanged(u);
             return { ok: true };
         }
+        // No pending redirect (a normal cold load) — the auth-state listener is
+        // the source of truth for any restored session.
+        console.info(`[auth] No pending redirect result.`);
         return { ok: true, noop: true };
     } catch (err) {
         if (err.code === 'auth/redirect-cancelled-by-user') {
+            console.info('[auth] Redirect sign-in cancelled by user.');
             return { ok: false, error: 'Google sign-in was cancelled.' };
         }
         const message = friendlyAuthError(err);
-        console.warn('Google redirect callback error:', err.code || err.message);
+        console.error('[auth] Google redirect callback failed:', err.code || err.message, err.message);
         showNotification(message, 'error');
-        return { ok: false, error: message };
+        return { ok: false, error: message, code: err.code || null };
     }
 }
 

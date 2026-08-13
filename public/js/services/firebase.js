@@ -11,7 +11,7 @@
  */
 
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
-import { getAuth as fbGetAuth, onAuthStateChanged as fbOnAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+import { getAuth as fbGetAuth, setPersistence as fbSetPersistence, browserLocalPersistence, onAuthStateChanged as fbOnAuthStateChanged } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
 import {
     initializeFirestore,
     persistentLocalCache,
@@ -50,6 +50,16 @@ export async function initFirebase() {
         const firebaseConfig = resolveFirebaseConfig();
         const app = initializeApp(firebaseConfig);
         const auth = fbGetAuth(app);
+
+        // Persist the signed-in session in local storage so it survives the
+        // Google OAuth redirect round-trip and every reload. This is the
+        // default on most platforms but is set explicitly so mobile Safari /
+        // ITP storage restrictions can never downgrade the session.
+        try {
+            await fbSetPersistence(auth, browserLocalPersistence);
+        } catch (e) {
+            console.warn('[auth] Could not set local auth persistence; using default.', e);
+        }
 
         let db;
         try {
