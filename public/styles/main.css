@@ -1,0 +1,143 @@
+/*
+ * main.css
+ * Mobile-first global styles: layout guards, safe-area insets, scroll
+ * behaviour and touch ergonomics. Tailwind handles the visual design.
+ */
+
+:root {
+    color-scheme: dark;
+}
+
+html,
+body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: 'Plus Jakarta Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Phone-like app shell, centered on larger screens, never wider than the viewport. */
+.app-shell {
+    width: 100%;
+    max-width: 28rem;
+    margin-left: auto;
+    margin-right: auto;
+    position: relative;
+    overflow: hidden;
+    min-height: 100dvh;
+    height: 100dvh;
+    border-left: 1px solid #1e293b;
+    border-right: 1px solid #1e293b;
+    /* No horizontal overflow under any circumstances. */
+    overflow-x: hidden;
+}
+
+.app-shell main {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+    width: 100%;
+    max-width: 100%;
+}
+
+.app-shell main::-webkit-scrollbar {
+    width: 4px;
+}
+
+.app-shell main::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 999px;
+}
+
+/* Safe-area insets for notched devices (iOS) and foldables. */
+@supports (padding: env(safe-area-inset-bottom)) {
+    .safe-bottom {
+        padding-bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+    }
+    .app-shell main {
+        padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* Hide scrollbars on horizontal pager / lists. */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Touch-friendly interaction targets. */
+button,
+[role='button'],
+select,
+input,
+a {
+    touch-action: manipulation;
+}
+
+select {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Hide number input spinners (keeps form compact on mobile). */
+input[type='number'].input-number::-webkit-outer-spin-button,
+input[type='number'].input-number::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+input[type='number'].input-number {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+/* Date/time inputs: native picker friendly sizing. */
+input[type='date'],
+input[type='time'] {
+    min-height: 44px;
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* Clear/visible focus for keyboard users; not on touch taps. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+    outline: 2px solid #f43f8e;
+    outline-offset: 2px;
+    border-radius: 0.75rem;
+}
+
+/* Invalid-field styling driven by the client-side validator. */
+.field-invalid {
+    border-color: rgba(244, 63, 94, 0.75) !important;
+    box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.45);
+}
+
+/* Prevent text selection on interactive chrome. */
+button,
+[role='button'] {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+    }
+}

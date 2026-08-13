@@ -1,0 +1,50 @@
+/**
+ * views/appointments.js
+ * Appointments list view.
+ */
+
+import { esc } from '../../core/sanitize.js';
+import { sectionHeader, actionButton, badge, emptyState, iconAction } from '../components.js';
+import { icon } from '../icons.js';
+import { scopedBySalon } from '../../core/utils.js';
+
+export function renderAppointments(state) {
+    const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
+
+    return `
+        <div class="space-y-4">
+            ${sectionHeader(
+                'Appointments',
+                'Manage client schedules & timings',
+                actionButton('Book', { action: 'modal', data: { modal: 'appointment' }, iconName: 'plus' }),
+            )}
+
+            ${appointments.length === 0
+                ? emptyState('No appointments found.')
+                : `
+                    <div class="space-y-2.5">
+                        ${appointments.map((a) => `
+                            <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between gap-3">
+                                <div class="min-w-0 flex-1">
+                                    <h4 class="font-bold text-sm text-slate-100 truncate">${esc(a.customerName)}</h4>
+                                    <p class="text-xs text-slate-400 mt-0.5 truncate">${esc(a.serviceName)}</p>
+                                    <p class="text-[11px] text-brand-400 font-medium mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3 shrink-0"></i><span class="truncate">${esc(a.staffName)}</span></p>
+                                </div>
+                                <div class="text-right shrink-0">
+                                    <span class="text-xs font-bold text-slate-200 block">${esc(a.date)}</span>
+                                    <span class="text-[11px] text-slate-400 block">${esc(a.time)}</span>
+                                    <span class="inline-block mt-1">${badge(a.status)}</span>
+                                </div>
+                                <div class="flex items-center space-x-1.5 shrink-0">
+                                    ${iconAction('open-edit', { type: 'appointment', id: a.id }, 'Edit appointment', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
+                                    ${iconAction('request-delete', { type: 'appointment', id: a.id, label: a.customerName }, 'Delete appointment', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `}
+        </div>
+    `;
+}
+
+export default renderAppointments;

@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+
+# Vercel (local CLI state — never commit access tokens / project links)
+.vercel/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Misc
+*.tmp

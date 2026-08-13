@@ -1,0 +1,8 @@
+/**
+ * Tailwind CSS source (production build input).
+ * Build with `npm run build:css` → outputs public/styles/tailwind.css.
+ * Custom styles live in public/styles/main.css (loaded after this file).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

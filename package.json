@@ -1,0 +1,19 @@
+{
+    "name": "luxeglow-crm",
+    "version": "2.0.0",
+    "private": true,
+    "type": "module",
+    "description": "LuxeGlow Salon & Spa CRM — modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
+    "scripts": {
+        "serve": "python -m http.server 5500 --directory public",
+        "build:css": "tailwindcss -i styles/tailwind-source.css -o public/styles/tailwind.css --minify",
+        "check": "node scripts/syntax-check.mjs",
+        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs"
+    },
+    "dependencies": {
+        "firebase": "^12.17.1"
+    },
+    "devDependencies": {
+        "tailwindcss": "^3.4.19"
+    }
+}

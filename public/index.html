@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0f0a12">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="LuxeGlow CRM">
+    <meta name="description" content="LuxeGlow - Salon & Spa CRM. Elevated beauty business management, cloud referrals, and live scheduling.">
+    <title>LuxeGlow - Salon &amp; Spa CRM</title>
+
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon-192.png" type="image/png">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+
+    <!-- Tailwind CSS (production build — see npm run build:css) -->
+    <link rel="stylesheet" href="/styles/tailwind.css">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Google Fonts: Plus Jakarta Sans -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="/styles/main.css">
+
+    <!-- Production Firebase wiring: on any deployed (non-local) origin the app
+         always boots against the live backend. Local development keeps the
+         demo mode + opt-in ?firebase=1 query-flag behaviour. -->
+    <script>
+        (function () {
+            if (typeof window.__firebase_config !== 'undefined') return;
+            var host = window.location.hostname || '';
+            var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '';
+            if (isLocal) return;
+            // Web-app configs are intentionally public (access control is
+            // enforced by Security Rules + Firebase Authentication).
+            window.__firebase_config = JSON.stringify({
+                apiKey: 'AIzaSyAQ8LY9AWyVyfMbxOMGxoNSvjEqgXXu-eM',
+                authDomain: 'crmapp-1299dddb.firebaseapp.com',
+                projectId: 'crmapp-1299dddb',
+                storageBucket: 'crmapp-1299dddb.firebasestorage.app',
+                messagingSenderId: '886981548742',
+                appId: '1:886981548742:web:a6686177a005ac42f415c7'
+            });
+        })();
+    </script>
+    <!-- Development Firebase wiring (opt-in: append ?firebase=1 to the URL).
+         No-op unless a host has NOT already injected __firebase_config and the
+         query flag is present; default demo mode is preserved otherwise. -->
+    <script src="/js/firebase-config.dev.js" defer></script>
+</head>
+<body class="h-full bg-slate-900 text-slate-100 font-sans antialiased selection:bg-brand-500 selection:text-white">
+
+    <div id="app" class="app-shell h-full flex flex-col w-full max-w-md mx-auto bg-slate-950 shadow-2xl overflow-hidden relative border-x border-slate-800" aria-live="polite">
+        <!-- Dynamic Application Shell -->
+    </div>
+
+    <noscript>
+        <div class="fixed inset-0 z-[999] bg-slate-950 text-slate-100 flex items-center justify-center p-6 text-center">
+            <p class="text-sm font-semibold">LuxeGlow CRM requires JavaScript to run. Please enable JavaScript and reload.</p>
+        </div>
+    </noscript>
+
+    <script type="module" src="/js/main.js"></script>
+</body>
+</html>

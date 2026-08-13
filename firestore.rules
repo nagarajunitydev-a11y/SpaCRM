@@ -1,0 +1,123 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getRole(uid) {
+      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getRole(request.auth.uid) == 'super_admin';
+    }
+
+    function ownsSalon(salonId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/salons/$(salonId)).data.ownerId == request.auth.uid;
+    }
+
+    function canAccessSalon(salonId) {
+      return isAdmin() || ownsSalon(salonId);
+    }
+
+    // ---------- Server/database-level validation ----------
+    // Guards against invalid records that bypass client-side validation.
+    // Firestore rules have no regex, so structural/type/length checks are used;
+    // full format validation lives client-side before any write is attempted.
+
+    function isNonEmptyString(v, max) {
+      return v is string && v.size() > 0 && v.size() <= (max == null ? 200 : max);
+    }
+
+    function isOptionalString(v, max) {
+      return v is string && v.size() <= (max == null ? 200 : max);
+    }
+
+    function isValidAppointment(data) {
+      return isNonEmptyString(data.customerName, 120)
+        && isNonEmptyString(data.serviceName, 120)
+        && isNonEmptyString(data.staffName, 120)
+        // date is YYYY-MM-DD and time is HH:MM (length enforcements).
+        && data.date is string && data.date.size() == 10
+        && data.time is string && data.time.size() == 5
+        && isNonEmptyString(data.status, 30);
+    }
+
+    function isValidCustomer(data) {
+      return isNonEmptyString(data.name, 120)
+        && isNonEmptyString(data.phone, 40)
+        && isNonEmptyString(data.email, 120)
+        && data.referralPoints is number && data.referralPoints >= 0
+        && isOptionalString(data.referralCode, 20);
+    }
+
+    function isValidService(data) {
+      return isNonEmptyString(data.name, 120)
+        && data.price is number && data.price >= 0
+        && isNonEmptyString(data.duration, 20);
+    }
+
+    function isValidStaff(data) {
+      return isNonEmptyString(data.name, 120)
+        && isNonEmptyString(data.role, 120)
+        && isNonEmptyString(data.phone, 40);
+    }
+
+    function isValidSalon(data) {
+      return isNonEmptyString(data.name, 120)
+        && isOptionalString(data.ownerEmail, 120)
+        && isNonEmptyString(data.phone, 40)
+        && isNonEmptyString(data.address, 240)
+        && isOptionalString(data.ownerId, 128);
+    }
+
+    // ---------- Users ----------
+    // Users may read/write only their own profile.
+    // Admins may read any profile (for oversight).
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- Salons (tenancy root) ----------
+    match /salons/{salonId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
+      allow create: if isSignedIn()
+        && (isAdmin() || request.resource.data.ownerId == request.auth.uid)
+        && isValidSalon(request.resource.data);
+      allow update: if (isAdmin() || resource.data.ownerId == request.auth.uid)
+        && isValidSalon(request.resource.data);
+      allow delete: if isAdmin() || resource.data.ownerId == request.auth.uid;
+
+      // ---------- Tenant-scoped data ----------
+      // Only the salon owner or a super admin may access a salon's data,
+      // guaranteeing one user's data is never visible to another.
+      // Writes additionally require structurally valid records, so malformed
+      // documents cannot reach the database.
+      match /customers/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidCustomer(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /services/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidService(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /staff/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidStaff(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /appointments/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+    }
+  }
+}
