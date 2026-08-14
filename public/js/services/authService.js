@@ -284,12 +284,22 @@ async function signInWithGooglePopup(fb) {
         handleAuthStateChanged(result.user);
         return { ok: true, redirecting: false };
     } catch (err) {
-        // Popups may be blocked inside restricted preview iframes — fall back
-        // to the redirect flow instead of simulating a session.
-        if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request') {
-            console.warn('[auth] Popup blocked/cancelled — falling back to redirect flow:', err.code);
+        // Explicit user cancellation (closed the popup / another popup request
+        // was cancelled): surface a clear message and stay on the login screen.
+        // Never bounce an explicit cancel into the redirect flow.
+        if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+            console.info('[auth] Google popup sign-in cancelled by user:', err.code);
+            return { ok: false, error: 'Google sign-in was cancelled.' };
+        }
+        // Popup blocked by the browser (popup blocker, restricted preview
+        // iframe): gracefully fall back to the full-page redirect flow instead
+        // of simulating a session.
+        if (err.code === 'auth/popup-blocked') {
+            console.warn('[auth] Popup blocked — falling back to redirect flow:', err.code);
             return signInWithGoogleRedirect(fb);
         }
+        // Any other OAuth / Firebase auth error (unauthorized domain, popup
+        // failure, network, account-exists-with-different-credential…).
         errorLog('google-popup-signin', err);
         console.error('[auth] Google popup sign-in failed:', err.code || err.message, err.message);
         return { ok: false, error: friendlyAuthError(err) };
