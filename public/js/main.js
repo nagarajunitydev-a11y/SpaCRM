@@ -914,17 +914,14 @@ async function bootstrap() {
             }
         });
         await authService.restoreSession();
-        // Every device that uses the full-page Google redirect flow must
-        // explicitly consume the pending OAuth redirect result during
+        // Every device uses the full-page Google redirect flow, so the pending
+        // OAuth redirect result must be explicitly consumed during
         // initialisation (signInWithRedirect reloads the page there) —
         // getRedirectResult captures the login outcome so the success/error
-        // toast can be shown on the way back from Google. Desktop uses the
-        // popup flow and is intentionally left unchanged.
-        if (authService.usesRedirectFlow()) {
-            authService.handleRedirectResult().catch((err) => {
-                console.warn('Redirect result handling failed:', err);
-            });
-        }
+        // toast can be shown on the way back from Google.
+        authService.handleRedirectResult().catch((err) => {
+            console.warn('Redirect result handling failed:', err);
+        });
     }
 
     salonsRepository.initSalons();

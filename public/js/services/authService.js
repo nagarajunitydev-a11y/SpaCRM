@@ -8,12 +8,13 @@
  *           for offline browsing. Google Sign-In NEVER fabricates a session in
  *           demo mode — it requires real Firebase OAuth and returns a clear
  *           error instead. Anonymous sign-in is likewise never faked.
- *  - firebase: email/password, real Google OAuth (popup on desktop, redirect
- *    on mobile), anonymous, custom token and sign-out against the injected
- *    Firebase project. The user's real profile (uid, email, displayName) is
- *    stored in Firestore `users/{uid}` (protected by security rules), never in
- *    localStorage. The role is read from that profile (grant super_admin via
- *    Firestore).
+ *  - firebase: email/password, real Google OAuth (full-page redirect on every
+ *    device — popup OAuth is unreliable under Cross-Origin-Opener-Policy and on
+ *    mobile browsers, so it is never used), anonymous, custom token and
+ *    sign-out against the injected Firebase project. The user's real profile
+ *    (uid, email, displayName) is stored in Firestore `users/{uid}` (protected
+ *    by security rules), never in localStorage. The role is read from that
+ *    profile (grant super_admin via Firestore).
  */
 
 import { getFirebase, isDemoMode } from './firebase.js';
@@ -22,7 +23,6 @@ import { store } from '../core/store.js';
 import { makeId } from '../core/utils.js';
 import showNotification from '../ui/notification.js';
 import {
-    signInWithPopup,
     signInWithRedirect,
     getRedirectResult,
     setPersistence,
@@ -51,40 +51,20 @@ function googleProvider() {
 }
 
 /**
- * Popup sign-in is unreliable on mobile browsers (iOS Safari blocks new
- * windows). Use the full-page redirect flow there; keep the smoother popup on
- * desktop. Detects real phones/tablets plus iPadOS Safari, which reports a
- * desktop MacIntel user-agent but is still a touch device.
- */
-function isMobileDevice() {
-    if (typeof navigator === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    if (/Android|iPhone|iPad|iPod|Mobile|SamsungBrowser|Tablet|Windows Phone/i.test(ua)) return true;
-    // iPadOS Safari ("request desktop site" or recent iOS) reports MacIntel.
-    if (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1 && window.innerWidth <= 1200) return true;
-    // Any other small, touch-capable screen (foldables, in-app browsers…).
-    return navigator.maxTouchPoints > 0 && window.innerWidth <= 900;
-}
-
-/**
- * True on Android browsers (Chrome, Samsung Internet, WebViews…). Android is
- * the only platform where the OAuth redirect result must be explicitly
- * captured with getRedirectResult during app initialisation (signInWithRedirect
- * reloads the page there). Desktop keeps its popup flow untouched.
- */
-export function isAndroidBrowser() {
-    if (typeof navigator === 'undefined') return false;
-    return /Android/i.test(navigator.userAgent || '');
-}
-
-/**
- * True when Google Sign-In uses the full-page redirect flow: all phones /
- * tablets. The pending OAuth redirect result must be consumed on every such
- * device so the login outcome (success or error) can be surfaced after the
- * redirect returns to the app.
+ * Google Sign-In always uses the full-page redirect flow on every device.
+ * The popup flow is intentionally never used: Google's OAuth pages send a
+ * Cross-Origin-Opener-Policy header that severs the popup's opener link, so
+ * the SDK's popup.closed poll produces a "Cross-Origin-Opener-Policy policy
+ * would block the window.closed call" error (and popups are unreliable on
+ * mobile browsers anyway). Redirect has no popup, no opener relationship and
+ * no COOP involvement.
+ *
+ * True when Google Sign-In uses the full-page redirect flow. The pending
+ * OAuth redirect result must be consumed on every load so the login outcome
+ * (success or error) is surfaced after the redirect returns to the app.
  */
 export function usesRedirectFlow() {
-    return isMobileDevice();
+    return true;
 }
 
 /** Map a Firebase User to a plain safe object for the store. */
@@ -211,11 +191,8 @@ export async function setUserSalon(salonId) {
  * Real Google OAuth Sign-In.
  *
  * Uses the configured Firebase project's Google provider. Never falls back to
- * a fabricated/demo account:
- *  - Mobile: full-page redirect flow (`signInWithRedirect`). Popup OAuth is
- *    blocked or mis-handled on iOS Safari / Android, so mobile never uses it.
- *  - Desktop: popup flow, falling back to the redirect flow if the popup is
- *    blocked or cancelled by the browser.
+ * a fabricated/demo account. Every device uses the full-page redirect flow
+ * (`signInWithRedirect`) — popup OAuth is never used (see usesRedirectFlow).
  *
  * Returns { ok, redirecting } on success, { ok: false, error } on failure.
  * The OAuth callback is consumed by `handleRedirectResult()` on the next load.
@@ -228,17 +205,12 @@ export async function signInWithGoogle() {
             error: 'Google Sign-In requires Firebase Authentication. Configure the Firebase project or use email sign-in.',
         };
     }
-
-    if (isMobileDevice()) {
-        console.info('[auth] Google sign-in: mobile device detected, using redirect flow.');
-        return signInWithGoogleRedirect(fb);
-    }
-    console.info('[auth] Google sign-in: desktop device detected, using popup flow.');
-    return signInWithGooglePopup(fb);
+    return signInWithGoogleRedirect(fb);
 }
 
-/** Mobile Google OAuth: full-page redirect. Safe under strict storage/cookie
- * policies and popup blockers. Session persists in local storage. */
+/** Google OAuth via full-page redirect. Safe under strict storage/cookie
+ * policies, popup blockers and Cross-Origin-Opener-Policy. Session persists in
+ * local storage. */
 async function signInWithGoogleRedirect(fb) {
     try {
         // Ensure the signed-in session survives the redirect round-trip and
@@ -252,39 +224,10 @@ async function signInWithGoogleRedirect(fb) {
     }
 }
 
-/** Desktop Google OAuth: popup, with redirect as the blocked-popup fallback. */
-async function signInWithGooglePopup(fb) {
-    try {
-        // Step 1 — Google Sign-In completed via popup flow.
-        const result = await signInWithPopup(fb.auth, googleProvider());
-        handleAuthStateChanged(result.user);
-        return { ok: true, redirecting: false };
-    } catch (err) {
-        // Explicit user cancellation (closed the popup / another popup request
-        // was cancelled): surface a clear message and stay on the login screen.
-        // Never bounce an explicit cancel into the redirect flow.
-        if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-            console.info('[auth] Google popup sign-in cancelled by user:', err.code);
-            return { ok: false, error: 'Google sign-in was cancelled.' };
-        }
-        // Popup blocked by the browser (popup blocker, restricted preview
-        // iframe): gracefully fall back to the full-page redirect flow instead
-        // of simulating a session.
-        if (err.code === 'auth/popup-blocked') {
-            console.warn('[auth] Popup blocked — falling back to redirect flow:', err.code);
-            return signInWithGoogleRedirect(fb);
-        }
-        // Any other OAuth / Firebase auth error (unauthorized domain, popup
-        // failure, network, account-exists-with-different-credential…).
-        console.error('[auth] Google popup sign-in failed:', err.code || err.message, err.message);
-        return { ok: false, error: friendlyAuthError(err) };
-    }
-}
-
 /**
  * Consume a Google OAuth redirect callback. Called once during app
- * initialisation on Android browsers, where signInWithRedirect reloads the
- * page and the login result must be captured explicitly via getRedirectResult.
+ * initialisation on every device, where signInWithRedirect reloads the page
+ * and the login result must be captured explicitly via getRedirectResult.
  * Safe to call when no redirect is pending (resolves to { ok: true, noop: true }).
  *
  * Real failures (e.g. an unauthorised domain) are surfaced to the user instead
@@ -428,9 +371,6 @@ export function friendlyAuthError(err) {
         'auth/weak-password': 'Password must be at least 6 characters.',
         'auth/too-many-requests': 'Too many attempts. Please try again later.',
         'auth/network-request-failed': 'Network error. Check your connection.',
-        'auth/popup-closed-by-user': 'Sign-in popup was closed.',
-        'auth/cancelled-popup-request': 'The sign-in popup was cancelled.',
-        'auth/popup-blocked': 'Pop-up blocked. Enable pop-ups for this site and try again.',
         'auth/redirect-cancelled-by-user': 'Google sign-in was cancelled.',
         'auth/operation-not-allowed': 'This sign-in method is not enabled.',
         'auth/account-exists-with-different-credential': 'This email is linked to a different sign-in method. Sign in with that method first.',
@@ -443,7 +383,6 @@ export default {
     handleAuthStateChanged,
     signInWithGoogle,
     handleRedirectResult,
-    isAndroidBrowser,
     usesRedirectFlow,
     signInWithEmail,
     signUpWithEmail,
