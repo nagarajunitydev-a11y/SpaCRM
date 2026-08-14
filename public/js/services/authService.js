@@ -78,6 +78,16 @@ export function isAndroidBrowser() {
     return /Android/i.test(navigator.userAgent || '');
 }
 
+/**
+ * True when Google Sign-In uses the full-page redirect flow: all phones /
+ * tablets. The pending OAuth redirect result must be consumed on every such
+ * device so the login outcome (success or error) can be surfaced after the
+ * redirect returns to the app.
+ */
+export function usesRedirectFlow() {
+    return isMobileDevice();
+}
+
 /** Map a Firebase User to a plain safe object for the store. */
 function toSafeUser(user) {
     if (!user) return null;
@@ -308,6 +318,11 @@ export async function handleRedirectResult() {
             console.info(`[auth] Redirect sign-in completed for ${u.email || u.uid}.`);
             // Navigate straight to the owner dashboard with the verified identity.
             handleAuthStateChanged(u);
+            // Surface the outcome — after a full-page redirect the google-signin
+            // action never resumes, so this is the only place a success message
+            // can be shown on the way back from Google.
+            const name = u.displayName || u.email || '';
+            showNotification(name ? `Signed in as ${name}!` : 'Signed in successfully!');
             return { ok: true };
         }
         // No pending redirect (a normal cold load) — the auth-state listener is
@@ -447,6 +462,7 @@ export default {
     signInWithGoogle,
     handleRedirectResult,
     isAndroidBrowser,
+    usesRedirectFlow,
     signInWithEmail,
     signUpWithEmail,
     signInAnonymouslyNow,

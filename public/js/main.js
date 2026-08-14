@@ -929,11 +929,13 @@ async function bootstrap() {
             }
         });
         await authService.restoreSession();
-        // Android browsers must explicitly consume the pending Google OAuth
-        // redirect result during initialisation (signInWithRedirect reloads the
-        // page there) — getRedirectResult captures the login. Desktop uses the
+        // Every device that uses the full-page Google redirect flow must
+        // explicitly consume the pending OAuth redirect result during
+        // initialisation (signInWithRedirect reloads the page there) —
+        // getRedirectResult captures the login outcome so the success/error
+        // toast can be shown on the way back from Google. Desktop uses the
         // popup flow and is intentionally left unchanged.
-        if (authService.isAndroidBrowser()) {
+        if (authService.usesRedirectFlow()) {
             authService.handleRedirectResult().catch((err) => {
                 console.warn('Redirect result handling failed:', err);
             });
