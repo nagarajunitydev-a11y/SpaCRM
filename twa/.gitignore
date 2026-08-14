@@ -1,0 +1,24 @@
+# Android signing keys - never commit
+keys/
+*.jks
+*.keystore
+
+# Build outputs
+/build/
+/app/build/
+app-release-*.apk
+app-release-*.aab
+app-release-*.idsig
+app-release-*.apk
+
+# Gradle
+.gradle/
+gradle-app.setting
+
+# JVM crash logs
+hs_err_pid*.log
+
+# IDE
+.idea/
+*.iml
+.vscode/

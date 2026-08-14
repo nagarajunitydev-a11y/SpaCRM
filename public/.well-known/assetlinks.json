@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.luxeglow.crm",
+    "sha256_cert_fingerprints": [
+      "59:E2:84:49:CD:B3:C3:DE:3E:06:60:2A:49:B7:51:CD:71:C0:9D:1E:24:30:29:BD:71:AE:E2:AE:7F:DF:6C:E1"
+    ]
+  }
+}]
