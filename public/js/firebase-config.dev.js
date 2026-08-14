@@ -18,7 +18,7 @@
 
     window.__firebase_config = JSON.stringify({
         apiKey: 'AIzaSyAQ8LY9AWyVyfMbxOMGxoNSvjEqgXXu-eM',
-        authDomain: 'crmapp-1299dddb.firebaseapp.com',
+        authDomain: 'spacrm-two.vercel.app',
         projectId: 'crmapp-1299dddb',
         storageBucket: 'crmapp-1299dddb.firebasestorage.app',
         messagingSenderId: '886981548742',

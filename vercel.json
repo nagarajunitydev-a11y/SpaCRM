@@ -6,25 +6,48 @@
   "outputDirectory": "public",
   "cleanUrls": false,
   "trailingSlash": false,
+
+  "rewrites": [
+    {
+      "source": "/__/auth/:path*",
+      "destination": "https://crmapp-1299dddb.firebaseapp.com/__/auth/:path*"
+    }
+  ],
+
   "headers": [
     {
       "source": "/manifest.webmanifest",
       "headers": [
-        { "key": "Content-Type", "value": "application/manifest+json" }
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
       ]
     },
     {
       "source": "/sw.js",
       "headers": [
-        { "key": "Cache-Control", "value": "no-cache, no-store, must-revalidate" }
+        {
+          "key": "Cache-Control",
+          "value": "no-cache, no-store, must-revalidate"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "Referrer-Policy", "value": "no-referrer" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        }
       ]
     }
   ]
