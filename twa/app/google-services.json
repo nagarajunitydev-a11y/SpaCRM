@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "886981548742",
+    "firebase_url": "https://crmapp-1299dddb-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "crmapp-1299dddb",
+    "storage_bucket": "crmapp-1299dddb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:886981548742:android:b4f5c0655a8ef948f415c7",
+        "android_client_info": {
+          "package_name": "com.luxeglow.crm"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "886981548742-p42thos2dln3truos9pfou58s78r4orc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC1-_GkcqTJxTVJuUlvI7sZi-ppLyzTPsU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "886981548742-p42thos2dln3truos9pfou58s78r4orc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

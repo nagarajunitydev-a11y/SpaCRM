@@ -20,6 +20,8 @@ plugins {
     id 'com.android.application'
 }
 
+apply plugin: 'com.google.gms.google-services'
+
 def twaManifest = [
     applicationId: 'com.luxeglow.crm',
     hostName: 'spacrm-two.vercel.app', // The domain being opened in the TWA.
@@ -55,7 +57,7 @@ android {
     namespace "com.luxeglow.crm"
     defaultConfig {
         applicationId "com.luxeglow.crm"
-        minSdkVersion 21
+        minSdkVersion 23
         targetSdkVersion 36
         versionCode 2
         versionName "1.0.1"
@@ -202,4 +204,9 @@ dependencies {
     
         implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.6.2'
     
+    // Import the Firebase BoM
+    implementation platform('com.google.firebase:firebase-bom:34.17.0')
+
+    // Firebase products used by the TWA
+    implementation 'com.google.firebase:firebase-analytics'
 }
