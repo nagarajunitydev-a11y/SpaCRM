@@ -38,9 +38,15 @@
             if (isLocal) return;
             // Web-app configs are intentionally public (access control is
             // enforced by Security Rules + Firebase Authentication).
+            // authDomain is the SAME origin as the app (spacrm-two.vercel.app)
+            // so the Google OAuth helper runs on one origin — cross-origin
+            // authDomains (crmapp-1299dddb.firebaseapp.com) get their storage
+            // partitioned by Chrome/Android, which silently breaks
+            // signInWithRedirect inside the TWA. vercel.json proxies
+            // /__/auth/* back to crmapp-1299dddb.firebaseapp.com.
             window.__firebase_config = JSON.stringify({
                 apiKey: 'AIzaSyAQ8LY9AWyVyfMbxOMGxoNSvjEqgXXu-eM',
-                authDomain: 'crmapp-1299dddb.firebaseapp.com',
+                authDomain: 'spacrm-two.vercel.app',
                 projectId: 'crmapp-1299dddb',
                 storageBucket: 'crmapp-1299dddb.firebasestorage.app',
                 messagingSenderId: '886981548742',

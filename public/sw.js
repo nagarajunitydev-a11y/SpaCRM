@@ -7,7 +7,7 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'luxeglow-crm-v7';
+const CACHE_NAME = 'luxeglow-crm-v8';
 const APP_SHELL = [
     '/',
     '/index.html',

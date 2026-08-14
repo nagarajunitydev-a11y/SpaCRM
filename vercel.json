@@ -9,8 +9,8 @@
 
   "rewrites": [
     {
-      "source": "/__/auth/:path*",
-      "destination": "https://crmapp-1299dddb.firebaseapp.com/__/auth/:path*"
+      "source": "/__/:path*",
+      "destination": "https://crmapp-1299dddb.firebaseapp.com/__/:path*"
     }
   ],
 
