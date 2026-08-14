@@ -471,12 +471,8 @@ async function main() {
     assert(await evaluate(`document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1`), 'no horizontal overflow at 1920x1080 (desktop)');
 
     console.log('\n[12] Console / runtime errors');
-    // The demo-mode Google sign-in failure is a designed, asserted path ([10c]):
-    // it must NOT fabricate a session, so it logs an error + shows a toast.
-    // Allowlist those expected debug-error lines; any other console.error fails.
     const uniqueErrors = [...new Set(errors)]
-        .filter((e) => !/favicon|net::ERR/.test(e))
-        .filter((e) => !/\[debug:error\] google-signin-(no-firebase|action)/.test(e));
+        .filter((e) => !/favicon|net::ERR/.test(e));
     assert(uniqueErrors.length === 0, `no console errors (found: ${uniqueErrors.length ? uniqueErrors.join(' | ') : 'none'})`);
     if (uniqueErrors.length) uniqueErrors.forEach((e) => console.log('      -> ' + e));
 

@@ -20,7 +20,6 @@ import { getFirebase, isDemoMode } from './firebase.js';
 import { getInitialAuthToken } from '../config.js';
 import { store } from '../core/store.js';
 import { makeId } from '../core/utils.js';
-import { authLog, errorLog } from '../core/debug.js';
 import showNotification from '../ui/notification.js';
 import {
     signInWithPopup,
@@ -119,8 +118,6 @@ async function doEnsureUserProfile(user) {
     if (!fb || !user) return null;
 
     const profileRef = fbDoc(fb.db, 'users', user.uid);
-    // Step 5 — Firestore user/profile lookup started for the verified user.
-    authLog(5, `profile lookup started for uid=${user.uid} email=${user.email || '(none)'}`);
     try {
         const snap = await getDoc(profileRef);
         if (snap.exists()) {
@@ -140,7 +137,6 @@ async function doEnsureUserProfile(user) {
         await fbSetDoc(profileRef, profile);
         return { uid: user.uid, ...profile };
     } catch (err) {
-        errorLog('user-profile-lookup', err);
         console.warn('Could not read/create user profile:', err);
         return { uid: user.uid, role: 'salon_owner' };
     }
@@ -154,8 +150,6 @@ export function handleAuthStateChanged(user) {
     }
 
     if (!user) {
-        // Step 4 — no authenticated user; session ended.
-        authLog(4, 'no authenticated user — session ended / guest state');
         store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
@@ -164,17 +158,9 @@ export function handleAuthStateChanged(user) {
     // is not a real account — keep these users on the login screen instead of
     // fabricating an owner dashboard for them.
     if (user.isAnonymous && !user.email && !user.phoneNumber) {
-        authLog(4, `anonymous unidentified session blocked uid=${user.uid}`);
         store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
-
-    // Step 4 — verified Firebase identity retrieved.
-    authLog(4, `verified user uid=${user.uid} email=${user.email || '(none)'} displayName=${user.displayName || '(none)'}`);
-
-    // Step 3 — auth session confirmed: Firebase reports a real signed-in
-    // session (fires for popup, redirect callback, and restored sessions).
-    authLog(3, `auth session confirmed for uid=${user.uid}`);
 
     // Navigate immediately: the Firebase identity is already verified, so the
     // owner proceeds straight to their dashboard. The Firestore profile read is
@@ -191,8 +177,6 @@ export function handleAuthStateChanged(user) {
         .then((profile) => {
             if (!profile) return;
             const role = profile.role === 'super_admin' ? 'super_admin' : 'salon_owner';
-            // Step 6 — role identified from the Firestore profile.
-            authLog(6, `role identified role=${role} salonId=${profile.salonId || '(none)'}`);
             store.setState({
                 accountRole: role,
                 userRole: role,
@@ -204,7 +188,6 @@ export function handleAuthStateChanged(user) {
             });
         })
         .catch((err) => {
-            errorLog('role-reconciliation', err);
             console.warn('Could not reconcile user profile after sign-in:', err);
         });
 }
@@ -240,7 +223,6 @@ export async function setUserSalon(salonId) {
 export async function signInWithGoogle() {
     const fb = getFirebase();
     if (!fb) {
-        errorLog('google-signin-no-firebase', new Error('Firebase not initialised; Google Sign-In unavailable in this mode.'));
         return {
             ok: false,
             error: 'Google Sign-In requires Firebase Authentication. Configure the Firebase project or use email sign-in.',
@@ -262,12 +244,9 @@ async function signInWithGoogleRedirect(fb) {
         // Ensure the signed-in session survives the redirect round-trip and
         // every subsequent reload (mobile Safari / ITP friendly).
         await setPersistence(fb.auth, browserLocalPersistence);
-        // Step 1 — Google Sign-In initiated via full-page redirect.
-        authLog(1, 'Google Sign-In initiated via redirect flow');
         await signInWithRedirect(fb.auth, googleProvider());
         return { ok: true, redirecting: true };
     } catch (err) {
-        errorLog('google-redirect-signin', err);
         console.error('[auth] Google redirect sign-in failed:', err.code || err.message, err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
@@ -278,9 +257,6 @@ async function signInWithGooglePopup(fb) {
     try {
         // Step 1 — Google Sign-In completed via popup flow.
         const result = await signInWithPopup(fb.auth, googleProvider());
-        authLog(1, 'Google Sign-In completed via popup flow');
-        // Step 2 — Firebase user received from the OAuth popup.
-        authLog(2, `Firebase user received uid=${result.user ? result.user.uid : '(none)'}`);
         handleAuthStateChanged(result.user);
         return { ok: true, redirecting: false };
     } catch (err) {
@@ -300,7 +276,6 @@ async function signInWithGooglePopup(fb) {
         }
         // Any other OAuth / Firebase auth error (unauthorized domain, popup
         // failure, network, account-exists-with-different-credential…).
-        errorLog('google-popup-signin', err);
         console.error('[auth] Google popup sign-in failed:', err.code || err.message, err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
@@ -323,8 +298,6 @@ export async function handleRedirectResult() {
         const result = await getRedirectResult(fb.auth);
         if (result && result.user) {
             const u = result.user;
-            // Step 2 — Firebase user received from the OAuth redirect callback.
-            authLog(2, `Firebase user received from redirect uid=${u.uid} email=${u.email || '(none)'}`);
             console.info(`[auth] Redirect sign-in completed for ${u.email || u.uid}.`);
             // Navigate straight to the owner dashboard with the verified identity.
             handleAuthStateChanged(u);
@@ -345,7 +318,6 @@ export async function handleRedirectResult() {
             return { ok: false, error: 'Google sign-in was cancelled.' };
         }
         const message = friendlyAuthError(err);
-        errorLog('google-redirect-callback', err);
         console.error('[auth] Google redirect callback failed:', err.code || err.message, err.message);
         showNotification(message, 'error');
         return { ok: false, error: message, code: err.code || null };

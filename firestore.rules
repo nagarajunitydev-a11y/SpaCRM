@@ -83,13 +83,14 @@ service cloud.firestore {
     function isValidCustomer(data) {
       return isNonEmptyString(data.name, 120)
         && isNonEmptyString(data.phone, 40)
-        && isNonEmptyString(data.email, 120)
+        // Email is optional: clients may quick-add a customer without one.
+        && isOptionalOrNull(data.email, 120)
         && data.referralPoints is number && data.referralPoints >= 0
-        && isOptionalString(data.referralCode, 30)
-        && isOptionalString(data.referredByCode, 30)
-        && isOptionalString(data.referringSalonId, 128)
+        && isOptionalOrNull(data.referralCode, 30)
+        && isOptionalOrNull(data.referredByCode, 30)
+        && isOptionalOrNull(data.referringSalonId, 128)
         && isOptionalOrNull(data.referringCustomerId, 128)
-        && isOptionalString(data.referringCustomerName, 120);
+        && isOptionalOrNull(data.referringCustomerName, 120);
     }
 
     function isValidService(data) {

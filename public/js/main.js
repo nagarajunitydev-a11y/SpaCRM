@@ -18,7 +18,6 @@ import * as appointmentsRepository from './services/appointmentsRepository.js';
 import * as referralsRepository from './services/referralsRepository.js';
 import * as referralCodesRepository from './services/referralCodesRepository.js';
 import { store } from './core/store.js';
-import { authLog, routeLog, errorLog } from './core/debug.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
 import { sanitizeDOM, esc } from './core/sanitize.js';
@@ -88,7 +87,6 @@ function resolveSalonScope() {
     // by the "Set up your salon" bootstrap screen.
     const needsSalon = isOwner && state.salonsLoaded && !state.salonsError && state.salonsList.length === 0;
     if (needsSalon !== state.needsSalon) store.setState({ needsSalon });
-    routeLog('resolveSalonScope', { userRole: state.userRole, accountRole: state.accountRole, uid: state.currentUser ? state.currentUser.uid : 'anon', salonsLoaded: state.salonsLoaded, salonsError: state.salonsError || null, salonsCount: (state.salonsList || []).length, currentSalonId: state.currentSalonId, needsSalon });
 
     // Resolve the active salon id for this role. Owners are pinned to a salon
     // they own; everyone else (guest, super_admin) gets no tenant scope.
@@ -166,20 +164,12 @@ function buildShell(state) {
 function renderApp() {
     const state = store.getState();
 
-    // Step 8 — dashboard/route rendering. Log the target view + the decision
-    // inputs so a sign-in that "succeeds" but never reaches the dashboard is
-    // easy to pinpoint (wrong role, needsSalon bootstrapping, render error…).
-    if (state.userRole !== 'guest') {
-        authLog(8, 'rendering app view', { userRole: state.userRole, accountRole: state.accountRole, activeTab: state.activeTab, needsSalon: state.needsSalon, salonsLoaded: state.salonsLoaded, salonsError: state.salonsError || null, salonsCount: (state.salonsList || []).length, currentSalonId: state.currentSalonId, uid: state.currentUser ? state.currentUser.uid : 'anon' });
-    }
-
     if (!appEl) return;
 
     let html;
     try {
         html = buildShell(state);
     } catch (err) {
-        errorLog('render', err);
         console.error('Render error:', err);
         html = `
             <div class="flex-1 flex items-center justify-center p-8">
@@ -572,7 +562,6 @@ const actions = {
         try {
             result = await authService.signInWithGoogle();
         } catch (err) {
-            errorLog('google-signin-action', err);
             showNotification(err.message || 'Sign-in failed.', 'error');
             return;
         }
@@ -581,7 +570,6 @@ const actions = {
             return;
         }
         if (!result.ok) {
-            errorLog('google-signin-action', { message: result.error || 'Sign-in failed.' });
             showNotification(result.error || 'Sign-in failed.', 'error');
             return;
         }
@@ -917,14 +905,11 @@ async function bootstrap() {
         store.setState({ authReady: true });
     } else {
         onAuthStateChanged(async (user) => {
-            // Step 7 — dashboard/navigation pipeline started from auth state.
-            authLog(7, `auth state change routed — signed in: ${user ? 'yes' : 'no'}`);
             try {
                 await authService.handleAuthStateChanged(user);
                 syncSalonScope();
                 renderApp();
             } catch (err) {
-                errorLog('bootstrap-auth-pipeline', err);
                 renderApp();
             }
         });
