@@ -129,7 +129,7 @@ export function handleAuthStateChanged(user) {
     }
 
     if (!user) {
-        store.setState({ authReady: true, currentUser: null, userRole: 'guest' });
+        store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
 
@@ -137,7 +137,7 @@ export function handleAuthStateChanged(user) {
     // is not a real account — keep these users on the login screen instead of
     // fabricating an owner dashboard for them.
     if (user.isAnonymous && !user.email && !user.phoneNumber) {
-        store.setState({ authReady: true, currentUser: null, userRole: 'guest' });
+        store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
 
@@ -346,6 +346,7 @@ export async function signOut() {
         userRole: 'guest',
         activeTab: 'login',
         currentUser: null,
+        accountRole: 'salon_owner',
         isModalOpen: false,
         modalType: null,
     });
@@ -373,6 +374,7 @@ function demoSignIn() {
             displayName: 'Salon Owner',
             isAnonymous: true,
         },
+        accountRole: 'salon_owner',
         userRole: 'salon_owner',
     });
     return { ok: true };

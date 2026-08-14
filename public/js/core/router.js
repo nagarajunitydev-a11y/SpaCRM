@@ -52,7 +52,6 @@ export function logout() {
 /** Routes to the correct view module for the current state. */
 export function route(state) {
     if (state.userRole === 'guest') return 'login';
-    if (state.userRole === 'auth_select') return 'ownerAuth';
     if (state.userRole === 'super_admin') return 'superAdmin';
     return state.activeTab;
 }

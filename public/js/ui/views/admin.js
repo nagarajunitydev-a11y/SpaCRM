@@ -14,7 +14,7 @@ function signInRequired() {
             <p class="text-sm font-bold text-slate-100 mb-1">Sign in required</p>
             <p class="text-xs text-slate-400 mb-4 max-w-xs mx-auto">Sign in with your Super Admin account to view every registered salon.</p>
             <div class="flex justify-center">
-                ${actionButton('Sign In', { action: 'role', data: { role: 'auth_select', mode: 'signin' }, kind: 'indigo', iconName: 'log-in' })}
+                ${actionButton('Sign In', { action: 'role', data: { role: 'guest' }, kind: 'indigo', iconName: 'log-in' })}
             </div>
         </div>
     `;

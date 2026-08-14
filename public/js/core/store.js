@@ -39,7 +39,7 @@ export const store = createStore({
     authFormMode: 'signup', // 'signup' | 'signin'
     accountRole: 'salon_owner', // persistent role from the user profile (Firestore)
     currentUser: null,
-    userRole: 'guest', // 'guest' | 'auth_select' | 'salon_owner' | 'super_admin'
+    userRole: 'guest', // 'guest' | 'salon_owner' | 'super_admin'
     currentSalonId: null, // the active salon the tenant repos are scoped to
     salonsLoaded: false, // true once the owner's salons have been fetched
     activeTab: 'dashboard',

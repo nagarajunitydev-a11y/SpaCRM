@@ -25,7 +25,6 @@ import { appHeader, bottomNav, networkBanner } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
 import * as rewards from './core/rewards.js';
 import renderLogin from './ui/views/login.js';
-import renderOwnerAuth from './ui/views/ownerAuth.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments from './ui/views/appointments.js';
 import renderCustomers from './ui/views/customers.js';
@@ -122,9 +121,11 @@ function renderOwnerTab(state) {
 }
 
 function buildView(state) {
-    if (state.userRole === 'guest') return renderLogin();
-    if (state.userRole === 'auth_select') return renderOwnerAuth(state);
-    if (state.userRole === 'super_admin') return renderSuperAdmin(state);
+    // The role is resolved from the signed-in user's Firestore profile
+    // (accountRole). A user can never reach the Super Admin module unless their
+    // profile grants it — tampering with navigation state alone is not enough.
+    if (state.userRole === 'guest') return renderLogin(state);
+    if (state.userRole === 'super_admin' && state.accountRole === 'super_admin') return renderSuperAdmin(state);
     if (state.needsSalon) return renderSalonSetup(state);
     return renderOwnerTab(state);
 }
@@ -133,7 +134,7 @@ function buildShell(state) {
     const viewHtml = buildView(state);
 
     // Auth / entry screens render standalone.
-    if (state.userRole === 'guest' || state.userRole === 'auth_select') {
+    if (state.userRole === 'guest') {
         return viewHtml;
     }
 
@@ -401,7 +402,11 @@ function updateCustomerSuggestions(el) {
 const actions = {
     async 'role'(el) {
         const role = el.dataset.role;
-        if (role === 'auth_select') store.setState({ authFormMode: el.dataset.mode === 'signin' ? 'signin' : 'signup' });
+        // Only the demo preview (and the admin "sign in" fallback) reach this
+        // action; real roles come from the Firestore user profile. Keeping the
+        // persistent role in sync stops a stale accountRole from lingering.
+        if (role === 'super_admin') store.setState({ accountRole: 'super_admin' });
+        if (role === 'guest') store.setState({ accountRole: 'salon_owner' });
         setRole(role);
         syncSalonScope();
     },

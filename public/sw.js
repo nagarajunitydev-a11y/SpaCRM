@@ -39,7 +39,6 @@ const APP_SHELL = [
     '/js/ui/icons.js',
     '/js/ui/components.js',
     '/js/ui/views/login.js',
-    '/js/ui/views/ownerAuth.js',
     '/js/ui/views/dashboard.js',
     '/js/ui/views/appointments.js',
     '/js/ui/views/customers.js',

@@ -160,18 +160,14 @@ async function main() {
     await waitFor(`document.readyState === 'complete'`);
 
     // ---- Test suite ----
-    console.log('\n[1] Login screen (guest)');
-    await waitFor(`document.querySelector('[data-role="auth_select"]') !== null`);
-    assert(await evaluate(`document.body.innerText.includes('LuxeGlow Salon CRM')`), 'branding shown');
-    assert(await evaluate(`document.querySelectorAll('[data-action="role"]').length === 2`), 'two role entry buttons');
-
-    console.log('\n[2] Owner auth screen');
-    await click('[data-role="auth_select"]');
+    console.log('\n[1] Login screen (guest) — no role selection');
     await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
-    assert(await evaluate(`document.body.innerText.includes('Owner Access')`), 'owner auth heading');
+    assert(await evaluate(`document.body.innerText.includes('LuxeGlow Salon CRM')`), 'branding shown');
+    assert(await evaluate(`!document.body.innerText.includes('Salon Owner Portal') && !document.body.innerText.includes('Super Admin Oversight')`), 'no role selection buttons');
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"]') !== null`), 'email form present');
+    assert(await evaluate(`document.querySelector('[data-action="toggle-form-mode"]') !== null`), 'sign-in/sign-up toggle present');
 
-    console.log('\n[3] Email sign-in (demo mode) -> dashboard');
+    console.log('\n[2] Email sign-in (demo mode) -> dashboard');
     await fillForm({ salonName: 'Luxe Glow Test', email: 'owner@test.com', password: 'secret123' });
     await submitForm('form[data-action="email-auth"]');
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
@@ -331,8 +327,10 @@ async function main() {
 
     console.log('\n[7] Logout + Super Admin');
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-role="super_admin"]') !== null`);
-    await click('[data-role="super_admin"]');
+    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    // Demo mode has no backend, so the Super Admin dashboard is reached via the
+    // demo preview link; in production the role comes from the user profile.
+    await click('[data-action="role"][data-role="super_admin"]');
     await waitFor(`document.body.innerText.includes('All Salons Franchise')`);
     assert(await evaluate(`document.body.innerText.includes('Luxe Glow Flagship')`), 'admin sees salons list');
     assert(await evaluate(`document.querySelectorAll('[data-action="manage-salon"]').length >= 2`), 'manage buttons present');
@@ -384,8 +382,8 @@ async function main() {
 
     console.log('\n[10c] Super admin provisioning + auth flows');
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-role="super_admin"]') !== null`);
-    await click('[data-role="super_admin"]');
+    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    await click('[data-action="role"][data-role="super_admin"]');
     await waitFor(`document.querySelector('[data-action="modal"][data-modal="salon"]') !== null`);
     await click(`[data-action="modal"][data-modal="salon"]`);
     await waitFor(`document.querySelector('form[data-action="submit-salon"]') !== null`);
@@ -398,9 +396,7 @@ async function main() {
 
     // Auth screen: sign-in toggle + Google sign-in (demo mode)
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-role="auth_select"]') !== null`);
-    await click('[data-role="auth_select"]');
-    await waitFor(`document.querySelector('[data-action="toggle-form-mode"]') !== null`);
+    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
     await click('[data-action="toggle-form-mode"]');
     await new Promise((r) => setTimeout(r, 200));
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"] [name="salonName"]') === null`), 'sign-in toggle hides salon name field');
