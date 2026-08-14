@@ -78,6 +78,7 @@ function renderForm(state, type) {
                 ${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}
                 ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 ${formField('Email', textInput('email', 'olivia@example.com', { type: 'email', autocomplete: 'email', value: rec?.email }))}
+                ${rec ? '' : formField('Referral Code (optional)', textInput('referralCode', 'LG-XXXXXX', { required: false }), 'The friend or salon who referred this client.')}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client (100 Bonus Pts)'}</button>
             </form>
         `;

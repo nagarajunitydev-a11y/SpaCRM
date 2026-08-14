@@ -7,6 +7,9 @@
 
 export const REFERRAL_SIGNUP_BONUS = 100;
 
+/** Bonus points awarded to a customer when a referred friend completes their first visit. */
+export const REFERRAL_BONUS_POINTS = 100;
+
 /** Reward tiers (points required -> label). Ordered ascending by points. */
 export const REWARD_TIERS = [
     { points: 100, label: '₹25 Service Voucher' },
@@ -17,14 +20,14 @@ export const REWARD_TIERS = [
 /** Fallback code prefix for pre-existing customers without a referral code. */
 const CODE_PREFIX = 'LG';
 
-/** Generate a fresh, human-friendly referral code. */
-export function generateReferralCode() {
+/** Generate a fresh, human-friendly referral code with an optional prefix. */
+export function generateReferralCode(prefix = CODE_PREFIX) {
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     let code = '';
     for (let i = 0; i < 6; i += 1) {
         code += alphabet[Math.floor(Math.random() * alphabet.length)];
     }
-    return `${CODE_PREFIX}-${code}`;
+    return `${prefix}-${code}`;
 }
 
 /**
@@ -62,6 +65,7 @@ export function buildReferralMessage(customer) {
 export default {
     REWARD_TIERS,
     REFERRAL_SIGNUP_BONUS,
+    REFERRAL_BONUS_POINTS,
     generateReferralCode,
     referralCodeFor,
     nextTierFor,

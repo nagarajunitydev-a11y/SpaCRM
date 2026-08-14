@@ -12,6 +12,7 @@ import { getFirebase } from './firebase.js';
 import {
     collection,
     doc as fbDoc,
+    getDoc as fbGetDoc,
     getDocs,
     onSnapshot,
     setDoc as fbSetDoc,
@@ -83,6 +84,20 @@ export async function getCollection(segments, options = {}) {
     }
 }
 
+/** Fetch a single document once. */
+export async function getDocument(segments, id) {
+    const fb = getFirebase();
+    if (!fb) return null;
+    try {
+        const ref = docRef(...segments, id);
+        const snapshot = await fbGetDoc(ref);
+        return mapDoc(snapshot);
+    } catch (err) {
+        console.warn(`Firestore read failed (${segments.join('/')}/${id}):`, err);
+        return null;
+    }
+}
+
 /** Add a document to a collection. Returns the new document row. */
 export async function addDocument(segments, data) {
     const fb = getFirebase();
@@ -125,6 +140,7 @@ export default {
     docRef,
     listenCollection,
     getCollection,
+    getDocument,
     addDocument,
     setDocument,
     updateDocument,

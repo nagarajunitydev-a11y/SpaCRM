@@ -66,6 +66,17 @@ function isMobileDevice() {
     return navigator.maxTouchPoints > 0 && window.innerWidth <= 900;
 }
 
+/**
+ * True on Android browsers (Chrome, Samsung Internet, WebViews…). Android is
+ * the only platform where the OAuth redirect result must be explicitly
+ * captured with getRedirectResult during app initialisation (signInWithRedirect
+ * reloads the page there). Desktop keeps its popup flow untouched.
+ */
+export function isAndroidBrowser() {
+    if (typeof navigator === 'undefined') return false;
+    return /Android/i.test(navigator.userAgent || '');
+}
+
 /** Map a Firebase User to a plain safe object for the store. */
 function toSafeUser(user) {
     if (!user) return null;
@@ -250,9 +261,9 @@ async function signInWithGooglePopup(fb) {
 }
 
 /**
- * Consume a Google OAuth redirect callback. Call once on every app load when
- * Firebase is configured: after the user returns from the Google login page,
- * this resolves the pending sign-in and triggers the auth-state listener.
+ * Consume a Google OAuth redirect callback. Called once during app
+ * initialisation on Android browsers, where signInWithRedirect reloads the
+ * page and the login result must be captured explicitly via getRedirectResult.
  * Safe to call when no redirect is pending (resolves to { ok: true, noop: true }).
  *
  * Real failures (e.g. an unauthorised domain) are surfaced to the user instead
@@ -406,6 +417,7 @@ export default {
     handleAuthStateChanged,
     signInWithGoogle,
     handleRedirectResult,
+    isAndroidBrowser,
     signInWithEmail,
     signUpWithEmail,
     signInAnonymouslyNow,

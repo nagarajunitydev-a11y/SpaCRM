@@ -82,6 +82,11 @@ t(validateForm('submit-customer', { name: 'Olivia', phone: '987654321', email: '
 t(validateForm('submit-customer', { name: 'Olivia', phone: '98765432101', email: 'olivia@example.com' }).phone === 'Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).', '11-digit customer phone rejected');
 t(Object.keys(validateForm('submit-customer', { name: 'Olivia', phone: '+91 98765 43210', email: 'olivia@example.com' })).length === 0, 'customer +91 input accepted');
 
+// ---- Referral code (optional, format-checked) ----
+t(Object.keys(validateForm('submit-customer', { name: 'R', phone: '9876543210', email: 'r@x.com', referralCode: 'LG-AB12CD' })).length === 0, 'well-formed referral code passes');
+t(Object.keys(validateForm('submit-customer', { name: 'R', phone: '9876543210', email: 'r@x.com' })).length === 0, 'empty referral code is optional');
+t(validateForm('submit-customer', { name: 'R', phone: '9876543210', email: 'r@x.com', referralCode: 'bad code!' }).referralCode !== undefined, 'invalid referral code format rejected');
+
 // ---- Service ----
 const nosvc = validateForm('submit-service', { name: 'x', price: '-5', duration: '' });
 t(nosvc.price === 'Enter a valid price.', 'negative price rejected');

@@ -24,6 +24,34 @@ service cloud.firestore {
       return isAdmin() || ownsSalon(salonId);
     }
 
+    // ---------- Referral program constants ----------
+    // Kept in lockstep with REFERRAL_BONUS_POINTS in core/rewards.js. Clients
+    // can never invent a bonus amount: every referral must carry exactly this.
+    function referralBonus() {
+      return 100;
+    }
+
+    // ---------- Referral registry / ledger lookups ----------
+    function getReferralCodeEntry(code) {
+      return get(/databases/$(database)/documents/referralCodes/$(code));
+    }
+
+    function getReferralCodeSalon(code) {
+      return getReferralCodeEntry(code).data.salonId;
+    }
+
+    function getReferralCodeCustomer(code) {
+      return getReferralCodeEntry(code).data.customerId;
+    }
+
+    function getCustomer(salonId, customerId) {
+      return get(/databases/$(database)/documents/salons/$(salonId)/customers/$(customerId));
+    }
+
+    function getAppointment(salonId, appointmentId) {
+      return get(/databases/$(database)/documents/salons/$(salonId)/appointments/$(appointmentId));
+    }
+
     // ---------- Server/database-level validation ----------
     // Guards against invalid records that bypass client-side validation.
     // Firestore rules have no regex, so structural/type/length checks are used;
@@ -37,6 +65,10 @@ service cloud.firestore {
       return v is string && v.size() <= (max == null ? 200 : max);
     }
 
+    function isOptionalOrNull(v, max) {
+      return v == null || (v is string && v.size() <= (max == null ? 200 : max));
+    }
+
     function isValidAppointment(data) {
       return isNonEmptyString(data.customerName, 120)
         && isNonEmptyString(data.serviceName, 120)
@@ -44,7 +76,8 @@ service cloud.firestore {
         // date is YYYY-MM-DD and time is HH:MM (length enforcements).
         && data.date is string && data.date.size() == 10
         && data.time is string && data.time.size() == 5
-        && isNonEmptyString(data.status, 30);
+        && isNonEmptyString(data.status, 30)
+        && isOptionalString(data.customerId, 128);
     }
 
     function isValidCustomer(data) {
@@ -52,7 +85,11 @@ service cloud.firestore {
         && isNonEmptyString(data.phone, 40)
         && isNonEmptyString(data.email, 120)
         && data.referralPoints is number && data.referralPoints >= 0
-        && isOptionalString(data.referralCode, 20);
+        && isOptionalString(data.referralCode, 30)
+        && isOptionalString(data.referredByCode, 30)
+        && isOptionalString(data.referringSalonId, 128)
+        && isOptionalOrNull(data.referringCustomerId, 128)
+        && isOptionalString(data.referringCustomerName, 120);
     }
 
     function isValidService(data) {
@@ -72,7 +109,48 @@ service cloud.firestore {
         && isOptionalString(data.ownerEmail, 120)
         && isNonEmptyString(data.phone, 40)
         && isNonEmptyString(data.address, 240)
-        && isOptionalString(data.ownerId, 128);
+        && isOptionalString(data.ownerId, 128)
+        && isOptionalString(data.referralCode, 30);
+    }
+
+    // A referral-code registry entry: a unique code bound to one salon, and
+    // optionally to the customer that owns the code.
+    function isValidReferralCodeEntry(data) {
+      return isNonEmptyString(data.code, 30)
+        && isNonEmptyString(data.salonId, 128)
+        && (data.kind == 'salon' || data.kind == 'customer')
+        && ((data.kind == 'customer' && isNonEmptyString(data.customerId, 128))
+            || (data.kind == 'salon' && data.customerId == null))
+        && isOptionalString(data.customerName, 120);
+    }
+
+    // A referral record. The bonus amount is locked to the program constant.
+    function isValidReferral(data) {
+      return isNonEmptyString(data.code, 30)
+        && isNonEmptyString(data.referringSalonId, 128)
+        && isOptionalOrNull(data.referringCustomerId, 128)
+        && isOptionalString(data.referringCustomerName, 120)
+        && isNonEmptyString(data.referredSalonId, 128)
+        && isNonEmptyString(data.referredCustomerId, 128)
+        && isNonEmptyString(data.referredCustomerName, 120)
+        && isOptionalString(data.referredCustomerPhone, 40)
+        && isNonEmptyString(data.status, 30)
+        && data.bonusAmount is number && data.bonusAmount == referralBonus()
+        && isOptionalString(data.appointmentId, 128);
+    }
+
+    // Referrals move through a fixed state machine. Clients can never jump a
+    // status, and Successful is only reachable when a genuine appointment for
+    // the referred customer exists (first-appointment completion).
+    function referralTransitionAllowed() {
+      return (resource.data.status == 'Pending' && request.resource.data.status == 'Rejected')
+        || (resource.data.status == 'Pending' && request.resource.data.status == 'Successful'
+            && isNonEmptyString(request.resource.data.appointmentId, 128)
+            && request.resource.data.firstAppointmentAt is timestamp
+            && getAppointment(request.resource.data.referredSalonId, request.resource.data.appointmentId)
+                .data.customerId == request.resource.data.referredCustomerId)
+        || (resource.data.status == 'Successful' && request.resource.data.status == 'Bonus Credited'
+            && request.resource.data.bonusCreditedAt is timestamp);
     }
 
     // ---------- Users ----------
@@ -118,6 +196,50 @@ service cloud.firestore {
         allow create, update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
         allow delete: if canAccessSalon(salonId);
       }
+    }
+
+    // ---------- Referral codes (global registry) ----------
+    // Any signed-in user may read a code (needed to validate a friend's code
+    // against its owning salon). Only admins or the owner of the salon the
+    // code belongs to may create/update entries; an existing entry can only be
+    // re-written by its own salon so codes can never be hijacked.
+    match /referralCodes/{code} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && (isAdmin() || ownsSalon(request.resource.data.salonId))
+        && isValidReferralCodeEntry(request.resource.data);
+      allow update: if isSignedIn()
+        && isValidReferralCodeEntry(request.resource.data)
+        && (isAdmin()
+            || (ownsSalon(request.resource.data.salonId)
+                && resource.data.salonId == request.resource.data.salonId));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- Referrals (global ledger) ----------
+    // Owners read referrals for their own salon (referred or referring);
+    // admins read everything. Creating a referral requires the writer to access
+    // the referred salon and proves the code's owner matches the recorded
+    // referring party. Status transitions are gated by the state machine.
+    match /referrals/{refId} {
+      allow read: if isSignedIn()
+        && (isAdmin()
+            || canAccessSalon(resource.data.referredSalonId)
+            || canAccessSalon(resource.data.referringSalonId));
+      allow create: if isSignedIn()
+        && canAccessSalon(request.resource.data.referredSalonId)
+        && isValidReferral(request.resource.data)
+        && refId == request.resource.data.code + '__' + request.resource.data.referredCustomerId
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.referringSalonId == getReferralCodeSalon(request.resource.data.code)
+        && request.resource.data.referringCustomerId == getReferralCodeCustomer(request.resource.data.code)
+        && getCustomer(request.resource.data.referredSalonId, request.resource.data.referredCustomerId)
+            .data.name == request.resource.data.referredCustomerName;
+      allow update: if isSignedIn()
+        && canAccessSalon(resource.data.referredSalonId)
+        && isValidReferral(request.resource.data)
+        && referralTransitionAllowed();
+      allow delete: if false;
     }
   }
 }

@@ -15,6 +15,8 @@ import * as customersRepository from './services/customersRepository.js';
 import * as servicesRepository from './services/servicesRepository.js';
 import * as staffRepository from './services/staffRepository.js';
 import * as appointmentsRepository from './services/appointmentsRepository.js';
+import * as referralsRepository from './services/referralsRepository.js';
+import * as referralCodesRepository from './services/referralCodesRepository.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
@@ -47,7 +49,12 @@ function seedDemoData() {
         servicesList: [...servicesRepository.seed],
         staffList: [...staffRepository.seed],
         appointmentsList: [...appointmentsRepository.seed],
+        referralsList: [...referralsRepository.seed],
+        referralsLoaded: true,
+        referralsError: null,
     });
+    // Register the demo salon/customer codes so referral lookups resolve.
+    referralCodesRepository.seedDemoRegistry();
 }
 
 /* ------------------------------------------------------------------ */
@@ -100,6 +107,7 @@ function resolveSalonScope() {
     servicesRepository.setSalon(target);
     staffRepository.setSalon(target);
     appointmentsRepository.setSalon(target);
+    referralsRepository.resubscribeReferrals();
 }
 
 function syncSalonScope() {
@@ -211,6 +219,12 @@ function findRecord(type, id) {
     };
     const get = lists[type];
     return get ? get() || null : null;
+}
+
+/** Resolve the salon the current owner is viewing (or null). */
+function currentSalon() {
+    const state = store.getState();
+    return (state.salonsList || []).find((s) => s.id === state.currentSalonId) || null;
 }
 
 /** Resolve the repository delete call for a confirmed delete target. */
@@ -412,7 +426,12 @@ const actions = {
     },
 
     async 'tab'(el) {
-        switchTab(el.dataset.tab);
+        const tab = el.dataset.tab;
+        switchTab(tab);
+        // Lazy backfill: make sure the active salon has a referral code to show.
+        if (tab === 'customers' && store.getState().userRole === 'salon_owner') {
+            salonsRepository.ensureSalonReferralCode().catch((err) => console.warn('Salon referral code backfill failed:', err));
+        }
     },
 
     async 'modal'(el) {
@@ -630,6 +649,56 @@ const actions = {
         }
     },
 
+    /** Copy the salon's own referral code. */
+    async 'copy-salon-code'(el) {
+        const code = el.dataset.code || '';
+        if (!code) return;
+        try {
+            await navigator.clipboard.writeText(code);
+            showNotification(`Salon referral code ${code} copied!`);
+        } catch (err) {
+            showNotification(`Salon referral code: ${code}`, 'error');
+        }
+    },
+
+    /** Share the salon's referral code (native share sheet → clipboard). */
+    async 'share-salon-code'(el) {
+        const code = el.dataset.code || '';
+        const salon = currentSalon();
+        if (!code || !salon) return;
+        const text = `Get rewards at ${salon.name}! Book your visit and mention referral code ${code} to earn ${rewards.REFERRAL_BONUS_POINTS} bonus points.`;
+
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: 'LuxeGlow Referral', text });
+                return;
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+            }
+        }
+        try {
+            await navigator.clipboard.writeText(text);
+            showNotification(`Salon referral code ${code} copied to clipboard!`);
+        } catch (err) {
+            showNotification(`Salon referral code: ${code}`, 'error');
+        }
+    },
+
+    /** Reject a pending referral (owner only; rules enforce the transition). */
+    async 'reject-referral'(el) {
+        const referral = (store.getState().referralsList || []).find((r) => r.id === el.dataset.id);
+        if (!referral) {
+            showNotification('Referral not found.', 'error');
+            return;
+        }
+        if (referral.status !== 'Pending') {
+            showNotification('Only pending referrals can be rejected.', 'error');
+            return;
+        }
+        await referralsRepository.rejectReferral(referral);
+        showNotification('Referral rejected.');
+    },
+
     async 'manage-salon'(el) {
         store.setState({
             currentSalonId: el.dataset.id,
@@ -644,6 +713,10 @@ const actions = {
         const id = data.id;
         // Validation already guarantees 10 digits; store the full +91 number.
         const payload = { name: data.name, phone: toIndianE164(data.phone), email: data.email };
+        // Referral code is optional; only send it when the user entered one.
+        if (data.referralCode && data.referralCode.trim()) {
+            payload.referralCode = data.referralCode.trim();
+        }
         if (id) {
             await customersRepository.updateCustomer(id, payload);
             showNotification('Client updated successfully!');
@@ -827,12 +900,15 @@ async function bootstrap() {
             renderApp();
         });
         await authService.restoreSession();
-        // Consume any pending Google OAuth redirect callback (mobile flow).
-        // onAuthStateChanged is the source of truth for state; real callback
-        // failures are surfaced to the user by authService itself.
-        authService.handleRedirectResult().catch((err) => {
-            console.warn('Redirect result handling failed:', err);
-        });
+        // Android browsers must explicitly consume the pending Google OAuth
+        // redirect result during initialisation (signInWithRedirect reloads the
+        // page there) — getRedirectResult captures the login. Desktop uses the
+        // popup flow and is intentionally left unchanged.
+        if (authService.isAndroidBrowser()) {
+            authService.handleRedirectResult().catch((err) => {
+                console.warn('Redirect result handling failed:', err);
+            });
+        }
     }
 
     salonsRepository.initSalons();

@@ -55,6 +55,9 @@ export const store = createStore({
     servicesList: [],
     staffList: [],
     appointmentsList: [],
+    referralsList: [],
+    referralsLoaded: false,
+    referralsError: null,
 });
 
 export default store;

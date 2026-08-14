@@ -12,6 +12,7 @@
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const REFERRAL_CODE_RE = /^[A-Za-z0-9-]{3,30}$/;
 
 /** Default country dial code (India). */
 export const IN_DIAL_CODE = '91';
@@ -79,6 +80,7 @@ const numberMin = (min, msg) => (v) => {
     return Number.isFinite(n) && n >= min ? null : msg;
 };
 const indianPhone = (msg) => (v) => (isBlank(v) ? null : isValidIndianPhone(v) ? null : msg);
+const referralCode = (msg) => (v) => (isBlank(v) ? null : REFERRAL_CODE_RE.test(v) ? null : msg);
 
 /** Runs every validator for a field, stopping at the first failure. */
 function check(errors, field, value, validators) {
@@ -128,6 +130,8 @@ export function validateForm(formKey, data, ctx = {}) {
         check(errors, 'name', v('name'), [required('Name is required.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'email', v('email'), [required('Email is required.'), email('Enter a valid email address.')]);
+        // Referral code is optional but, when present, must be a well-formed code.
+        check(errors, 'referralCode', v('referralCode'), [referralCode('Enter a valid referral code (letters, numbers or dashes, e.g. LG-AB12CD).')]);
         return errors;
     }
 
@@ -168,4 +172,4 @@ export function validateForm(formKey, data, ctx = {}) {
     return errors;
 }
 
-export default { validateForm, isBlank, isValidDate, isValidIndianPhone, toIndianE164, normalizePhoneDigits, EMAIL_RE, TIME_RE, DATE_RE };
+export default { validateForm, isBlank, isValidDate, isValidIndianPhone, toIndianE164, normalizePhoneDigits, EMAIL_RE, TIME_RE, DATE_RE, REFERRAL_CODE_RE };
