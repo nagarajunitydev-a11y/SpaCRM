@@ -48,44 +48,40 @@ export async function addAppointment(payload, opts = {}) {
  * duplicate points.
  */
 export async function maybeCreditReferralBonus(appointment) {
+    const apptId = appointment.id;
+    const custId = appointment.customerId;
+    const salonId = appointment.salonId;
     console.log('[REFERRAL] ─── maybeCreditReferralBonus START ───');
-    console.log('[REFERRAL] Appointment ID:', appointment.id,
-        '| Customer ID:', appointment.customerId,
-        '| Salon ID:', appointment.salonId);
+    console.log('[REFERRAL] Appointment:', apptId, '| Customer B:', custId, '| Salon:', salonId);
 
     // 1. Fetch the referred customer directly from their salon.
-    const customer = await customersRepository.getCustomerFromSalon(
-        appointment.customerId,
-        appointment.salonId,
-    );
+    const customer = await customersRepository.getCustomerFromSalon(custId, salonId);
     if (!customer || !customer.referredByCode) {
-        console.log('[REFERRAL] No referredByCode on customer — skipping.');
+        console.log('[REFERRAL] Customer has no referredByCode — skipping.');
         return;
     }
-    console.log('[REFERRAL] Customer B →', customer.id, '|', customer.name,
-        '| referredByCode:', customer.referredByCode,
-        '| referringSalonId:', customer.referringSalonId,
-        '| referringCustomerId:', customer.referringCustomerId);
+    const refCode = customer.referredByCode;
+    const clientAId = customer.referringCustomerId;
+    console.log('[REFERRAL] Client B:', customer.id, '|', customer.name,
+        '| referredByCode:', refCode,
+        '| Client A ID:', clientAId,
+        '| Client A salon:', customer.referringSalonId);
 
     // 2. Find the referral (reads directly from Firestore in Firebase mode).
-    const referral = await referralsRepository.findReferral(
-        customer.referredByCode,
-        customer.id,
-    );
+    const referral = await referralsRepository.findReferral(refCode, customer.id);
     if (!referral) {
-        console.log('[REFERRAL] No referral record found for code',
-            customer.referredByCode, '+ customer', customer.id, '— skipping.');
+        console.log('[REFERRAL] No referral record found for code', refCode,
+            '+ customer', customer.id, '— skipping.');
         return;
     }
-    console.log('[REFERRAL] Referral found →', referral.id,
+    console.log('[REFERRAL] Referral:', referral.id,
         '| status:', referral.status,
-        '| referrer:', referral.referringCustomerId,
-        '| referrerSalon:', referral.referringSalonId,
-        '| bonusAmount:', referral.bonusAmount);
+        '| Client A:', referral.referringCustomerId,
+        '| bonus:', referral.bonusAmount);
 
     // 3. Already fully processed — nothing to do.
     if (referral.status === 'Bonus Credited') {
-        console.log('[REFERRAL] Referral already Bonus Credited:', referral.id, '— skipping.');
+        console.log('[REFERRAL] Already Bonus Credited — skipping.');
         return;
     }
 
@@ -94,39 +90,31 @@ export async function maybeCreditReferralBonus(appointment) {
     //    but before completing the full credit flow).
     const needsSuccessfulMark = referral.status === 'Pending';
     if (!needsSuccessfulMark && referral.status !== 'Successful') {
-        console.log('[REFERRAL] Referral in unexpected status:', referral.status, '— skipping.');
+        console.log('[REFERRAL] Unexpected status:', referral.status, '— skipping.');
         return;
     }
 
     // 5. Mark Successful (only if still Pending).
     if (needsSuccessfulMark) {
         try {
-            await referralsRepository.markReferralSuccessful(referral, appointment.id);
-            console.log('[REFERRAL] Referral marked Successful:', referral.id,
-                '| appointmentId:', appointment.id);
+            const result = await referralsRepository.markReferralSuccessful(referral, apptId);
+            if (result) Object.assign(referral, result);
+            console.log('[REFERRAL] Marked Successful:', referral.id, '| appointment:', apptId);
         } catch (err) {
-            // Firestore rule may have rejected the transition because a
-            // concurrent call already advanced the status.  Re-read from
-            // Firestore and continue if it is already Successful.
-            const fresh = await referralsRepository.findReferral(
-                customer.referredByCode,
-                customer.id,
-            );
+            const fresh = await referralsRepository.findReferral(refCode, customer.id);
             if (fresh && fresh.status === 'Successful') {
-                console.log('[REFERRAL] Referral already Successful in Firestore:',
-                    referral.id, '— proceeding to credit.');
+                console.log('[REFERRAL] Already Successful in Firestore — proceeding.');
                 Object.assign(referral, fresh);
             } else {
-                console.error('[REFERRAL] markReferralSuccessful failed and referral',
-                    'is not Successful in Firestore:', err);
+                console.error('[REFERRAL] markReferralSuccessful failed:', err);
                 throw err;
             }
         }
     } else {
-        console.log('[REFERRAL] Referral already Successful:', referral.id, '— proceeding to credit.');
+        console.log('[REFERRAL] Already Successful — proceeding to credit.');
     }
 
-    // 6. Fetch the referrer (Customer A) from their salon.
+    // 6. Fetch the referrer (Client A) from their salon.
     let referrer;
     try {
         referrer = await customersRepository.getCustomerFromSalon(
@@ -134,46 +122,40 @@ export async function maybeCreditReferralBonus(appointment) {
             referral.referringSalonId,
         );
     } catch (err) {
-        console.error('[REFERRAL] Failed to fetch referrer', referral.referringCustomerId,
-            'from salon', referral.referringSalonId, '— possible cross-salon permission issue:', err.message || err);
+        console.error('[REFERRAL] Failed to fetch Client A', referral.referringCustomerId,
+            'from salon', referral.referringSalonId, ':', err.message || err);
         return;
     }
     if (!referrer) {
-        console.warn('[REFERRAL] Referrer not found:', referral.referringCustomerId,
-            'in salon', referral.referringSalonId,
-            '— cross-salon referral cannot be credited.');
+        console.warn('[REFERRAL] Client A not found:', referral.referringCustomerId,
+            'in salon', referral.referringSalonId);
         return;
     }
-    console.log('[REFERRAL] Referrer Customer A →', referrer.id,
-        '|', referrer.name,
+    const prevPts = Number(referrer.referralPoints) || 0;
+    console.log('[REFERRAL] Client A:', referrer.id, '|', referrer.name,
         '| salon:', referral.referringSalonId,
-        '| current pts:', Number(referrer.referralPoints) || 0);
+        '| prev pts:', prevPts);
 
-    // 7. Idempotency guard: skip if a reward transaction was already recorded
-    //    for this referral (prevents double credit on retry).
+    // 7. Idempotency guard: skip if a reward transaction was already recorded.
     const existingTx = await rewardTransactionsRepository.findReferralTransaction(referral.id);
     if (existingTx) {
-        console.log('[REFERRAL] Reward transaction already exists for referral:',
-            referral.id, '— ensuring terminal state.');
-        try { await referralsRepository.completeReferral({ ...referral, status: 'Successful' }); } catch (_) { /* already credited */ }
+        console.log('[REFERRAL] Transaction already exists for', referral.id,
+            '— ensuring terminal state.');
+        try { await referralsRepository.completeReferral(referral); } catch (_) { /* already credited */ }
         return;
     }
 
-    // 8. Mark the referral as Bonus Credited BEFORE crediting points.
-    //    This uses the referral status as the primary idempotency lock:
-    //    once the status is "Bonus Credited" no subsequent call can
-    //    re-trigger the credit.  If we crash after this step but before
-    //    crediting points, the referrer loses the points (safe failure)
-    //    rather than risking a double credit.
+    // 8. Mark Bonus Credited BEFORE crediting points (primary idempotency lock).
     try {
-        await referralsRepository.completeReferral({ ...referral, status: 'Successful' });
-        console.log('[REFERRAL] Referral marked Bonus Credited (lock):', referral.id);
+        await referralsRepository.completeReferral(referral);
+        console.log('[REFERRAL] Referral status → Bonus Credited:', referral.id);
     } catch (err) {
         console.warn('[REFERRAL] completeReferral failed (may already be completed):',
             err.message);
     }
 
     // 9. Record the reward transaction for audit.
+    const bonus = Number(referral.bonusAmount) || REFERRAL_BONUS_POINTS;
     try {
         await rewardTransactionsRepository.recordReferralBonus({
             referralId: referral.id,
@@ -181,25 +163,23 @@ export async function maybeCreditReferralBonus(appointment) {
             referrerName: referrer.name,
             salonId: referral.referredSalonId,
         });
-        console.log('[REFERRAL] Reward transaction recorded for:', referral.id);
+        console.log('[REFERRAL] Transaction recorded:', referral.id);
     } catch (err) {
         console.warn('[REFERRAL] recordReferralBonus failed:', err.message);
     }
 
     // 10. Credit the referrer's points balance.
-    const currentPts = Number(referrer.referralPoints) || 0;
-    const newPts = currentPts + REFERRAL_BONUS_POINTS;
-    console.log('[REFERRAL] Crediting points:', REFERRAL_BONUS_POINTS,
-        '| Referrer:', referrer.id, '|', currentPts, '→', newPts, 'pts');
+    const newPts = prevPts + bonus;
     await customersRepository.updateCustomerInSalon(referrer.id, referral.referringSalonId, {
         referralPoints: newPts,
     });
-    console.log('[REFERRAL] ✅ Points credited:', referrer.id, '→', newPts, 'pts');
+    console.log('[REFERRAL] ✅ Points credited — Client A:', referrer.id,
+        '| prev:', prevPts, '| bonus:', bonus, '| updated:', newPts, 'pts',
+        '| referral status:', referral.status === 'Bonus Credited' ? 'Bonus Credited' : 'Bonus Credited');
 
-    // 11. Force-refresh the referral card so Total/Done/Pending/Earned update
-    //     immediately (safety net on top of the onSnapshot realtime listener).
+    // 11. Force-refresh the referral card so the UI reflects the new state.
     await referralsRepository.forceRefreshReferrals();
-    console.log('[REFERRAL] Referral card refreshed via forceRefreshReferrals');
+    console.log('[REFERRAL] Referral card refreshed');
     console.log('[REFERRAL] ─── maybeCreditReferralBonus END ───');
 }
 

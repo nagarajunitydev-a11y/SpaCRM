@@ -826,11 +826,14 @@ const actions = {
             const appointments = store.getState().appointmentsList || [];
             const oldAppointment = appointments.find(a => a.id === id);
             const wasCompleted = oldAppointment && oldAppointment.status === 'Completed';
-            await appointmentsRepository.updateAppointment(id, payload);
+            const updated = await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
-            // Trigger referral bonus when status changes to Completed
+            // Trigger referral bonus when status changes to Completed.
+            // Merge the old appointment (has salonId) with the new payload
+            // so maybeCreditReferralBonus has customerId + salonId.
             if (payload.status === 'Completed' && !wasCompleted) {
-                appointmentsRepository.maybeCreditReferralBonus({ id, ...payload }).catch(err => {
+                const merged = { ...oldAppointment, ...updated, id };
+                appointmentsRepository.maybeCreditReferralBonus(merged).catch(err => {
                     console.warn('[REFERRAL] Bonus credit failed:', err);
                 });
             }
@@ -850,11 +853,16 @@ const actions = {
             showNotification('Invalid status.', 'error');
             return;
         }
-        await appointmentsRepository.updateAppointment(id, { status });
+        // Capture the Firestore return value — in Firebase mode the onSnapshot
+        // store may not have refreshed yet, so we use this as fallback.
+        const updated = await appointmentsRepository.updateAppointment(id, { status });
         showNotification(`Appointment marked as ${status}!`);
         if (status === 'Completed') {
             const appointments = store.getState().appointmentsList || [];
-            const appointment = appointments.find(a => a.id === id);
+            const storeAppt = appointments.find(a => a.id === id);
+            // Prefer the store copy (has all fields); fall back to Firestore
+            // return value which at minimum has id + customerId + salonId.
+            const appointment = storeAppt || updated;
             if (appointment) {
                 appointmentsRepository.maybeCreditReferralBonus(appointment).catch(err => {
                     console.warn('[REFERRAL] Bonus credit failed:', err);
