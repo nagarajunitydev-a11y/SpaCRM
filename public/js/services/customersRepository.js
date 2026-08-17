@@ -4,18 +4,22 @@
  *
  * Every customer is stored under their salon and receives a unique referral
  * code. When a customer is added with a referral code, the code is validated
- * against the global registry (the referring salon is identified automatically)
- * and a Pending referral is created. Duplicate customers (same phone or exact
- * name) within the salon are rejected before anything is written.
+ * against the global registry (the referring salon is identified automatically),
+ * the referral is marked Successful, and the referrer receives 100 bonus
+ * points. A reward transaction is created for audit. Duplicate customers
+ * (same phone or exact name) within the salon are rejected before anything is
+ * written. Self-referrals are rejected.
  */
 
 import { createScopedRepository } from './scopedRepository.js';
 import {
     REFERRAL_SIGNUP_BONUS,
+    REFERRAL_BONUS_POINTS,
     referralCodeFor,
 } from '../core/rewards.js';
 import * as referralCodesRepository from './referralCodesRepository.js';
 import * as referralsRepository from './referralsRepository.js';
+import * as rewardTransactionsRepository from './rewardTransactionsRepository.js';
 
 export const seed = [
     { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', referralPoints: 150, referralCode: 'LG-OLIVIA' },
@@ -54,10 +58,11 @@ export function findCustomerByPhone(phone) {
 
 /**
  * Add a client, awarding the signup bonus points and a unique referral code.
- * When `referralCode` is provided it must resolve in the global registry; the
- * referring salon/customer is captured automatically. A Pending referral is
- * created against the referred customer. Invalid or unknown codes are rejected
- * and nothing is saved. Duplicate clients within the salon are rejected.
+ * When `referralCode` is provided the code is validated, the referral is
+ * marked Successful immediately, and the referrer receives 100 bonus points
+ * with a reward transaction record. Self-referrals are rejected. Duplicate
+ * clients within the salon are rejected. Idempotent — retrying the same
+ * referral never awards duplicate points.
  */
 export async function addCustomer(payload) {
     const existing = findCustomerByPhone(payload.phone) || findCustomerByName(payload.name);
@@ -91,20 +96,78 @@ export async function addCustomer(payload) {
         referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
     );
 
-    if (referring) {
-        await referralsRepository.createReferral({
-            code: referralCodesRepository.normalizeCode(code),
-            referringSalonId: referring.salonId,
-            referringCustomerId: referring.kind === 'customer' ? referring.customerId : null,
-            referringCustomerName: referring.customerName,
-            referredSalonId: created.salonId,
-            referredCustomerId: created.id,
-            referredCustomerName: created.name,
-            referredCustomerPhone: created.phone,
-        });
+    // ── Referral bonus: mark Successful + credit referrer ────────────
+    if (referring && referring.kind === 'customer' && referring.customerId) {
+        // Self-referral guard: a client cannot refer themselves.
+        if (referring.customerId === created.id) {
+            console.warn('[REFERRAL] Self-referral rejected for customer:', created.id);
+        } else {
+            await completeReferralAndCreditBonus({
+                code: referralCodesRepository.normalizeCode(code),
+                referringSalonId: referring.salonId,
+                referringCustomerId: referring.customerId,
+                referringCustomerName: referring.customerName,
+                referredSalonId: created.salonId,
+                referredCustomerId: created.id,
+                referredCustomerName: created.name,
+                referredCustomerPhone: created.phone,
+            });
+        }
     }
 
     return created;
+}
+
+/**
+ * Atomic referral completion: create referral → mark Successful → credit
+ * referrer points → create reward transaction. Idempotent — duplicate
+ * referrals (same referred customer + code) are silently skipped.
+ */
+async function completeReferralAndCreditBonus(data) {
+    // 1. Create (or find existing) referral — deterministic id prevents dupes.
+    const referral = await referralsRepository.createReferral({
+        code: data.code,
+        referringSalonId: data.referringSalonId,
+        referringCustomerId: data.referringCustomerId,
+        referringCustomerName: data.referringCustomerName,
+        referredSalonId: data.referredSalonId,
+        referredCustomerId: data.referredCustomerId,
+        referredCustomerName: data.referredCustomerName,
+        referredCustomerPhone: data.referredCustomerPhone,
+    });
+
+    // 2. Idempotency: if the referral is already completed, skip.
+    if (referral.status !== 'Pending') return referral;
+
+    // 3. Mark the referral Successful (signup completed).
+    const successful = await referralsRepository.markReferralSuccessful(referral);
+
+    // 4. Idempotency: check if a reward transaction already exists for this referral.
+    const existingTx = rewardTransactionsRepository.findReferralTransaction(referral.id);
+    if (existingTx) return successful;
+
+    // 5. Credit the referrer's points balance.
+    const referrer = listCustomers().find((c) => c.id === data.referringCustomerId);
+    if (!referrer) {
+        console.warn('[REFERRAL] Referrer not found:', data.referringCustomerId);
+        return successful;
+    }
+    const currentPts = Number(referrer.referralPoints) || 0;
+    const newPts = currentPts + REFERRAL_BONUS_POINTS;
+    await updateCustomer(referrer.id, { referralPoints: newPts });
+
+    // 6. Mark the referral as Bonus Credited.
+    await referralsRepository.completeReferral(successful);
+
+    // 7. Create reward transaction record for audit.
+    await rewardTransactionsRepository.recordReferralBonus({
+        referralId: referral.id,
+        referrerId: referrer.id,
+        referrerName: referrer.name,
+        salonId: data.referredSalonId,
+    });
+
+    return successful;
 }
 
 /**

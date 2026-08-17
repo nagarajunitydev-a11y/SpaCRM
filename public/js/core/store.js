@@ -59,6 +59,9 @@ export const store = createStore({
     referralsLoaded: false,
     referralsError: null,
     customerSearchQuery: '',
+    transactionsList: [],
+    transactionsLoaded: false,
+    transactionsError: null,
 });
 
 export default store;

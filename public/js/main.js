@@ -17,6 +17,7 @@ import * as staffRepository from './services/staffRepository.js';
 import * as appointmentsRepository from './services/appointmentsRepository.js';
 import * as referralsRepository from './services/referralsRepository.js';
 import * as referralCodesRepository from './services/referralCodesRepository.js';
+import * as rewardTransactionsRepository from './services/rewardTransactionsRepository.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
@@ -53,6 +54,9 @@ function seedDemoData() {
         referralsList: [...referralsRepository.seed],
         referralsLoaded: true,
         referralsError: null,
+        transactionsList: [...rewardTransactionsRepository.seed],
+        transactionsLoaded: true,
+        transactionsError: null,
     });
     // Register the demo salon/customer codes so referral lookups resolve.
     referralCodesRepository.seedDemoRegistry();
@@ -112,6 +116,7 @@ function resolveSalonScope() {
     staffRepository.setSalon(target);
     appointmentsRepository.setSalon(target);
     referralsRepository.resubscribeReferrals();
+    rewardTransactionsRepository.resubscribeTransactions();
 }
 
 function syncSalonScope() {
