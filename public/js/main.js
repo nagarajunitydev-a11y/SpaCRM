@@ -21,17 +21,17 @@ import * as rewardTransactionsRepository from './services/rewardTransactionsRepo
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
-import { sanitizeDOM, esc } from './core/sanitize.js';
+import { sanitizeDOM, esc, escAttr } from './core/sanitize.js';
 import { refreshIcons } from './ui/icons.js';
 import showNotification from './ui/notification.js';
-import { appHeader, bottomNav, networkBanner } from './ui/components.js';
+import { appHeader, bottomNav, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
-import { debounce } from './core/utils.js';
+import { debounce, scopedBySalon } from './core/utils.js';
 import * as rewards from './core/rewards.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments from './ui/views/appointments.js';
-import renderCustomers from './ui/views/customers.js';
+import renderCustomers, { renderCustomerCard } from './ui/views/customers.js';
 import renderServices from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
@@ -716,11 +716,34 @@ const actions = {
 
     async 'customer-search-list'(el) {
         const query = (el.value || '').trim();
-        store.setState({ customerSearchQuery: query });
+        const state = store.getState();
+        let customers = scopedBySalon(state.customersList, state.currentSalonId);
+        const q = query.toLowerCase();
+        if (q) {
+            customers = customers.filter((c) =>
+                (c.name || '').toLowerCase().includes(q)
+                || (c.phone || '').toLowerCase().includes(q)
+                || (c.email || '').toLowerCase().includes(q),
+            );
+        }
+        // Toggle clear button visibility.
+        const clearBtn = appEl.querySelector('[data-action="clear-customer-search"]');
+        if (clearBtn) clearBtn.classList.toggle('hidden', !query);
+        const container = appEl.querySelector('[data-customer-list]');
+        if (!container) return;
+        container.innerHTML = customers.length === 0
+            ? emptyState(q ? `No clients found for "${esc(query)}"` : 'No clients registered.')
+            : `<div class="space-y-2.5">${customers.map((c) => renderCustomerCard(c)).join('')}</div>`;
+        refreshIcons(container);
     },
 
     async 'clear-customer-search'() {
-        store.setState({ customerSearchQuery: '' });
+        const input = appEl.querySelector('[data-action="customer-search-list"]');
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
+        actions['customer-search-list'](input);
     },
 
     async 'manage-salon'(el) {

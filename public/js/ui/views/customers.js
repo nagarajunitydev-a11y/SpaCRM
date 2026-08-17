@@ -23,17 +23,7 @@ const REFERRAL_STATUS_CLASSES = {
 };
 
 export function renderCustomers(state) {
-    let customers = scopedBySalon(state.customersList, state.currentSalonId);
-
-    const query = (state.customerSearchQuery || '').trim().toLowerCase();
-    if (query) {
-        customers = customers.filter((c) =>
-            (c.name || '').toLowerCase().includes(query)
-            || (c.phone || '').toLowerCase().includes(query)
-            || (c.email || '').toLowerCase().includes(query)
-            || (c.id || '').toLowerCase().includes(query),
-        );
-    }
+    const customers = scopedBySalon(state.customersList, state.currentSalonId);
 
     return `
         <div class="space-y-4">
@@ -47,22 +37,24 @@ export function renderCustomers(state) {
 
             <div class="relative">
                 <input type="text" data-action="customer-search-list" placeholder="Search clients by name, phone, email…"
-                    value="${escAttr(state.customerSearchQuery || '')}"
+                    value=""
                     class="w-full bg-slate-900 border border-slate-800 pl-9 pr-9 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
                 <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                ${query ? `<button data-action="clear-customer-search" aria-label="Clear search"
-                    class="absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
+                <button data-action="clear-customer-search" aria-label="Clear search"
+                    class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-800 text-slate-400 items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
                     <i data-lucide="x" class="w-3 h-3"></i>
-                </button>` : ''}
+                </button>
             </div>
 
-            ${customers.length === 0
-                ? emptyState(query ? `No clients found for "${esc(query)}"` : 'No clients registered.')
-                : `
-                    <div class="space-y-2.5">
-                        ${customers.map((c) => renderCustomerCard(c)).join('')}
-                    </div>
-                `}
+            <div data-customer-list>
+                ${customers.length === 0
+                    ? emptyState('No clients registered.')
+                    : `
+                        <div class="space-y-2.5">
+                            ${customers.map((c) => renderCustomerCard(c)).join('')}
+                        </div>
+                    `}
+            </div>
         </div>
     `;
 }
@@ -161,7 +153,7 @@ function renderReferralActivity(referrals) {
     `;
 }
 
-function renderCustomerCard(c) {
+export function renderCustomerCard(c) {
     const pts = Number(c.referralPoints) || 0;
     const next = nextTierFor(pts);
     const progress = progressFor(pts);
