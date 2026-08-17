@@ -55,6 +55,11 @@ def twaManifest = [
 android {
     compileSdkVersion 36
     namespace "com.luxeglow.crm"
+    
+    buildFeatures {
+        resValues true
+    }
+    
     defaultConfig {
         applicationId "com.luxeglow.crm"
         minSdkVersion 23
@@ -144,9 +149,18 @@ android {
 
         
     }
+    signingConfigs {
+        release {
+            storeFile file("${rootProject.projectDir}/keys/luxeglow-release.keystore")
+            storePassword System.getenv('KEYSTORE_PASSWORD') ?: ''
+            keyAlias 'luxeglow'
+            keyPassword System.getenv('KEY_PASSWORD') ?: ''
+        }
+    }
     buildTypes {
         release {
             minifyEnabled true
+            signingConfig signingConfigs.release
         }
     }
     compileOptions {

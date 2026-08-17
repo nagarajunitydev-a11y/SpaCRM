@@ -42,13 +42,12 @@ public class LauncherActivity
         }
     }
 
-    @Override
+@Override
     protected Uri getLaunchingUrl() {
         // Get the original launch Url.
         Uri uri = super.getLaunchingUrl();
 
-        
-
-        return uri;
+        // Append platform=android to identify Android TWA and hide Google Sign-In
+        return uri.buildUpon().appendQueryParameter("platform", "android").build();
     }
 }

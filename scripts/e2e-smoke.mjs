@@ -161,7 +161,7 @@ async function main() {
 
     // ---- Test suite ----
     console.log('\n[1] Login screen (guest) — no role selection');
-    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
     assert(await evaluate(`document.body.innerText.includes('LuxeGlow Salon CRM')`), 'branding shown');
     assert(await evaluate(`!document.body.innerText.includes('Salon Owner Portal') && !document.body.innerText.includes('Super Admin Oversight')`), 'no role selection buttons');
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"]') !== null`), 'email form present');
@@ -365,7 +365,7 @@ async function main() {
 
     console.log('\n[7] Logout + Super Admin');
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
     // Demo mode has no backend, so the Super Admin dashboard is reached via the
     // demo preview link; in production the role comes from the user profile.
     await click('[data-action="role"][data-role="super_admin"]');
@@ -420,7 +420,7 @@ async function main() {
 
     console.log('\n[10c] Super admin provisioning + auth flows');
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
     await click('[data-action="role"][data-role="super_admin"]');
     await waitFor(`document.querySelector('[data-action="modal"][data-modal="salon"]') !== null`);
     await click(`[data-action="modal"][data-modal="salon"]`);
@@ -432,25 +432,14 @@ async function main() {
     await waitFor(`document.body.innerText.includes('Luxe Glow Test Branch')`);
     assert(true, 'super admin provisions new salon (real button click)');
 
-    // Auth screen: sign-in toggle + Google sign-in (demo mode)
+    // Auth screen: sign-in toggle
     await click('[data-action="logout"]');
-    await waitFor(`document.querySelector('[data-action="google-signin"]') !== null`);
+    await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
     await click('[data-action="toggle-form-mode"]');
     await new Promise((r) => setTimeout(r, 200));
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"] [name="salonName"]') === null`), 'sign-in toggle hides salon name field');
     await click('[data-action="toggle-form-mode"]'); // back to signup
     await new Promise((r) => setTimeout(r, 150));
-    // Google Sign-In is REAL Firebase OAuth. In demo mode there is no Firebase
-    // backend, so it must NOT fabricate a session — an error toast is shown and
-    // the user stays on the auth screen.
-    await click('[data-action="google-signin"]');
-    await new Promise((r) => setTimeout(r, 400));
-    const googleBlocked = await evaluate(`(function () {
-        const toast = document.getElementById('toast-notification');
-        const stillAuth = document.querySelector('[data-action="google-signin"]') !== null;
-        return stillAuth && !!toast && !toast.textContent.includes('Signed in successfully');
-    })()`);
-    assert(googleBlocked, 'Google sign-in requires Firebase (demo mode shows error, no fake session)');
 
     console.log('\n[11] Mobile viewport & no horizontal overflow');
     await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 667, deviceScaleFactor: 3, mobile: true });

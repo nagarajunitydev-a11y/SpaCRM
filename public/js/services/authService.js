@@ -22,6 +22,7 @@ import { getInitialAuthToken } from '../config.js';
 import { store } from '../core/store.js';
 import { makeId } from '../core/utils.js';
 import showNotification from '../ui/notification.js';
+import { isAndroidTwa } from '../core/platform.js';
 import {
     signInWithRedirect,
     getRedirectResult,
@@ -88,6 +89,7 @@ export function ensureUserProfile(user) {
     const uid = user && user.uid;
     if (!uid) return Promise.resolve(null);
     if (profileLoads.has(uid)) return profileLoads.get(uid);
+    console.log('[AUTH] Ensuring user profile for uid:', uid);
     const pending = doEnsureUserProfile(user).finally(() => profileLoads.delete(uid));
     profileLoads.set(uid, pending);
     return pending;
@@ -99,7 +101,9 @@ async function doEnsureUserProfile(user) {
 
     const profileRef = fbDoc(fb.db, 'users', user.uid);
     try {
+        console.log('[AUTH] Firestore user profile lookup started for uid:', user.uid);
         const snap = await getDoc(profileRef);
+        console.log('[AUTH] Firestore user profile lookup completed. Snapshot exists:', snap.exists());
         if (snap.exists()) {
             const data = snap.data();
             return {
@@ -115,9 +119,10 @@ async function doEnsureUserProfile(user) {
             createdAt: new Date().toISOString(),
         };
         await fbSetDoc(profileRef, profile);
+        console.log('[AUTH] Created new user profile for uid:', user.uid);
         return { uid: user.uid, ...profile };
     } catch (err) {
-        console.warn('Could not read/create user profile:', err);
+        console.warn('[AUTH] Could not read/create user profile:', err);
         return { uid: user.uid, role: 'salon_owner' };
     }
 }
@@ -125,19 +130,24 @@ async function doEnsureUserProfile(user) {
 export function handleAuthStateChanged(user) {
     const fb = getFirebase();
     if (!fb) {
+        console.log('[AUTH] Auth state changed: Firebase not initialized (demo mode?).');
         store.setState({ authReady: true, currentUser: null });
         return;
     }
 
     if (!user) {
+        console.log('[AUTH] Auth state changed: user is null (signed out or not signed in).');
         store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
+
+    console.log('[AUTH] Auth state changed: user signed in -', user.email || user.uid);
 
     // A signed-in but unidentified session (anonymous, no verified identity)
     // is not a real account — keep these users on the login screen instead of
     // fabricating an owner dashboard for them.
     if (user.isAnonymous && !user.email && !user.phoneNumber) {
+        console.log('[AUTH] Anonymous user with no email/phone treated as guest.');
         store.setState({ authReady: true, currentUser: null, userRole: 'guest', accountRole: 'salon_owner' });
         return;
     }
@@ -156,6 +166,7 @@ export function handleAuthStateChanged(user) {
     ensureUserProfile(user)
         .then((profile) => {
             if (!profile) return;
+            console.log('[AUTH] User profile found/created. Role:', profile.role, 'UID:', profile.uid);
             const role = profile.role === 'super_admin' ? 'super_admin' : 'salon_owner';
             store.setState({
                 accountRole: role,
@@ -168,7 +179,7 @@ export function handleAuthStateChanged(user) {
             });
         })
         .catch((err) => {
-            console.warn('Could not reconcile user profile after sign-in:', err);
+            console.warn('[AUTH] Could not reconcile user profile after sign-in:', err);
         });
 }
 
@@ -179,11 +190,15 @@ export function handleAuthStateChanged(user) {
 export async function setUserSalon(salonId) {
     const fb = getFirebase();
     const user = fb && fb.auth.currentUser;
-    if (!fb || !user || !salonId) return;
+    if (!fb || !user || !salonId) {
+        console.log('[AUTH] setUserSalon: missing fb, user, or salonId:', {fb, user, salonId});
+        return;
+    }
+    console.log('[AUTH] Persisting salonId:', salonId, 'for user:', user.uid);
     try {
         await fbSetDoc(fbDoc(fb.db, 'users', user.uid), { salonId }, { merge: true });
     } catch (err) {
-        console.warn('Could not persist preferred salon:', err);
+        console.warn('[AUTH] Could not persist preferred salon:', err);
     }
 }
 
@@ -198,8 +213,17 @@ export async function setUserSalon(salonId) {
  * The OAuth callback is consumed by `handleRedirectResult()` on the next load.
  */
 export async function signInWithGoogle() {
+    console.log('[AUTH] Google Sign-In started.');
+    if (isAndroidTwa()) {
+        console.log('[AUTH] Google Sign-In blocked on Android TWA.');
+        return {
+            ok: false,
+            error: 'Google Sign-In is not available on Android. Please use email sign-in.',
+        };
+    }
     const fb = getFirebase();
     if (!fb) {
+        console.log('[AUTH] Google Sign-In failed: Firebase not initialized.');
         return {
             ok: false,
             error: 'Google Sign-In requires Firebase Authentication. Configure the Firebase project or use email sign-in.',
@@ -212,6 +236,7 @@ export async function signInWithGoogle() {
  * policies, popup blockers and Cross-Origin-Opener-Policy. Session persists in
  * local storage. */
 async function signInWithGoogleRedirect(fb) {
+    console.log('[AUTH] About to call signInWithRedirect.');
     try {
         // Ensure the signed-in session survives the redirect round-trip and
         // every subsequent reload (mobile Safari / ITP friendly).
@@ -234,6 +259,7 @@ async function signInWithGoogleRedirect(fb) {
  * of silently leaving them on the login screen.
  */
 export async function handleRedirectResult() {
+    console.log('[AUTH] Handling redirect result.');
     const fb = getFirebase();
     if (!fb) return { ok: true, noop: true };
 
@@ -241,7 +267,7 @@ export async function handleRedirectResult() {
         const result = await getRedirectResult(fb.auth);
         if (result && result.user) {
             const u = result.user;
-            console.info(`[auth] Redirect sign-in completed for ${u.email || u.uid}.`);
+            console.info('[AUTH] Redirect sign-in completed for', u.email || u.uid);
             // Navigate straight to the owner dashboard with the verified identity.
             handleAuthStateChanged(u);
             // Surface the outcome — after a full-page redirect the google-signin
@@ -253,11 +279,11 @@ export async function handleRedirectResult() {
         }
         // No pending redirect (a normal cold load) — the auth-state listener is
         // the source of truth for any restored session.
-        console.info(`[auth] No pending redirect result.`);
+        console.info('[AUTH] No pending redirect result.');
         return { ok: true, noop: true };
     } catch (err) {
         if (err.code === 'auth/redirect-cancelled-by-user') {
-            console.info('[auth] Redirect sign-in cancelled by user.');
+            console.info('[AUTH] Redirect sign-in cancelled by user.');
             return { ok: false, error: 'Google sign-in was cancelled.' };
         }
         const message = friendlyAuthError(err);
@@ -279,7 +305,7 @@ export async function signInWithEmail(email, password) {
         await handleAuthStateChanged(cred.user);
         return { ok: true };
     } catch (err) {
-        console.warn('Email sign-in error:', err.code || err.message);
+        console.warn('[AUTH] Email sign-in error:', err.code || err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
 }
@@ -294,7 +320,7 @@ export async function signUpWithEmail(email, password) {
         await handleAuthStateChanged(cred.user);
         return { ok: true };
     } catch (err) {
-        console.warn('Account creation error:', err.code || err.message);
+        console.warn('[AUTH] Account creation error:', err.code || err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
 }
@@ -309,7 +335,7 @@ export async function signInAnonymouslyNow() {
         await signInAnonymously(fb.auth);
         return { ok: true };
     } catch (err) {
-        console.warn('Anonymous sign-in error:', err.code || err.message);
+        console.warn('[AUTH] Anonymous sign-in error:', err.code || err.message);
         return { ok: false, error: friendlyAuthError(err) };
     }
 }
@@ -317,10 +343,11 @@ export async function signInAnonymouslyNow() {
 /** Sign-out — clears the session in both modes. */
 export async function signOut() {
     const fb = getFirebase();
+    console.log('[AUTH] Signing out user.');
     try {
         if (fb) await fbSignOut(fb.auth);
     } catch (err) {
-        console.warn('Sign-out error:', err.code || err.message);
+        console.warn('[AUTH] Sign-out error:', err.code || err.message);
     }
     store.setState({
         userRole: 'guest',
@@ -340,7 +367,7 @@ export async function restoreSession() {
         try {
             await signInWithCustomToken(fb.auth, token);
         } catch (err) {
-            console.warn('Custom token sign-in failed:', err.code || err.message);
+            console.warn('[AUTH] Custom token sign-in failed:', err.code || err.message);
         }
     }
 }

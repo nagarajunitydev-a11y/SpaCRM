@@ -135,9 +135,19 @@ function buildView(state) {
     // The role is resolved from the signed-in user's Firestore profile
     // (accountRole). A user can never reach the Super Admin module unless their
     // profile grants it — tampering with navigation state alone is not enough.
-    if (state.userRole === 'guest') return renderLogin(state);
-    if (state.userRole === 'super_admin' && state.accountRole === 'super_admin') return renderSuperAdmin(state);
-    if (state.needsSalon) return renderSalonSetup(state);
+    if (state.userRole === 'guest') {
+        console.log('[MAIN] Rendering login view (guest).');
+        return renderLogin(state);
+    }
+    if (state.userRole === 'super_admin' && state.accountRole === 'super_admin') {
+        console.log('[MAIN] Rendering Super Admin view.');
+        return renderSuperAdmin(state);
+    }
+    if (state.needsSalon) {
+        console.log('[MAIN] Rendering Salon Setup view (needs salon).');
+        return renderSalonSetup(state);
+    }
+    console.log('[MAIN] Rendering owner tab view. Active tab:', state.activeTab);
     return renderOwnerTab(state);
 }
 
@@ -168,9 +178,11 @@ function renderApp() {
 
     let html;
     try {
+        console.log('[MAIN] Building shell for state:', state);
         html = buildShell(state);
+        console.log('[MAIN] Shell built successfully.');
     } catch (err) {
-        console.error('Render error:', err);
+        console.error('[MAIN] Render error:', err);
         html = `
             <div class="flex-1 flex items-center justify-center p-8">
                 <div class="bg-slate-900 border border-rose-500/30 rounded-2xl p-6 text-center max-w-xs">
@@ -181,7 +193,9 @@ function renderApp() {
         `;
     }
 
+    console.log('[MAIN] Setting app innerHTML.');
     appEl.innerHTML = html;
+    console.log('[MAIN] App innerHTML set.');
     sanitizeDOM(appEl);
     refreshIcons(appEl);
 
@@ -558,27 +572,7 @@ const actions = {
     },
 
     async 'google-signin'() {
-        let result;
-        try {
-            result = await authService.signInWithGoogle();
-        } catch (err) {
-            showNotification(err.message || 'Sign-in failed.', 'error');
-            return;
-        }
-        if (result.ok && result.redirecting) {
-            showNotification('Redirecting to Google…');
-            return;
-        }
-        if (!result.ok) {
-            showNotification(result.error || 'Sign-in failed.', 'error');
-            return;
-        }
-        // The auth-state change already routed the owner to their dashboard;
-        // re-resolve the salon scope so tenant data loads as soon as their
-        // salons arrive (never a stale/default salon id).
-        syncSalonScope();
-        const name = store.getState().currentUser?.displayName;
-        showNotification(name ? `Signed in as ${name}!` : 'Signed in successfully!');
+        showNotification('Google Sign-In is not available. Please use email sign-in.', 'error');
     },
 
     async 'email-auth'(form) {
@@ -898,32 +892,42 @@ function registerServiceWorker() {
 /* ------------------------------------------------------------------ */
 
 async function bootstrap() {
+    console.log('[MAIN] Bootstrap started.');
     await initFirebase();
+    console.log('[MAIN] Firebase initialized.');
 
     if (isDemoMode()) {
+        console.log('[MAIN] Running in demo mode.');
         seedDemoData();
         store.setState({ authReady: true });
     } else {
+        console.log('[MAIN] Running in Firebase mode.');
         onAuthStateChanged(async (user) => {
             try {
+                console.log('[MAIN] Auth state changed. User:', user ? (user.email || user.uid) : 'null');
                 await authService.handleAuthStateChanged(user);
                 syncSalonScope();
+                console.log('[MAIN] Auth state handled and salon scope synced.');
                 renderApp();
+                console.log('[MAIN] App rendered successfully.');
             } catch (err) {
+                console.error('[MAIN] Error in auth state change handler:', err);
                 renderApp();
             }
         });
         await authService.restoreSession();
+        console.log('[MAIN] Session restored.');
         // Every device uses the full-page Google redirect flow, so the pending
         // OAuth redirect result must be explicitly consumed during
         // initialisation (signInWithRedirect reloads the page there) —
         // getRedirectResult captures the login outcome so the success/error
         // toast can be shown on the way back from Google.
         authService.handleRedirectResult().catch((err) => {
-            console.warn('Redirect result handling failed:', err);
+            console.warn('[MAIN] Redirect result handling failed:', err);
         });
     }
 
+    console.log('[MAIN] Initializing repositories.');
     salonsRepository.initSalons();
     // Tenant repositories start un-scoped; resolveSalonScope points each one at
     // the active owner salon once the salons list arrives (never a default id).
@@ -932,6 +936,7 @@ async function bootstrap() {
     staffRepository.initStaff(null);
     appointmentsRepository.initAppointments(null);
 
+    console.log('[MAIN] Subscribing to store changes.');
     store.subscribe(renderApp);
 
     // Re-derive salon scope whenever the store changes (auth transitions, the
@@ -939,10 +944,14 @@ async function bootstrap() {
     // resolveSalonScope no-ops unless the scope actually changed.
     store.subscribe(() => resolveSalonScope());
 
+    console.log('[MAIN] Attaching event delegation.');
     attachDelegation();
+    console.log('[MAIN] Initial render of app.');
     renderApp();
     resolveSalonScope();
+    console.log('[MAIN] Registering service worker.');
     registerServiceWorker();
+    console.log('[MAIN] Bootstrap completed.');
 }
 
 bootstrap();

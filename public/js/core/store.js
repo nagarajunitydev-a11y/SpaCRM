@@ -36,7 +36,7 @@ export const store = createStore({
     mode: 'demo', // 'demo' | 'firebase'
     network: navigator.onLine !== false,
     authReady: false,
-    authFormMode: 'signup', // 'signup' | 'signin'
+    authFormMode: 'signin', // 'signup' | 'signin'
     accountRole: 'salon_owner', // persistent role from the user profile (Firestore)
     currentUser: null,
     userRole: 'guest', // 'guest' | 'salon_owner' | 'super_admin'
