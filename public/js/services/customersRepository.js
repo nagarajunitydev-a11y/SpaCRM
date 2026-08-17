@@ -12,6 +12,9 @@
  * anything is written. Self-referrals are rejected.
  */
 
+import { store } from '../core/store.js';
+import { isDemoMode } from './firebase.js';
+import { getDocument, updateDocument } from './db.js';
 import { createScopedRepository } from './scopedRepository.js';
 import {
     REFERRAL_SIGNUP_BONUS,
@@ -144,6 +147,40 @@ export function getCustomer(id) {
     return listCustomers().find((c) => c.id === id) || null;
 }
 
+/**
+ * Fetch a customer by id from a specific salon, bypassing the current salon
+ * scope. Used for cross-salon referral lookups (e.g. crediting a referrer who
+ * belongs to a different salon). In demo mode searches the full store; in
+ * Firebase mode reads directly from Firestore.
+ */
+export async function getCustomerFromSalon(customerId, salonId) {
+    if (!customerId || !salonId) return null;
+    if (isDemoMode()) {
+        return (store.getState().customersList || []).find(
+            (c) => c.id === customerId && c.salonId === salonId,
+        ) || null;
+    }
+    return getDocument(['salons', salonId, 'customers'], customerId);
+}
+
+/**
+ * Update a customer in a specific salon. Used for cross-salon operations like
+ * crediting a referrer's points when the referrer belongs to a different salon.
+ */
+export async function updateCustomerInSalon(customerId, salonId, patch) {
+    if (!customerId || !salonId) return null;
+    if (isDemoMode()) {
+        const list = store.getState().customersList || [];
+        store.setState({
+            customersList: list.map((c) =>
+                c.id === customerId && c.salonId === salonId ? { ...c, ...patch } : c,
+            ),
+        });
+        return { id: customerId, ...patch };
+    }
+    return updateDocument(['salons', salonId, 'customers'], customerId, patch);
+}
+
 /** Stable referral code for a customer (fallback derived from id). */
 export function getReferralCode(customer) {
     if (!customer) return '';
@@ -151,6 +188,12 @@ export function getReferralCode(customer) {
     const stable = referralCodeFor(customer);
     // Persist the code so it stays identical across devices/sessions.
     repo.update(customer.id, { referralCode: stable }).catch(() => {});
+    // Register in the global registry so the code can be looked up for referrals.
+    if (customer.salonId) {
+        referralCodesRepository.registerReferralCode(
+            referralCodesRepository.customerCodeEntry(stable, customer, customer.salonId),
+        ).catch(() => {});
+    }
     return stable;
 }
 
@@ -183,9 +226,11 @@ export default {
     findCustomerByName,
     findCustomerByPhone,
     updateCustomer,
+    updateCustomerInSalon,
     deleteCustomer,
     listCustomers,
     getCustomer,
+    getCustomerFromSalon,
     getReferralCode,
     redeemReward,
     seed,
