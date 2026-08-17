@@ -8,6 +8,18 @@ import { sectionHeader, actionButton, badge, emptyState, iconAction } from '../c
 import { icon } from '../icons.js';
 import { scopedBySalon } from '../../core/utils.js';
 
+const STATUS_CLASSES = {
+    'Confirmed': 'bg-blue-500/15 text-blue-400',
+    'In Progress': 'bg-amber-500/15 text-amber-400',
+    'Completed': 'bg-emerald-500/15 text-emerald-400',
+    'Cancelled': 'bg-rose-500/15 text-rose-400',
+};
+
+function quickStatusButton(id, from, to, label, colors) {
+    return `<button data-action="update-appointment-status" data-id="${esc(id)}" data-status="${esc(to)}"
+        class="px-2 py-1 ${colors} text-[10px] font-semibold rounded-lg hover:opacity-80 transition active:scale-95 touch-manipulation">${esc(label)}</button>`;
+}
+
 export function renderAppointments(state) {
     const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
 
@@ -33,9 +45,11 @@ export function renderAppointments(state) {
                                 <div class="text-right shrink-0">
                                     <span class="text-xs font-bold text-slate-200 block">${esc(a.date)}</span>
                                     <span class="text-[11px] text-slate-400 block">${esc(a.time)}</span>
-                                    <span class="inline-block mt-1">${badge(a.status)}</span>
+                                    <span class="inline-block mt-1">${badge(a.status, STATUS_CLASSES[a.status])}</span>
                                 </div>
-                                <div class="flex items-center space-x-1.5 shrink-0">
+                                <div class="flex items-center flex-wrap gap-1 shrink-0">
+                                    ${a.status === 'Confirmed' ? quickStatusButton(a.id, 'Confirmed', 'In Progress', 'Start', 'bg-blue-500/15 text-blue-400') : ''}
+                                    ${a.status === 'In Progress' ? quickStatusButton(a.id, 'In Progress', 'Completed', 'Complete', 'bg-emerald-500/15 text-emerald-400') : ''}
                                     ${iconAction('open-edit', { type: 'appointment', id: a.id }, 'Edit appointment', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
                                     ${iconAction('request-delete', { type: 'appointment', id: a.id, label: a.customerName }, 'Delete appointment', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
                                 </div>

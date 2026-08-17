@@ -2,11 +2,9 @@
  * appointmentsRepository.js
  * Tenant-scoped appointments / bookings.
  *
- * When a new appointment is created for a referred customer, the referral is
- * marked Successful and the referrer receives 100 bonus points with an audit
- * transaction record. This keeps client creation decoupled from referral
- * completion — the referral is only rewarded when the referred customer
- * actually books a visit.
+ * Referral bonus is credited when an appointment reaches "Completed" status,
+ * not on booking creation.  This ensures the referrer is rewarded only when
+ * the referred customer actually attends their visit.
  */
 
 import { createScopedRepository } from './scopedRepository.js';
@@ -32,23 +30,15 @@ export const deleteAppointment = repo.remove;
 export const listAppointments = repo.data;
 
 /**
- * Add an appointment. When this is the first appointment for a referred
- * customer, the referral is marked Successful and the referrer is credited.
+ * Add an appointment.  Referral bonus is NOT triggered here — it fires
+ * only when the appointment status changes to "Completed".
  */
 export async function addAppointment(payload, opts = {}) {
-    const created = await repo.add(payload, opts);
-    // Fire-and-forget: referral bonus processing must not block the booking.
-    if (created && created.id) {
-        maybeCreditReferralBonus(created).catch((err) => {
-            console.warn('[REFERRAL] Bonus credit failed:', err);
-        });
-    }
-    return created;
+    return repo.add(payload, opts);
 }
 
 /**
- * When a referred customer books their first appointment, mark the referral
- * as Successful, credit the referrer's points, and record the transaction.
+ * Credit the referrer when a referred customer's appointment is completed.
  *
  * Handles mid-chain failures: if a previous call marked the referral
  * Successful but crashed before crediting points, this call detects the
@@ -57,7 +47,7 @@ export async function addAppointment(payload, opts = {}) {
  * Idempotent: checks the transaction ledger before crediting to prevent
  * duplicate points.
  */
-async function maybeCreditReferralBonus(appointment) {
+export async function maybeCreditReferralBonus(appointment) {
     console.log('[REFERRAL] ─── maybeCreditReferralBonus START ───');
     console.log('[REFERRAL] Appointment ID:', appointment.id,
         '| Customer ID:', appointment.customerId,

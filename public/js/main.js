@@ -823,13 +823,44 @@ const actions = {
             status: data.status || 'Confirmed',
         };
         if (id) {
+            const appointments = store.getState().appointmentsList || [];
+            const oldAppointment = appointments.find(a => a.id === id);
+            const wasCompleted = oldAppointment && oldAppointment.status === 'Completed';
             await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
+            // Trigger referral bonus when status changes to Completed
+            if (payload.status === 'Completed' && !wasCompleted) {
+                appointmentsRepository.maybeCreditReferralBonus({ id, ...payload }).catch(err => {
+                    console.warn('[REFERRAL] Bonus credit failed:', err);
+                });
+            }
         } else {
             await appointmentsRepository.addAppointment(payload);
             showNotification('Appointment booked successfully!');
         }
         closeModal();
+    },
+
+    async 'update-appointment-status'(el) {
+        const id = el.dataset.id;
+        const status = el.dataset.status;
+        if (!id || !status) return;
+        const validStatuses = ['Confirmed', 'In Progress', 'Completed'];
+        if (!validStatuses.includes(status)) {
+            showNotification('Invalid status.', 'error');
+            return;
+        }
+        await appointmentsRepository.updateAppointment(id, { status });
+        showNotification(`Appointment marked as ${status}!`);
+        if (status === 'Completed') {
+            const appointments = store.getState().appointmentsList || [];
+            const appointment = appointments.find(a => a.id === id);
+            if (appointment) {
+                appointmentsRepository.maybeCreditReferralBonus(appointment).catch(err => {
+                    console.warn('[REFERRAL] Bonus credit failed:', err);
+                });
+            }
+        }
     },
 
     async 'submit-salon'(form, event, data) {

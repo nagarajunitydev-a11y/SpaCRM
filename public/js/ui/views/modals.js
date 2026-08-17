@@ -124,6 +124,8 @@ function renderForm(state, type) {
         const pre = rec ? { ...rec, ...draft } : draft;
         const statusOptions = [
             { value: 'Confirmed', label: 'Confirmed' },
+            { value: 'In Progress', label: 'In Progress' },
+            { value: 'Completed', label: 'Completed' },
             { value: 'Cancelled', label: 'Cancelled' },
         ];
         return `
