@@ -35,8 +35,6 @@ export function renderCustomers(state) {
 
             ${renderReferralSection(state)}
 
-            ${renderRewardsProgram()}
-
             ${customers.length === 0
                 ? emptyState('No clients registered.')
                 : `
@@ -129,36 +127,6 @@ function renderReferralActivity(referrals) {
                     </div>
                 `).join('')}
             </div>
-        </div>
-    `;
-}
-
-/** Compact program overview: the reward tiers as chips. */
-function renderRewardsProgram() {
-    return `
-        <div class="bg-gradient-to-br from-brand-900/40 to-slate-900 border border-brand-500/20 p-4 rounded-2xl">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="font-bold text-xs text-slate-100 flex items-center space-x-1.5">
-                    <i data-lucide="gift" class="w-3.5 h-3.5 text-brand-400"></i>
-                    <span>Referral Rewards Program</span>
-                </h3>
-                <div class="flex items-center gap-2 shrink-0">
-                    <button data-action="show-referral-info" aria-label="How rewards work" title="How rewards work"
-                        class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
-                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
-                    </button>
-                    <span class="text-[10px] text-slate-400 font-medium">Redeem anytime</span>
-                </div>
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-                ${REWARD_TIERS.map((t) => `
-                    <div class="bg-slate-950/60 border border-slate-800/60 rounded-xl px-2 py-2.5 text-center">
-                        <p class="text-[10px] font-extrabold text-brand-400">${esc(t.points)} pts</p>
-                        <p class="text-[9px] text-slate-300 leading-tight mt-0.5">${esc(t.label)}</p>
-                    </div>
-                `).join('')}
-            </div>
-            <p class="text-[10px] text-slate-500 mt-2.5">Clients earn ${esc(REFERRAL_SIGNUP_BONUS)} points on signup and ${esc(REFERRAL_BONUS_POINTS)} more for every successful referral.</p>
         </div>
     `;
 }
