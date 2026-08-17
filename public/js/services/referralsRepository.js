@@ -16,7 +16,7 @@
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { listenCollection, getDocument, setDocument, updateDocument } from './db.js';
+import { listenCollection, setDocument, updateDocument } from './db.js';
 import { normalizeCode } from './referralCodesRepository.js';
 import { REFERRAL_BONUS_POINTS } from '../core/rewards.js';
 
@@ -124,10 +124,7 @@ export function referralIdFor(code, referredCustomerId) {
 /** Find a referral for a code + referred customer (by deterministic id). */
 export async function findReferral(code, referredCustomerId) {
     const id = referralIdFor(code, referredCustomerId);
-    if (isDemoMode()) {
-        return (store.getState().referralsList || []).find((r) => r.id === id) || null;
-    }
-    return getDocument(['referrals'], id);
+    return (store.getState().referralsList || []).find((r) => r.id === id) || null;
 }
 
 /**
