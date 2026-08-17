@@ -18,6 +18,7 @@ const TITLES = {
     appointment: 'Book Appointment',
     salon: 'Provision New Salon',
     rewards: 'Client Rewards',
+    'referral-info': 'Referral Rewards Program',
     'confirm-delete': 'Confirm Deletion',
 };
 
@@ -64,6 +65,10 @@ function renderForm(state, type) {
 
     if (type === 'rewards') {
         return renderRewardsModal(state);
+    }
+
+    if (type === 'referral-info') {
+        return renderReferralInfo();
     }
 
     if (type === 'confirm-delete') {
@@ -245,6 +250,114 @@ function renderDeleteConfirm(state) {
 }
 
 export default renderModalSheet;
+
+/**
+ * Informational modal: explains how the Referral Rewards Program works.
+ * Rendered inside the standard modal bottom-sheet shell — no form, no state.
+ */
+function renderReferralInfo() {
+    return `
+        <div class="space-y-4">
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 space-y-2.5">
+                <h4 class="text-[11px] font-bold text-brand-400 uppercase tracking-widest">How Referrals Work</h4>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg bg-brand-500/15 text-brand-400 flex items-center justify-center shrink-0 mt-0.5"><i data-lucide="share-2" class="w-3.5 h-3.5"></i></span>
+                    <p class="text-xs text-slate-300 leading-relaxed">Share your salon's unique referral code with friends. When a new client signs up and enters your code, they are linked to your salon.</p>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg bg-brand-500/15 text-brand-400 flex items-center justify-center shrink-0 mt-0.5"><i data-lucide="user-plus" class="w-3.5 h-3.5"></i></span>
+                    <p class="text-xs text-slate-300 leading-relaxed">The referred friend automatically becomes a client of your salon and is added to your client list.</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 space-y-2.5">
+                <h4 class="text-[11px] font-bold text-brand-400 uppercase tracking-widest">Earning Reward Points</h4>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i></span>
+                    <div>
+                        <p class="text-xs text-slate-300 leading-relaxed"><span class="font-semibold text-slate-100">100 pts</span> — credited when a referred friend first signs up as a new client.</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i></span>
+                    <div>
+                        <p class="text-xs text-slate-300 leading-relaxed"><span class="font-semibold text-slate-100">100 pts</span> — additional bonus when the referred friend completes their first successful appointment.</p>
+                    </div>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="w-6 h-6 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center shrink-0 mt-0.5"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i></span>
+                    <div>
+                        <p class="text-xs text-slate-300 leading-relaxed"><span class="font-semibold text-slate-100">100 pts</span> — new client sign-up bonus for every client added to your salon (no referral needed).</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 space-y-2.5">
+                <h4 class="text-[11px] font-bold text-brand-400 uppercase tracking-widest">Reward Tiers & Redemption</h4>
+                <div class="space-y-2">
+                    ${REWARD_TIERS.map((t) => `
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="flex items-center gap-2.5">
+                                <span class="w-6 h-6 rounded-lg bg-brand-500/15 text-brand-400 flex items-center justify-center shrink-0"><i data-lucide="star" class="w-3.5 h-3.5"></i></span>
+                                <div>
+                                    <p class="text-xs font-semibold text-slate-100">${esc(t.label)}</p>
+                                    <p class="text-[10px] text-slate-500">${esc(t.points)} points required</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                <p class="text-xs text-slate-300 leading-relaxed pt-1">Tap <span class="font-semibold text-slate-100">Redeem Reward</span> on any client card to exchange points for a voucher. Once redeemed, the corresponding points are deducted from the client's balance.</p>
+            </div>
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 space-y-2.5">
+                <h4 class="text-[11px] font-bold text-brand-400 uppercase tracking-widest">Eligibility & Conditions</h4>
+                <ul class="space-y-1.5">
+                    <li class="flex items-start gap-2">
+                        <i data-lucide="dot" class="w-4 h-4 text-brand-400 shrink-0 mt-0.5"></i>
+                        <span class="text-xs text-slate-300">Referral codes are unique per client and valid across all salon branches.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i data-lucide="dot" class="w-4 h-4 text-brand-400 shrink-0 mt-0.5"></i>
+                        <span class="text-xs text-slate-300">A referred client must be <span class="font-semibold text-slate-100">new</span> (not already registered) to earn referral points.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i data-lucide="dot" class="w-4 h-4 text-brand-400 shrink-0 mt-0.5"></i>
+                        <span class="text-xs text-slate-300">Points are <span class="font-semibold text-slate-100">non-transferable</span> and tied to the individual client account.</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i data-lucide="dot" class="w-4 h-4 text-brand-400 shrink-0 mt-0.5"></i>
+                        <span class="text-xs text-slate-300">Pending referrals can be reviewed and rejected by the salon owner before points are credited.</span>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-4 space-y-2.5">
+                <h4 class="text-[11px] font-bold text-brand-400 uppercase tracking-widest">Reward Status</h4>
+                <div class="space-y-1.5">
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block text-[10px] px-2 py-0.5 bg-amber-500/15 text-amber-400 font-semibold rounded-full">Pending</span>
+                        <span class="text-xs text-slate-300">Referral registered, awaiting first appointment.</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block text-[10px] px-2 py-0.5 bg-brand-500/15 text-brand-400 font-semibold rounded-full">Successful</span>
+                        <span class="text-xs text-slate-300">First appointment completed, bonus points pending.</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block text-[10px] px-2 py-0.5 bg-emerald-500/15 text-emerald-400 font-semibold rounded-full">Bonus Credited</span>
+                        <span class="text-xs text-slate-300">Points added to the client's balance — ready to redeem.</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="inline-block text-[10px] px-2 py-0.5 bg-rose-500/15 text-rose-400 font-semibold rounded-full">Rejected</span>
+                        <span class="text-xs text-slate-300">Referral declined by salon owner — no points awarded.</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    `;
+}
 
 /**
  * Rewards bottom sheet: redeem a tier or share the client's referral code.

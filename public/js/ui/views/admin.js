@@ -111,10 +111,16 @@ function renderReferralOverview(state) {
 
     return `
         <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-            <h3 class="font-bold text-xs text-slate-100 flex items-center space-x-1.5 mb-3">
-                <i data-lucide="megaphone" class="w-3.5 h-3.5 text-brand-400"></i>
-                <span>Referral Activity</span>
-            </h3>
+            <div class="flex items-center justify-between gap-3 mb-3">
+                <h3 class="font-bold text-xs text-slate-100 flex items-center space-x-1.5">
+                    <i data-lucide="megaphone" class="w-3.5 h-3.5 text-brand-400"></i>
+                    <span>Referral Activity</span>
+                </h3>
+                <button data-action="show-referral-info" aria-label="How referrals work" title="How referrals work"
+                    class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation shrink-0">
+                    <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
             <div class="grid grid-cols-2 gap-2">
                 ${statCard('Total Referrals', total)}
                 ${statCard('Successful', successful, 'text-emerald-400')}

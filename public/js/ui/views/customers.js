@@ -69,7 +69,13 @@ function renderReferralSection(state) {
                     <i data-lucide="megaphone" class="w-3.5 h-3.5 text-brand-400"></i>
                     <span>Referral Program</span>
                 </h3>
-                <span class="text-[10px] text-slate-400 font-medium">Friends earn ${esc(REFERRAL_BONUS_POINTS)} bonus pts</span>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button data-action="show-referral-info" aria-label="How referrals work" title="How referrals work"
+                        class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <span class="text-[10px] text-slate-400 font-medium">Friends earn ${esc(REFERRAL_BONUS_POINTS)} bonus pts</span>
+                </div>
             </div>
 
             <div class="flex items-center gap-3 bg-slate-950 border border-slate-800 rounded-xl p-3">
@@ -136,7 +142,13 @@ function renderRewardsProgram() {
                     <i data-lucide="gift" class="w-3.5 h-3.5 text-brand-400"></i>
                     <span>Referral Rewards Program</span>
                 </h3>
-                <span class="text-[10px] text-slate-400 font-medium">Redeem anytime</span>
+                <div class="flex items-center gap-2 shrink-0">
+                    <button data-action="show-referral-info" aria-label="How rewards work" title="How rewards work"
+                        class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
+                        <i data-lucide="info" class="w-3.5 h-3.5"></i>
+                    </button>
+                    <span class="text-[10px] text-slate-400 font-medium">Redeem anytime</span>
+                </div>
             </div>
             <div class="grid grid-cols-3 gap-2">
                 ${REWARD_TIERS.map((t) => `

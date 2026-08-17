@@ -653,6 +653,11 @@ const actions = {
         }
     },
 
+    /** Open the Referral Rewards Program info modal. */
+    async 'show-referral-info'() {
+        openModal('referral-info');
+    },
+
     /** Copy the salon's own referral code. */
     async 'copy-salon-code'(el) {
         const code = el.dataset.code || '';
