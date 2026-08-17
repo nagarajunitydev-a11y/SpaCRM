@@ -242,5 +242,19 @@ service cloud.firestore {
         && referralTransitionAllowed();
       allow delete: if false;
     }
+
+    // ---------- Reward transactions (audit ledger) ----------
+    // Immutable append-only records of every points movement. Any signed-in
+    // user may read transactions for their own salon; admins see all. Only the
+    // server (via callable logic) or the client through salon-scoped writes may
+    // create new entries — updates and deletes are forbidden.
+    match /rewardTransactions/{txId} {
+      allow read: if isSignedIn()
+        && (isAdmin() || resource.data.salonId == null
+            || canAccessSalon(resource.data.salonId));
+      allow create: if isSignedIn()
+        && (isAdmin() || canAccessSalon(request.resource.data.salonId));
+      allow update, delete: if false;
+    }
   }
 }

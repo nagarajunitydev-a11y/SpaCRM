@@ -129,7 +129,7 @@ export function validateForm(formKey, data, ctx = {}) {
     if (formKey === 'submit-customer') {
         check(errors, 'name', v('name'), [required('Name is required.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
-        check(errors, 'email', v('email'), [required('Email is required.'), email('Enter a valid email address.')]);
+        check(errors, 'email', v('email'), [email('Enter a valid email address.')]);
         // Referral code is optional but, when present, must be a well-formed code.
         check(errors, 'referralCode', v('referralCode'), [referralCode('Enter a valid referral code (letters, numbers or dashes, e.g. LG-AB12CD).')]);
         return errors;

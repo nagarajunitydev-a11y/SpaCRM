@@ -746,7 +746,7 @@ const actions = {
             showNotification('Client updated successfully!');
         } else {
             await customersRepository.addCustomer(payload);
-            showNotification('Client added! 100 referral points credited.');
+            showNotification('Client added!');
         }
         closeModal();
     },
