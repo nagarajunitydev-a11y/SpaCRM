@@ -94,25 +94,37 @@ export async function addCustomer(payload) {
     }
 
     const created = await repo.add(row);
-    await referralCodesRepository.registerReferralCode(
-        referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
-    );
 
-    // ── Create a Pending referral (completed on first appointment) ───
+    // Register the new customer's referral code in the global registry.
+    // Side-effect: a failure here must not block customer creation.
+    try {
+        await referralCodesRepository.registerReferralCode(
+            referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
+        );
+    } catch (err) {
+        console.warn('[REFERRAL] Failed to register referral code for', created.id, err);
+    }
+
+    // Create a Pending referral (completed on first appointment).
+    // Side-effect: a failure here must not block customer creation.
     if (referring && referring.kind === 'customer' && referring.customerId) {
         if (referring.customerId === created.id) {
             console.warn('[REFERRAL] Self-referral rejected for customer:', created.id);
         } else {
-            await referralsRepository.createReferral({
-                code: referralCodesRepository.normalizeCode(code),
-                referringSalonId: referring.salonId,
-                referringCustomerId: referring.customerId,
-                referringCustomerName: referring.customerName,
-                referredSalonId: created.salonId,
-                referredCustomerId: created.id,
-                referredCustomerName: created.name,
-                referredCustomerPhone: created.phone,
-            });
+            try {
+                await referralsRepository.createReferral({
+                    code: referralCodesRepository.normalizeCode(code),
+                    referringSalonId: referring.salonId,
+                    referringCustomerId: referring.customerId,
+                    referringCustomerName: referring.customerName,
+                    referredSalonId: created.salonId,
+                    referredCustomerId: created.id,
+                    referredCustomerName: created.name,
+                    referredCustomerPhone: created.phone,
+                });
+            } catch (err) {
+                console.warn('[REFERRAL] Failed to create referral for', created.id, err);
+            }
         }
     }
 
@@ -136,9 +148,14 @@ export async function addCustomerQuick(payload) {
         },
         { skipValidation: true },
     );
-    await referralCodesRepository.registerReferralCode(
-        referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
-    );
+    // Side-effect: a failure here must not block customer creation.
+    try {
+        await referralCodesRepository.registerReferralCode(
+            referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
+        );
+    } catch (err) {
+        console.warn('[REFERRAL] Failed to register referral code for quick-add', created.id, err);
+    }
     return created;
 }
 

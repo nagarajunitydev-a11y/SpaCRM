@@ -92,6 +92,9 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
     async function add(payload, opts = {}) {
         // Reject invalid data before touching local state, store or Firestore.
         assertValidAdd(collectionName, payload, opts);
+        if (!salonId) {
+            throw new Error('No salon selected. Please set up your salon first.');
+        }
         // Every tenant record is stamped with its owning salon so lists can be
         // filtered by salonId as a defense-in-depth layer on top of the scoped
         // Firestore path.
