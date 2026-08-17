@@ -16,7 +16,7 @@
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { listenCollection, setDocument, updateDocument, getDocument } from './db.js';
+import { listenCollection, setDocument, updateDocument, getDocument, getCollection } from './db.js';
 import { normalizeCode } from './referralCodesRepository.js';
 import { REFERRAL_BONUS_POINTS } from '../core/rewards.js';
 
@@ -220,9 +220,36 @@ export async function completeReferral(referral) {
     });
 }
 
+/**
+ * One-shot Firestore fetch that refreshes the referrals store.
+ * Called after referral writes as a safety net in case the onSnapshot
+ * listener hasn't fired yet or the salonId filter caused a stale snapshot.
+ * In demo mode, this is a no-op (the listener-driven store is already current).
+ */
+export async function forceRefreshReferrals() {
+    if (isDemoMode()) return;
+    const state = store.getState();
+    const isAdmin = state.accountRole === 'super_admin';
+    const salonId = state.currentSalonId;
+    if (!isAdmin && !salonId) return;
+    try {
+        const opts = isAdmin ? {} : { where: [['referredSalonId', '==', salonId]] };
+        const rows = await getCollection(['referrals'], opts);
+        const sorted = sortReferrals(rows);
+        store.setState({ referralsList: sorted, referralsLoaded: true, referralsError: null });
+        console.log('[REFERRAL] forceRefreshReferrals: Total', rows.length,
+            '| Pending', rows.filter((r) => r.status === 'Pending').length,
+            '| Done', rows.filter((r) => r.status === 'Successful' || r.status === 'Bonus Credited').length,
+            '| Earned', rows.filter((r) => r.status === 'Bonus Credited').reduce((s, r) => s + (Number(r.bonusAmount) || 0), 0));
+    } catch (err) {
+        console.warn('[REFERRAL] forceRefreshReferrals failed:', err);
+    }
+}
+
 export default {
     seed,
     resubscribeReferrals,
+    forceRefreshReferrals,
     referralIdFor,
     findReferral,
     createReferral,

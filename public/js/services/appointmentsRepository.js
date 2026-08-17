@@ -151,9 +151,10 @@ async function maybeCreditReferralBonus(appointment) {
     });
     console.log('[REFERRAL] Reward transaction recorded for:', referral.id);
 
-    // 11. UI points refresh happens via the Firestore onSnapshot listener
-    //     which calls setData → store.setState, triggering a re-render.
-    console.log('[REFERRAL] UI points refresh triggered via Firestore listener for referrer:', referrer.id);
+    // 11. Force-refresh the referral card so Total/Done/Pending/Earned update
+    //     immediately (safety net on top of the onSnapshot realtime listener).
+    await referralsRepository.forceRefreshReferrals();
+    console.log('[REFERRAL] Referral card refreshed via forceRefreshReferrals');
     console.log('[REFERRAL] ─── maybeCreditReferralBonus END ───');
 }
 

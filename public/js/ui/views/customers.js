@@ -73,6 +73,28 @@ function renderReferralSection(state) {
         .filter((r) => r.status === 'Bonus Credited')
         .reduce((sum, r) => sum + (Number(r.bonusAmount) || 0), 0);
 
+    console.log('[REFERRAL-CARD] salonId:', state.currentSalonId,
+        '| Total:', total, '| Done:', successful, '| Pending:', pending, '| Earned:', earned,
+        '| referralsLoaded:', state.referralsLoaded, '| referralsError:', state.referralsError || 'none');
+
+    // Loading state — show a subtle placeholder while the Firestore listener syncs.
+    if (state.referralsLoaded === false && referrals.length === 0) {
+        return `
+            <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl">
+                <div class="flex items-center gap-2 mb-2">
+                    <i data-lucide="megaphone" class="w-3 h-3 text-brand-400"></i>
+                    <span class="font-bold text-[11px] text-slate-100">Referral Program</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5">
+                    ${miniStatCard('Total', '…')}
+                    ${miniStatCard('Done', '…', 'text-emerald-400')}
+                    ${miniStatCard('Pending', '…', 'text-amber-400')}
+                    ${miniStatCard('Earned', '…', 'text-brand-400')}
+                </div>
+            </div>
+        `;
+    }
+
     return `
         <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl">
             <div class="flex items-center justify-between gap-2 mb-2">

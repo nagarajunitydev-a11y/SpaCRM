@@ -122,6 +122,8 @@ export async function addCustomer(payload) {
                     referredCustomerName: created.name,
                     referredCustomerPhone: created.phone,
                 });
+                // Ensure the Referral Program card shows the new Pending entry.
+                referralsRepository.forceRefreshReferrals().catch(() => {});
             } catch (err) {
                 console.warn('[REFERRAL] Failed to create referral for', created.id, err);
             }
