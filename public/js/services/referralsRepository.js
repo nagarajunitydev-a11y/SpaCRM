@@ -168,6 +168,13 @@ export async function createReferral(data) {
         createdAt: now,
         updatedAt: now,
     };
+    console.log('[REFERRAL-RECORD] Creating Pending referral:',
+        '| id:', id,
+        '| referrer:', data.referringCustomerId,
+        '@ salon:', data.referringSalonId,
+        '| referred:', data.referredCustomerId,
+        '@ salon:', data.referredSalonId,
+        '| bonus:', REFERRAL_BONUS_POINTS);
     if (isDemoMode()) {
         const existing = store.getState().referralsList || [];
         if (!existing.some((r) => r.id === id)) {

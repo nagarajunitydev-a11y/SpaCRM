@@ -73,11 +73,21 @@ export async function addCustomer(payload) {
     }
 
     const code = (payload.referralCode || '').trim();
+    console.log('[REFERRAL-CUSTOMER] Adding client:', payload.name,
+        '| referralCode:', code || '(none)');
+
     const referring = code
         ? await referralCodesRepository.lookupReferralCode(code)
         : null;
     if (code && !referring) {
         throw new Error('Invalid referral code. Check the code and try again.');
+    }
+    if (referring) {
+        console.log('[REFERRAL-CUSTOMER] Referral code resolved →',
+            '| kind:', referring.kind,
+            '| salonId:', referring.salonId,
+            '| customerId:', referring.customerId || '(salon-level)',
+            '| customerName:', referring.customerName || '(none)');
     }
 
     const ownCode = await referralCodesRepository.generateUniqueCode('LG');
@@ -94,6 +104,12 @@ export async function addCustomer(payload) {
     }
 
     const created = await repo.add(row);
+    console.log('[REFERRAL-CUSTOMER] Client created →', created.id,
+        '| salonId:', created.salonId,
+        '| ownCode:', ownCode,
+        '| referredByCode:', created.referredByCode || '(none)',
+        '| referringCustomerId:', created.referringCustomerId || '(none)',
+        '| pts:', created.referralPoints);
 
     // Register the new customer's referral code in the global registry.
     // Side-effect: a failure here must not block customer creation.
@@ -101,6 +117,7 @@ export async function addCustomer(payload) {
         await referralCodesRepository.registerReferralCode(
             referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
         );
+        console.log('[REFERRAL-CUSTOMER] Registered own referral code:', ownCode);
     } catch (err) {
         console.warn('[REFERRAL] Failed to register referral code for', created.id, err);
     }
@@ -109,7 +126,8 @@ export async function addCustomer(payload) {
     // Side-effect: a failure here must not block customer creation.
     if (referring && referring.kind === 'customer' && referring.customerId) {
         if (referring.customerId === created.id) {
-            console.warn('[REFERRAL] Self-referral rejected for customer:', created.id);
+            console.warn('[REFERRAL-CUSTOMER] Self-referral rejected:',
+                'referrer', referring.customerId, '== referred', created.id);
         } else {
             try {
                 await referralsRepository.createReferral({
@@ -122,10 +140,16 @@ export async function addCustomer(payload) {
                     referredCustomerName: created.name,
                     referredCustomerPhone: created.phone,
                 });
+                console.log('[REFERRAL-CUSTOMER] Pending referral created:',
+                    'referrer A:', referring.customerId,
+                    '@ salon:', referring.salonId,
+                    '→ referred B:', created.id,
+                    '@ salon:', created.salonId);
                 // Ensure the Referral Program card shows the new Pending entry.
                 referralsRepository.forceRefreshReferrals().catch(() => {});
             } catch (err) {
-                console.warn('[REFERRAL] Failed to create referral for', created.id, err);
+                console.warn('[REFERRAL-CUSTOMER] Failed to create referral for',
+                    created.id, '| referrer:', referring.customerId, err);
             }
         }
     }
@@ -179,7 +203,14 @@ export async function getCustomerFromSalon(customerId, salonId) {
             (c) => c.id === customerId && c.salonId === salonId,
         ) || null;
     }
-    return getDocument(['salons', salonId, 'customers'], customerId);
+    try {
+        return await getDocument(['salons', salonId, 'customers'], customerId);
+    } catch (err) {
+        console.warn('[REFERRAL] getCustomerFromSalon failed for',
+            customerId, 'in salon', salonId,
+            '— likely cross-salon permission restriction:', err.message || err);
+        return null;
+    }
 }
 
 /**
@@ -192,6 +223,8 @@ export async function getCustomerFromSalon(customerId, salonId) {
  */
 export async function updateCustomerInSalon(customerId, salonId, patch) {
     if (!customerId || !salonId) return null;
+    console.log('[REFERRAL-UPDATE] updateCustomerInSalon:', customerId,
+        '| salon:', salonId, '| patch:', JSON.stringify(patch));
     if (isDemoMode()) {
         const list = store.getState().customersList || [];
         store.setState({
@@ -203,6 +236,7 @@ export async function updateCustomerInSalon(customerId, salonId, patch) {
     }
     // Write to Firestore first — if this fails, no local mutation happens.
     const result = await updateDocument(['salons', salonId, 'customers'], customerId, patch);
+    console.log('[REFERRAL-UPDATE] Firestore write done:', customerId, '| salon:', salonId);
     // Optimistic local update for instant UI feedback before the listener syncs.
     const list = store.getState().customersList || [];
     store.setState({
