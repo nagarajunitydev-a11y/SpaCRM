@@ -66,16 +66,6 @@ function renderReferralSection(state) {
     const code = salon.referralCode || '';
 
     const referrals = (state.referralsList || []).filter((r) => r.referredSalonId === state.currentSalonId);
-    const total = referrals.length;
-    const successful = referrals.filter((r) => r.status === 'Successful' || r.status === 'Bonus Credited').length;
-    const pending = referrals.filter((r) => r.status === 'Pending').length;
-    const earned = referrals
-        .filter((r) => r.status === 'Bonus Credited')
-        .reduce((sum, r) => sum + (Number(r.bonusAmount) || 0), 0);
-
-    console.log('[REFERRAL-CARD] salonId:', state.currentSalonId,
-        '| Total:', total, '| Done:', successful, '| Pending:', pending, '| Earned:', earned,
-        '| referralsLoaded:', state.referralsLoaded, '| referralsError:', state.referralsError || 'none');
 
     // Loading state — show a subtle placeholder while the Firestore listener syncs.
     if (state.referralsLoaded === false && referrals.length === 0) {
@@ -84,12 +74,6 @@ function renderReferralSection(state) {
                 <div class="flex items-center gap-2 mb-2">
                     <i data-lucide="megaphone" class="w-3 h-3 text-brand-400"></i>
                     <span class="font-bold text-[11px] text-slate-100">Referral Program</span>
-                </div>
-                <div class="grid grid-cols-4 gap-1.5">
-                    ${miniStatCard('Total', '…')}
-                    ${miniStatCard('Done', '…', 'text-emerald-400')}
-                    ${miniStatCard('Pending', '…', 'text-amber-400')}
-                    ${miniStatCard('Earned', '…', 'text-brand-400')}
                 </div>
             </div>
         `;
@@ -126,23 +110,7 @@ function renderReferralSection(state) {
                 </button>
             </div>
 
-            <div class="grid grid-cols-4 gap-1.5 mt-2">
-                ${miniStatCard('Total', total)}
-                ${miniStatCard('Done', successful, 'text-emerald-400')}
-                ${miniStatCard('Pending', pending, 'text-amber-400')}
-                ${miniStatCard('Earned', earned, 'text-brand-400')}
-            </div>
-
             ${renderReferralActivity(referrals)}
-        </div>
-    `;
-}
-
-function miniStatCard(label, value, valueClass = 'text-white') {
-    return `
-        <div class="bg-slate-950/60 border border-slate-800/60 px-2 py-2 rounded-xl text-center">
-            <p class="text-[9px] text-slate-400 font-medium leading-tight">${esc(label)}</p>
-            <p class="text-sm font-extrabold mt-0.5 ${escAttr(valueClass)}">${esc(value)}</p>
         </div>
     `;
 }
