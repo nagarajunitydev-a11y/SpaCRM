@@ -25,6 +25,7 @@ import { refreshIcons } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, networkBanner } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
+import { debounce } from './core/utils.js';
 import * as rewards from './core/rewards.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
@@ -708,6 +709,15 @@ const actions = {
         showNotification('Referral rejected.');
     },
 
+    async 'customer-search-list'(el) {
+        const query = (el.value || '').trim();
+        store.setState({ customerSearchQuery: query });
+    },
+
+    async 'clear-customer-search'() {
+        store.setState({ customerSearchQuery: '' });
+    },
+
     async 'manage-salon'(el) {
         store.setState({
             currentSalonId: el.dataset.id,
@@ -803,6 +813,11 @@ const actions = {
     },
 };
 
+const debouncedClientSearch = debounce((el) => {
+    const handler = actions['customer-search-list'];
+    Promise.resolve(handler(el)).catch((err) => console.warn(err));
+}, 200);
+
 function attachDelegation() {
     if (!appEl) return;
 
@@ -844,6 +859,11 @@ function attachDelegation() {
         if (picker) {
             const handler = actions['customer-search'];
             Promise.resolve(handler(picker, event)).catch((err) => console.warn(err));
+        }
+        // Client list search — debounced filter.
+        const listSearch = event.target.closest('[data-action="customer-search-list"]');
+        if (listSearch) {
+            debouncedClientSearch(listSearch);
         }
         handleFormInput(event);
     });
