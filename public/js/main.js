@@ -838,8 +838,14 @@ const actions = {
                 });
             }
         } else {
-            await appointmentsRepository.addAppointment(payload);
+            const created = await appointmentsRepository.addAppointment(payload);
             showNotification('Appointment booked successfully!');
+            // Trigger referral bonus when a new appointment is created as Completed.
+            if (payload.status === 'Completed' && created) {
+                appointmentsRepository.maybeCreditReferralBonus(created).catch(err => {
+                    console.warn('[REFERRAL] Bonus credit failed:', err);
+                });
+            }
         }
         closeModal();
     },
