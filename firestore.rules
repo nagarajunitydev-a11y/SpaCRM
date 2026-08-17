@@ -137,7 +137,7 @@ service cloud.firestore {
         && isOptionalString(data.referredCustomerPhone, 40)
         && isNonEmptyString(data.status, 30)
         && data.bonusAmount is number && data.bonusAmount == referralBonus()
-        && isOptionalString(data.appointmentId, 128);
+        && isOptionalOrNull(data.appointmentId, 128);
     }
 
     // Referrals move through a fixed state machine. Clients can never jump a
@@ -238,7 +238,6 @@ service cloud.firestore {
             .data.name == request.resource.data.referredCustomerName;
       allow update: if isSignedIn()
         && canAccessSalon(resource.data.referredSalonId)
-        && isValidReferral(request.resource.data)
         && referralTransitionAllowed();
       allow delete: if false;
     }
