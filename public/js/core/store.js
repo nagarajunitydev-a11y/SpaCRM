@@ -43,6 +43,7 @@ export const store = createStore({
     currentSalonId: null, // the active salon the tenant repos are scoped to
     salonsLoaded: false, // true once the owner's salons have been fetched
     activeTab: 'dashboard',
+    dashboardTab: 'today',
     isModalOpen: false,
     modalType: null,
     rewards: null, // { customerId, name, points } context for the rewards modal

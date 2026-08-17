@@ -746,6 +746,10 @@ const actions = {
         actions['customer-search-list'](input);
     },
 
+    async 'dashboard-tab'(el) {
+        store.setState({ dashboardTab: el.dataset.period });
+    },
+
     async 'manage-salon'(el) {
         store.setState({
             currentSalonId: el.dataset.id,
