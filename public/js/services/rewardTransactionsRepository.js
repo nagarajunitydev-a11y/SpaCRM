@@ -14,7 +14,7 @@
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { listenCollection, setDocument } from './db.js';
+import { listenCollection, setDocument, getDocument } from './db.js';
 import { REFERRAL_SIGNUP_BONUS, REFERRAL_BONUS_POINTS } from '../core/rewards.js';
 
 export const TX_TYPES = {
@@ -80,11 +80,23 @@ export function referralTxKey(referralId) {
 /**
  * Check if a referral bonus has already been credited.
  * Returns the existing transaction or null.
+ *
+ * Reads from the store first (fast); in Firebase mode, falls back to Firestore
+ * when the realtime listener hasn't synced yet or the transaction is scoped to
+ * a different salon than the current viewer's.
  */
-export function findReferralTransaction(referralId) {
+export async function findReferralTransaction(referralId) {
     const key = referralTxKey(referralId);
     const list = store.getState().transactionsList || [];
-    return list.find((tx) => tx.id === key) || null;
+    const fromStore = list.find((tx) => tx.id === key) || null;
+    if (fromStore) return fromStore;
+    if (isDemoMode()) return null;
+    try {
+        return await getDocument(['rewardTransactions'], key);
+    } catch (err) {
+        console.warn('[REFERRAL] Firestore fallback read for transaction', key, 'failed:', err);
+        return null;
+    }
 }
 
 /**
@@ -126,7 +138,7 @@ export async function createTransaction({ id, clientId, clientName, salonId, ref
  */
 export async function recordReferralBonus({ referralId, referrerId, referrerName, salonId }) {
     const key = referralTxKey(referralId);
-    const existing = findReferralTransaction(referralId);
+    const existing = await findReferralTransaction(referralId);
     if (existing) return existing;
 
     return createTransaction({

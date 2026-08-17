@@ -123,21 +123,27 @@ export function referralIdFor(code, referredCustomerId) {
 
 /**
  * Find a referral for a code + referred customer (by deterministic id).
- * Reads from the local store first (fast); falls back to Firestore when the
- * realtime listener hasn't synced yet (e.g. referral created moments before
- * the first appointment was booked).
+ *
+ * In Firebase mode, always reads directly from Firestore so we always get the
+ * latest status. The onSnapshot store can be stale (e.g. still "Pending" when
+ * Firestore already has "Successful" from a concurrent call), which would
+ * cause markReferralSuccessful to fail the Firestore transition rule.
+ * Falls back to the store only when the Firestore read fails.
+ *
+ * In demo mode, the in-memory store is the sole source of truth.
  */
 export async function findReferral(code, referredCustomerId) {
     const id = referralIdFor(code, referredCustomerId);
-    const fromStore = (store.getState().referralsList || []).find((r) => r.id === id) || null;
-    if (fromStore) return fromStore;
-    if (isDemoMode()) return null;
-    try {
-        return await getDocument(['referrals'], id);
-    } catch (err) {
-        console.warn('[REFERRAL] Firestore fallback read failed for', id, err);
-        return null;
+    if (isDemoMode()) {
+        return (store.getState().referralsList || []).find((r) => r.id === id) || null;
     }
+    try {
+        const fresh = await getDocument(['referrals'], id);
+        if (fresh) return fresh;
+    } catch (err) {
+        console.warn('[REFERRAL] Firestore read failed for', id, '— falling back to store:', err);
+    }
+    return (store.getState().referralsList || []).find((r) => r.id === id) || null;
 }
 
 /**

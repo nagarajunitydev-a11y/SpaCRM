@@ -72,7 +72,7 @@ async function maybeCreditReferralBonus(appointment) {
     }
     console.log('[REFERRAL] Referred Customer B ID:', customer.id, '| Name:', customer.name, '| referredByCode:', customer.referredByCode);
 
-    // 2. Find the pending referral (store first, then Firestore fallback).
+    // 2. Find the referral (reads directly from Firestore in Firebase mode).
     const referral = await referralsRepository.findReferral(
         customer.referredByCode,
         customer.id,
@@ -100,8 +100,25 @@ async function maybeCreditReferralBonus(appointment) {
 
     // 5. Mark Successful (only if still Pending).
     if (needsSuccessfulMark) {
-        await referralsRepository.markReferralSuccessful(referral, appointment.id);
-        console.log('[REFERRAL] Referral marked Successful:', referral.id);
+        try {
+            await referralsRepository.markReferralSuccessful(referral, appointment.id);
+            console.log('[REFERRAL] Referral marked Successful:', referral.id);
+        } catch (err) {
+            // Firestore rule may have rejected the transition because a
+            // concurrent call already advanced the status.  Re-read from
+            // Firestore and continue if it is already Successful.
+            const fresh = await referralsRepository.findReferral(
+                customer.referredByCode,
+                customer.id,
+            );
+            if (fresh && fresh.status === 'Successful') {
+                console.log('[REFERRAL] Referral already Successful in Firestore:', referral.id, '— proceeding to credit.');
+                Object.assign(referral, fresh);
+            } else {
+                console.error('[REFERRAL] markReferralSuccessful failed and referral is not Successful in Firestore:', err);
+                throw err;
+            }
+        }
     } else {
         console.log('[REFERRAL] Referral already Successful:', referral.id, '— proceeding to credit.');
     }
@@ -119,7 +136,7 @@ async function maybeCreditReferralBonus(appointment) {
 
     // 7. Idempotency guard: skip if a reward transaction was already recorded
     //    for this referral (prevents double credit on retry).
-    const existingTx = rewardTransactionsRepository.findReferralTransaction(referral.id);
+    const existingTx = await rewardTransactionsRepository.findReferralTransaction(referral.id);
     if (existingTx) {
         console.log('[REFERRAL] Reward transaction already exists for referral:', referral.id, '— ensuring Bonus Credited status.');
         // Ensure the referral status is also advanced (safe — idempotent write).
@@ -139,17 +156,26 @@ async function maybeCreditReferralBonus(appointment) {
     // 9. Mark the referral as Bonus Credited.
     //    completeReferral requires status === 'Successful' — build that object
     //    regardless of whether we just marked it or it was already Successful.
-    await referralsRepository.completeReferral({ ...referral, status: 'Successful' });
-    console.log('[REFERRAL] Referral marked Bonus Credited:', referral.id);
+    try {
+        await referralsRepository.completeReferral({ ...referral, status: 'Successful' });
+        console.log('[REFERRAL] Referral marked Bonus Credited:', referral.id);
+    } catch (err) {
+        // Another concurrent call may have already completed this referral.
+        console.warn('[REFERRAL] completeReferral failed (may already be completed):', err.message);
+    }
 
     // 10. Create reward transaction record for audit.
-    await rewardTransactionsRepository.recordReferralBonus({
-        referralId: referral.id,
-        referrerId: referrer.id,
-        referrerName: referrer.name,
-        salonId: referral.referredSalonId,
-    });
-    console.log('[REFERRAL] Reward transaction recorded for:', referral.id);
+    try {
+        await rewardTransactionsRepository.recordReferralBonus({
+            referralId: referral.id,
+            referrerId: referrer.id,
+            referrerName: referrer.name,
+            salonId: referral.referredSalonId,
+        });
+        console.log('[REFERRAL] Reward transaction recorded for:', referral.id);
+    } catch (err) {
+        console.warn('[REFERRAL] recordReferralBonus failed:', err.message);
+    }
 
     // 11. Force-refresh the referral card so Total/Done/Pending/Earned update
     //     immediately (safety net on top of the onSnapshot realtime listener).
