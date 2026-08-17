@@ -16,7 +16,7 @@
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { listenCollection, setDocument, updateDocument } from './db.js';
+import { listenCollection, setDocument, updateDocument, getDocument } from './db.js';
 import { normalizeCode } from './referralCodesRepository.js';
 import { REFERRAL_BONUS_POINTS } from '../core/rewards.js';
 
@@ -121,10 +121,23 @@ export function referralIdFor(code, referredCustomerId) {
     return `${normalizeCode(code)}__${referredCustomerId}`;
 }
 
-/** Find a referral for a code + referred customer (by deterministic id). */
+/**
+ * Find a referral for a code + referred customer (by deterministic id).
+ * Reads from the local store first (fast); falls back to Firestore when the
+ * realtime listener hasn't synced yet (e.g. referral created moments before
+ * the first appointment was booked).
+ */
 export async function findReferral(code, referredCustomerId) {
     const id = referralIdFor(code, referredCustomerId);
-    return (store.getState().referralsList || []).find((r) => r.id === id) || null;
+    const fromStore = (store.getState().referralsList || []).find((r) => r.id === id) || null;
+    if (fromStore) return fromStore;
+    if (isDemoMode()) return null;
+    try {
+        return await getDocument(['referrals'], id);
+    } catch (err) {
+        console.warn('[REFERRAL] Firestore fallback read failed for', id, err);
+        return null;
+    }
 }
 
 /**

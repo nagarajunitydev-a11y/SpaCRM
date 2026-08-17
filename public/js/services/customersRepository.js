@@ -183,6 +183,10 @@ export async function getCustomerFromSalon(customerId, salonId) {
 /**
  * Update a customer in a specific salon. Used for cross-salon operations like
  * crediting a referrer's points when the referrer belongs to a different salon.
+ *
+ * In Firebase mode, writes to Firestore first (so the write can fail safely),
+ * then applies an optimistic local store update so the UI reflects the change
+ * immediately — the Firestore onSnapshot listener will later confirm it.
  */
 export async function updateCustomerInSalon(customerId, salonId, patch) {
     if (!customerId || !salonId) return null;
@@ -195,7 +199,16 @@ export async function updateCustomerInSalon(customerId, salonId, patch) {
         });
         return { id: customerId, ...patch };
     }
-    return updateDocument(['salons', salonId, 'customers'], customerId, patch);
+    // Write to Firestore first — if this fails, no local mutation happens.
+    const result = await updateDocument(['salons', salonId, 'customers'], customerId, patch);
+    // Optimistic local update for instant UI feedback before the listener syncs.
+    const list = store.getState().customersList || [];
+    store.setState({
+        customersList: list.map((c) =>
+            c.id === customerId && c.salonId === salonId ? { ...c, ...patch } : c,
+        ),
+    });
+    return result;
 }
 
 /** Stable referral code for a customer (fallback derived from id). */
