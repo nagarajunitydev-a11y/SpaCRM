@@ -37,8 +37,8 @@ export function renderLogin(state) {
                 <div class="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center shadow-2xl shadow-brand-500/40 mb-5 text-white mx-auto">
                     <i data-lucide="scissors" class="w-8 h-8"></i>
                 </div>
-                <h2 class="text-2xl font-extrabold text-white tracking-tight mb-2">LuxeGlow Salon CRM</h2>
-                <p class="text-xs text-slate-400 max-w-xs mx-auto">${isSignup ? 'Create an account' : 'Sign in to your LuxeGlow account'}</p>
+                <h2 class="text-2xl font-extrabold text-white tracking-tight mb-2">Qvrix Luxe Salon CRM</h2>
+                <p class="text-xs text-slate-400 max-w-xs mx-auto">${isSignup ? 'Create an account' : 'Sign in to your Qvrix Luxe account'}</p>
             </div>
 
             <div class="w-full space-y-4">

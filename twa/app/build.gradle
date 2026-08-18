@@ -26,8 +26,8 @@ def twaManifest = [
     applicationId: 'com.luxeglow.crm',
     hostName: 'spacrm-two.vercel.app', // The domain being opened in the TWA.
     launchUrl: '/', // The start path for the TWA. Must be relative to the domain.
-    name: 'LuxeGlow - Salon & Spa CRM', // The application name.
-    launcherName: 'LuxeGlow CRM', // The name shown on the Android Launcher.
+    name: 'Qvrix Luxe - Salon & Spa CRM', // The application name.
+    launcherName: 'Qvrix Luxe', // The name shown on the Android Launcher.
     themeColor: '#0F0A12', // The color used for the status bar.
     themeColorDark: '#000000', // The color used for the dark status bar.
     navigationColor: '#020617', // The color used for the navigation bar.

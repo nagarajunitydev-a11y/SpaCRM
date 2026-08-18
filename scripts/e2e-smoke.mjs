@@ -162,7 +162,7 @@ async function main() {
     // ---- Test suite ----
     console.log('\n[1] Login screen (guest) — no role selection');
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
-    assert(await evaluate(`document.body.innerText.includes('LuxeGlow Salon CRM')`), 'branding shown');
+    assert(await evaluate(`document.body.innerText.includes('Qvrix Luxe Salon CRM')`), 'branding shown');
     assert(await evaluate(`!document.body.innerText.includes('Salon Owner Portal') && !document.body.innerText.includes('Super Admin Oversight')`), 'no role selection buttons');
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"]') !== null`), 'email form present');
     assert(await evaluate(`document.querySelector('[data-action="toggle-form-mode"]') !== null`), 'sign-in/sign-up toggle present');

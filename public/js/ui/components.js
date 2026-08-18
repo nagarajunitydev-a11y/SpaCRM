@@ -49,7 +49,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             <div class="flex items-center space-x-2.5 min-w-0">
                 ${logoMark()}
                 <div class="min-w-0">
-                    <h1 class="font-bold text-xs text-slate-100 tracking-tight truncate">LuxeGlow CRM</h1>
+                    <h1 class="font-bold text-xs text-slate-100 tracking-tight truncate">Qvrix Luxe</h1>
                     <p class="text-[9px] text-brand-400 font-semibold uppercase tracking-wider truncate">${esc(roleLabel)}</p>
                 </div>
             </div>

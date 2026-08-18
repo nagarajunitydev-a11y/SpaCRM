@@ -3,7 +3,7 @@
     "version": "2.2.0",
     "private": true,
     "type": "module",
-    "description": "LuxeGlow Salon & Spa CRM — modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
+    "description": "Qvrix Luxe Salon & Spa CRM — modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
     "scripts": {
         "serve": "python -m http.server 5500 --directory public",
         "build:css": "tailwindcss -i styles/tailwind-source.css -o public/styles/tailwind.css --minify",

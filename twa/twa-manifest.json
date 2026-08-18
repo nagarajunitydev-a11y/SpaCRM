@@ -1,8 +1,8 @@
 {
   "packageId": "com.luxeglow.crm",
   "host": "spacrm-two.vercel.app",
-  "name": "LuxeGlow - Salon & Spa CRM",
-  "launcherName": "LuxeGlow CRM",
+  "name": "Qvrix Luxe - Salon & Spa CRM",
+  "launcherName": "Qvrix Luxe",
   "display": "standalone",
   "themeColor": "#0F0A12",
   "themeColorDark": "#000000",

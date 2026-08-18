@@ -98,7 +98,7 @@ async function main() {
     await send('Page.navigate', { url: process.env.APP_URL || 'http://127.0.0.1:5500/' });
     await new Promise((r) => setTimeout(r, 7000));
 
-    const loginShown = await evaluate(`document.body.innerText.includes('LuxeGlow Salon CRM')`);
+    const loginShown = await evaluate(`document.body.innerText.includes('Qvrix Luxe Salon CRM')`);
     const shell = await evaluate(`!!document.querySelector('#app')`);
     const fatal = errors.filter((e) => !/net::|auth\/|failed to fetch/i.test(e));
 
