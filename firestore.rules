@@ -46,16 +46,7 @@ service cloud.firestore {
         && data.date is string && data.date.size() == 10
         && data.time is string && data.time.size() == 5
         && isNonEmptyString(data.status, 30)
-        && isOptionalString(data.customerId, 128)
-        && (data.amount == null || (data.amount is number && data.amount >= 0))
-        && (data.discount == null || (data.discount is number && data.discount >= 0))
-        && (data.couponCode == null || data.couponCode is string)
-        && (data.loyaltyRedemption == null || (data.loyaltyRedemption is number && data.loyaltyRedemption >= 0))
-        && (data.tax == null || (data.tax is number && data.tax >= 0))
-        && (data.refund == null || (data.refund is number && data.refund >= 0))
-        && (data.paymentMethod == null || data.paymentMethod is string)
-        && (data.paid == null || data.paid is bool)
-        && (data.paymentNote == null || data.paymentNote is string);
+        && isOptionalOrNull(data.customerId, 128);
     }
 
     function isValidCustomer(data) {

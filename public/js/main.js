@@ -621,7 +621,7 @@ const actions = {
         const id = data.id;
         const customer = await resolveAppointmentCustomer(data);
         const payload = {
-            customerId: customer.id,
+            customerId: customer.id || '',
             customerName: customer.name,
             serviceName: data.serviceName,
             staffName: data.staffName,
@@ -629,15 +629,6 @@ const actions = {
             time: data.time,
             status: data.status || 'Confirmed',
         };
-        if (data.amount !== undefined && data.amount !== '') payload.amount = Number(data.amount) || 0;
-        if (data.discount !== undefined && data.discount !== '') payload.discount = Number(data.discount) || 0;
-        if (data.couponCode) payload.couponCode = data.couponCode;
-        if (data.loyaltyRedemption !== undefined && data.loyaltyRedemption !== '') payload.loyaltyRedemption = Number(data.loyaltyRedemption) || 0;
-        if (data.tax !== undefined && data.tax !== '') payload.tax = Number(data.tax) || 0;
-        if (data.refund !== undefined && data.refund !== '') payload.refund = Number(data.refund) || 0;
-        if (data.paymentMethod) payload.paymentMethod = data.paymentMethod;
-        payload.paid = data.paid === 'on' || data.paid === true;
-        if (data.paymentNote) payload.paymentNote = data.paymentNote;
         if (id) {
             await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
