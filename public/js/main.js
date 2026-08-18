@@ -629,6 +629,15 @@ const actions = {
             time: data.time,
             status: data.status || 'Confirmed',
         };
+        if (data.amount !== undefined && data.amount !== '') payload.amount = Number(data.amount) || 0;
+        if (data.discount !== undefined && data.discount !== '') payload.discount = Number(data.discount) || 0;
+        if (data.couponCode) payload.couponCode = data.couponCode;
+        if (data.loyaltyRedemption !== undefined && data.loyaltyRedemption !== '') payload.loyaltyRedemption = Number(data.loyaltyRedemption) || 0;
+        if (data.tax !== undefined && data.tax !== '') payload.tax = Number(data.tax) || 0;
+        if (data.refund !== undefined && data.refund !== '') payload.refund = Number(data.refund) || 0;
+        if (data.paymentMethod) payload.paymentMethod = data.paymentMethod;
+        payload.paid = data.paid === 'on' || data.paid === true;
+        if (data.paymentNote) payload.paymentNote = data.paymentNote;
         if (id) {
             await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
@@ -650,6 +659,15 @@ const actions = {
         }
         await appointmentsRepository.updateAppointment(id, { status });
         showNotification(`Appointment marked as ${status}!`);
+    },
+
+    async 'collect-payment'(el) {
+        const id = el.dataset.id;
+        if (!id) return;
+        const state = store.getState();
+        const appt = (state.appointmentsList || []).find((a) => a.id === id);
+        if (!appt) return;
+        store.setState({ modalType: 'appointment', modalRecord: appt, isModalOpen: true });
     },
 
     async 'submit-salon'(form, event, data) {

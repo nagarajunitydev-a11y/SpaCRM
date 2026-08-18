@@ -121,6 +121,17 @@ export function validateForm(formKey, data, ctx = {}) {
             errors.time = 'This time has already passed today.';
         }
 
+        if (v('paid') === 'on' || v('paid') === true) {
+            check(errors, 'amount', v('amount'), [required('Amount is required when marking as paid.'), numberMin(0, 'Enter a valid amount.')]);
+            check(errors, 'paymentMethod', v('paymentMethod'), [required('Select a payment method.')]);
+        }
+
+        check(errors, 'amount', v('amount'), [numberMin(0, 'Amount must be zero or more.')]);
+        check(errors, 'discount', v('discount'), [numberMin(0, 'Discount must be zero or more.')]);
+        check(errors, 'tax', v('tax'), [numberMin(0, 'Tax must be zero or more.')]);
+        check(errors, 'refund', v('refund'), [numberMin(0, 'Refund must be zero or more.')]);
+        check(errors, 'loyaltyRedemption', v('loyaltyRedemption'), [numberMin(0, 'Loyalty redemption must be zero or more.')]);
+
         return errors;
     }
 

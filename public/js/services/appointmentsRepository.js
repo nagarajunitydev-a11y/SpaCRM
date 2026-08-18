@@ -6,7 +6,7 @@
 import { createScopedRepository } from './scopedRepository.js';
 
 export const seed = [
-    { id: 'a1', salonId: 'salon_luxe_01', customerName: 'Olivia Wilde', serviceName: 'Balayage & Gloss', staffName: 'Victoria Sterling', date: '2026-06-15', time: '10:00', status: 'Confirmed' },
+    { id: 'a1', salonId: 'salon_luxe_01', customerName: 'Olivia Wilde', serviceName: 'Balayage & Gloss', staffName: 'Victoria Sterling', date: '2026-06-15', time: '10:00', status: 'Completed', amount: 160, discount: 0, couponCode: '', loyaltyRedemption: 0, tax: 28.8, refund: 0, paymentMethod: 'upi', paid: true, paymentNote: '' },
 ];
 
 const repo = createScopedRepository({
