@@ -119,14 +119,6 @@ function renderForm(state, type) {
             { value: 'Completed', label: 'Completed' },
             { value: 'Cancelled', label: 'Cancelled' },
         ];
-        const paymentMethods = [
-            { value: '', label: 'Select method' },
-            { value: 'cash', label: 'Cash' },
-            { value: 'upi', label: 'UPI' },
-            { value: 'card', label: 'Card' },
-            { value: 'other', label: 'Other' },
-        ];
-        const isCompleted = (pre?.status === 'Completed');
         return `
             <form data-action="submit-appointment" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
@@ -138,27 +130,6 @@ function renderForm(state, type) {
                     <div>${formField('Time', dateTimeInput('time', 'time', '', { value: pre?.time }))}</div>
                 </div>
                 ${rec ? formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' })) : ''}
-                <div class="border-t border-slate-800 pt-4 mt-4">
-                    <p class="text-[10px] font-bold text-brand-400 uppercase tracking-widest mb-3">Payment Details</p>
-                    <div class="space-y-3">
-                        ${formField('Amount (₹)', textInput('amount', '0', { type: 'number', className: 'input-number', required: false, value: pre?.amount || '' }))}
-                        <div class="grid grid-cols-2 gap-3">
-                            ${formField('Discount (₹)', textInput('discount', '0', { type: 'number', className: 'input-number', required: false, value: pre?.discount || '' }))}
-                            ${formField('Tax/GST (₹)', textInput('tax', '0', { type: 'number', className: 'input-number', required: false, value: pre?.tax || '' }))}
-                        </div>
-                        <div class="grid grid-cols-2 gap-3">
-                            ${formField('Coupon Code', textInput('couponCode', 'e.g. SUMMER20', { required: false, value: pre?.couponCode || '' }))}
-                            ${formField('Loyalty Redeem (₹)', textInput('loyaltyRedemption', '0', { type: 'number', className: 'input-number', required: false, value: pre?.loyaltyRedemption || '' }))}
-                        </div>
-                        ${formField('Payment Method', selectControl('paymentMethod', paymentMethods, '', { required: false, value: pre?.paymentMethod || '' }))}
-                        ${formField('Refund (₹)', textInput('refund', '0', { type: 'number', className: 'input-number', required: false, value: pre?.refund || '' }))}
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" name="paid" ${pre?.paid ? 'checked' : ''} class="w-4 h-4 rounded bg-slate-950 border-slate-800 text-brand-500 focus:ring-brand-500">
-                            <span class="text-xs text-slate-300 font-medium">Payment Received</span>
-                        </label>
-                        ${formField('Payment Note', textInput('paymentNote', 'Optional note…', { required: false, value: pre?.paymentNote || '' }))}
-                    </div>
-                </div>
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Confirm Booking'}</button>
             </form>
         `;
