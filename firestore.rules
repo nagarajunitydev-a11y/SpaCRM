@@ -60,9 +60,9 @@ service cloud.firestore {
 
     function isValidCustomer(data) {
       return isNonEmptyString(data.name, 120)
-        && isNonEmptyString(data.phone, 40)
+        && isOptionalOrNull(data.phone, 40)
         && isOptionalOrNull(data.email, 120)
-        && data.rewardPoints is number && data.rewardPoints >= 0;
+        && (data.rewardPoints == null || (data.rewardPoints is number && data.rewardPoints >= 0));
     }
 
     function isValidService(data) {

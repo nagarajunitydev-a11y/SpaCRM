@@ -4,7 +4,7 @@
  * filtered by Today / Current Month / Previous Month.
  */
 
-import { esc } from '../../core/sanitize.js';
+import { esc, escAttr } from '../../core/sanitize.js';
 import { statCard, quickAction, badge, emptyState, sectionHeader } from '../components.js';
 import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 
