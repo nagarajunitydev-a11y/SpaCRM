@@ -7,10 +7,11 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'luxeglow-crm-v9';
+const CACHE_NAME = 'qvrix-luxe-v1';
 const APP_SHELL = [
     '/',
     '/index.html',
+    '/logo.png',
     '/styles/tailwind.css',
     '/styles/main.css',
     '/vendor/lucide.min.js',

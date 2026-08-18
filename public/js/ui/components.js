@@ -18,10 +18,10 @@ export function iconEl(name, cls = 'w-4 h-4') {
 }
 
 /** Brand logo mark. */
-export function logoMark(size = 'w-8 h-8', iconClass = 'w-3.5 h-3.5') {
+export function logoMark(size = 'w-8 h-8', iconClass = 'w-5 h-5') {
     return `
-        <div class="${escAttr(size)} rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 text-white font-bold shrink-0">
-            <i data-lucide="scissors" class="${escAttr(iconClass)}"></i>
+        <div class="${escAttr(size)} rounded-xl bg-gradient-to-tr from-brand-600 to-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/30 shrink-0 overflow-hidden">
+            <img src="/logo.png" alt="Qvrix Luxe" class="${escAttr(iconClass)} object-contain">
         </div>
     `;
 }

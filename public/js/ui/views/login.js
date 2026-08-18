@@ -34,8 +34,8 @@ export function renderLogin(state) {
             <div class="absolute -top-24 -left-24 w-72 h-72 bg-brand-600/15 rounded-full blur-3xl pointer-events-none" aria-hidden="true"></div>
 
             <div class="text-center mb-8 mt-4">
-                <div class="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center shadow-2xl shadow-brand-500/40 mb-5 text-white mx-auto">
-                    <i data-lucide="scissors" class="w-8 h-8"></i>
+                <div class="w-16 h-16 rounded-3xl bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center shadow-2xl shadow-brand-500/40 mb-5 mx-auto overflow-hidden">
+                    <img src="/logo.png" alt="Qvrix Luxe" class="w-10 h-10 object-contain">
                 </div>
                 <h2 class="text-2xl font-extrabold text-white tracking-tight mb-2">Qvrix Luxe Salon CRM</h2>
                 <p class="text-xs text-slate-400 max-w-xs mx-auto">${isSignup ? 'Create an account' : 'Sign in to your Qvrix Luxe account'}</p>
