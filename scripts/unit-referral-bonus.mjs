@@ -1,17 +1,15 @@
 /**
  * unit-referral-bonus.mjs
- * Unit tests for the referral bonus credit flow (maybeCreditReferralBonus).
+ * Unit tests for the server-side referral reward system.
  *
- * Runs in demo mode (in-memory stores) so no Firebase project is required.
- * Validates:
- *   - Valid referral + qualifying appointment → +100 pts to Client A
- *   - No referral → 0 pts
- *   - Cancelled appointment → 0 pts
- *   - No-show appointment → 0 pts
- *   - Duplicate processing → still only +100 pts (idempotency)
- *   - Invalid referral code → 0 pts
- *   - Client A profile reflects updated points
- *   - Transaction audit record is created
+ * Tests the Cloud Function logic (onAppointmentStatusChange) via a
+ * simulated demo-mode version. The production function runs as a
+ * Firebase Cloud Function using Firestore Admin SDK transactions.
+ *
+ * Canonical data model under test:
+ *   - customers/{id}.referredBy    → Client A's customer ID
+ *   - customers/{id}.rewardPoints  → Canonical points field
+ *   - referralRewards/{aptId}      → Server-created audit records
  *
  * Usage: node scripts/unit-referral-bonus.mjs
  */
@@ -29,12 +27,6 @@ function t(cond, label) {
     else { fail += 1; console.log('  FAIL  ' + label); }
 }
 
-function assert(cond, label) {
-    if (!cond) { fail += 1; console.log('  FAIL  ' + label); throw new Error(label); }
-    pass += 1;
-    console.log('  PASS  ' + label);
-}
-
 /* ------------------------------------------------------------------ */
 /* Test harness: set up demo-mode stores                               */
 /* ------------------------------------------------------------------ */
@@ -50,11 +42,11 @@ function resetStore() {
         transactionsList: [],
         transactionsLoaded: true,
         transactionsError: null,
+        referralRewards: [],
         currentSalonId: 'salon_test_01',
     });
 }
 
-/** Seed a referrer (Client A) into the store. */
 function seedReferrer(overrides = {}) {
     const customer = {
         id: 'client_a_01',
@@ -62,7 +54,7 @@ function seedReferrer(overrides = {}) {
         name: 'Alice Referrer',
         phone: '+919000000001',
         email: 'alice@test.com',
-        referralPoints: REFERRAL_SIGNUP_BONUS,
+        rewardPoints: REFERRAL_SIGNUP_BONUS,
         referralCode: 'LG-ALICE1',
         ...overrides,
     };
@@ -71,7 +63,6 @@ function seedReferrer(overrides = {}) {
     return customer;
 }
 
-/** Seed a referred customer (Client B) into the store. */
 function seedReferredCustomer(overrides = {}) {
     const customer = {
         id: 'client_b_01',
@@ -79,12 +70,10 @@ function seedReferredCustomer(overrides = {}) {
         name: 'Bob Referred',
         phone: '+919000000002',
         email: 'bob@test.com',
-        referralPoints: REFERRAL_SIGNUP_BONUS,
+        rewardPoints: REFERRAL_SIGNUP_BONUS,
         referralCode: 'LG-BOBBY1',
+        referredBy: 'client_a_01',
         referredByCode: 'LG-ALICE1',
-        referringSalonId: 'salon_test_01',
-        referringCustomerId: 'client_a_01',
-        referringCustomerName: 'Alice Referrer',
         ...overrides,
     };
     const list = store.getState().customersList || [];
@@ -92,45 +81,12 @@ function seedReferredCustomer(overrides = {}) {
     return customer;
 }
 
-/** Seed a Pending referral record. */
-function seedPendingReferral(overrides = {}) {
-    const referral = {
-        id: 'LG-ALICE1__client_b_01',
-        code: 'LG-ALICE1',
-        referringSalonId: 'salon_test_01',
-        referringCustomerId: 'client_a_01',
-        referringCustomerName: 'Alice Referrer',
-        referredSalonId: 'salon_test_01',
-        referredCustomerId: 'client_b_01',
-        referredCustomerName: 'Bob Referred',
-        referredCustomerPhone: '+919000000002',
-        status: 'Pending',
-        bonusAmount: REFERRAL_BONUS_POINTS,
-        createdAt: new Date().toISOString(),
-        ...overrides,
-    };
-    const list = store.getState().referralsList || [];
-    store.setState({ referralsList: [...list, referral] });
-    return referral;
-}
-
 function getCustomer(id) {
     return (store.getState().customersList || []).find((c) => c.id === id) || null;
 }
 
-function getReferral(id) {
-    return (store.getState().referralsList || []).find((r) => r.id === id) || null;
-}
-
-function getTransactions() {
-    return store.getState().transactionsList || [];
-}
-
-function updateReferral(id, patch) {
-    const list = store.getState().referralsList || [];
-    store.setState({
-        referralsList: list.map((r) => (r.id === id ? { ...r, ...patch } : r)),
-    });
+function getReferralRewards() {
+    return store.getState().referralRewards || [];
 }
 
 function updateCustomer(id, patch) {
@@ -141,104 +97,83 @@ function updateCustomer(id, patch) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Inline the core credit logic for testing                            */
-/* (mirrors maybeCreditReferralBonus in demo mode)                     */
+/* Simulated Cloud Function logic                                      */
+/* Mirrors functions/index.js → onAppointmentStatusChange              */
 /* ------------------------------------------------------------------ */
 
-/** Mirror of referralCodesRepository.normalizeCode — strip non-alnum, uppercase. */
-function normalizeCode(code) {
-    return String(code || '').trim().replace(/[^A-Za-z0-9-]/g, '').toUpperCase();
-}
-
-function referralIdFor(code, referredCustomerId) {
-    return `${normalizeCode(code)}__${referredCustomerId}`;
-}
-
-function referralTxKey(referralId) {
-    return `REFERRAL__${referralId}`;
-}
-
-/**
- * Simplified demo-mode version of maybeCreditReferralBonus.
- * Tests the SAME logic paths as the production function.
- */
-async function maybeCreditReferralBonus(appointment) {
-    const apptId = appointment.id;
-    const custId = appointment.customerId;
+async function simulateOnAppointmentStatusChange(appointment) {
     const salonId = appointment.salonId;
+    const appointmentId = appointment.id;
+    const newStatus = appointment.status;
+    const customerId = appointment.customerId;
 
-    // Step 1: Fetch the referred customer
-    const customer = getCustomer(custId);
-    if (!customer || !customer.referredByCode) return { action: 'skip', reason: 'no_referredByCode' };
-    const refCode = customer.referredByCode;
-
-    // Step 2: Find the referral
-    const refId = referralIdFor(refCode, customer.id);
-    const referral = getReferral(refId);
-    if (!referral) return { action: 'skip', reason: 'no_referral_record' };
-
-    // Reject unexpected statuses
-    if (referral.status !== 'Pending' && referral.status !== 'Successful' && referral.status !== 'Bonus Credited') {
-        return { action: 'skip', reason: 'unexpected_status', status: referral.status };
+    // Gate: only process "Completed"
+    if (newStatus !== 'Completed') {
+        return { action: 'skip', reason: 'not_completed' };
     }
 
-    // Step 3: Transition Pending → Successful (if needed)
-    if (referral.status === 'Pending') {
-        updateReferral(referral.id, {
-            status: 'Successful',
-            appointmentId: apptId,
-            firstAppointmentAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-        });
-        Object.assign(referral, { status: 'Successful', appointmentId: apptId });
+    // Gate: must have customerId
+    if (!customerId) {
+        return { action: 'skip', reason: 'no_customer_id' };
     }
 
-    // Step 4: Fetch the referrer
-    if (!referral.referringCustomerId || !referral.referringSalonId) {
-        return { action: 'skip', reason: 'missing_referrer_info' };
-    }
-    const referrer = getCustomer(referral.referringCustomerId);
-    if (!referrer) return { action: 'skip', reason: 'referrer_not_found' };
-
-    // Step 5: Idempotency gate — check transaction ledger
-    const txKey = referralTxKey(referral.id);
-    const existingTx = getTransactions().find((tx) => tx.id === txKey);
-    if (existingTx) {
-        if (referral.status !== 'Bonus Credited') {
-            updateReferral(referral.id, { status: 'Bonus Credited', bonusCreditedAt: new Date().toISOString() });
-        }
-        return { action: 'skip', reason: 'already_credited', transaction: existingTx };
+    // Step 1: Fetch the referred customer (Client B)
+    const customer = getCustomer(customerId);
+    if (!customer) {
+        return { action: 'skip', reason: 'customer_not_found' };
     }
 
-    // Step 6: Mark Bonus Credited
-    if (referral.status !== 'Bonus Credited') {
-        updateReferral(referral.id, { status: 'Bonus Credited', bonusCreditedAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-        Object.assign(referral, { status: 'Bonus Credited' });
+    // Gate: must have referredBy
+    const referrerId = customer.referredBy;
+    if (!referrerId) {
+        return { action: 'skip', reason: 'no_referredBy' };
     }
 
-    // Step 7: Record transaction
-    const bonus = Number(referral.bonusAmount) || REFERRAL_BONUS_POINTS;
-    const tx = {
-        id: txKey,
-        clientId: referrer.id,
-        clientName: referrer.name,
-        salonId: referral.referredSalonId,
-        referralId: referral.id,
-        points: bonus,
-        type: 'REFERRAL_BONUS',
-        description: 'Referral bonus for successful client signup',
+    // Step 2: Fetch the referrer (Client A)
+    const referrer = getCustomer(referrerId);
+    if (!referrer) {
+        return { action: 'skip', reason: 'referrer_not_found' };
+    }
+
+    const referrerSalonId = referrer.salonId || salonId;
+
+    // Gate: idempotency — check referralRewards/{appointmentId}
+    const existingRewards = getReferralRewards();
+    if (existingRewards.some((r) => r.appointmentId === appointmentId)) {
+        return { action: 'skip', reason: 'already_rewarded' };
+    }
+
+    // Transaction: create reward + increment points
+    const reward = {
+        appointmentId,
+        salonId,
+        referrerClientId: referrerId,
+        referrerClientName: referrer.name || '',
+        referrerSalonId,
+        referredClientId: customerId,
+        referredClientName: customer.name || '',
+        points: REFERRAL_BONUS_POINTS,
+        type: 'referral_bonus',
+        status: 'credited',
         createdAt: new Date().toISOString(),
     };
-    const txList = getTransactions();
-    store.setState({ transactionsList: [...txList, tx] });
 
-    // Step 8: Credit points
-    const prevPts = Number(referrer.referralPoints) || 0;
-    const newPts = prevPts + bonus;
-    updateCustomer(referrer.id, { referralPoints: newPts });
+    const rewardsList = getReferralRewards();
+    store.setState({ referralRewards: [...rewardsList, reward] });
 
-    // Step 9: Refresh (no-op in demo)
-    return { action: 'credited', referrerId: referrer.id, prevPts, bonus, newPts, transaction: tx };
+    // Credit referrer's points
+    const prevPts = Number(referrer.rewardPoints) || 0;
+    const newPts = prevPts + REFERRAL_BONUS_POINTS;
+    updateCustomer(referrerId, { rewardPoints: newPts });
+
+    return {
+        action: 'credited',
+        referrerId,
+        prevPts,
+        bonus: REFERRAL_BONUS_POINTS,
+        newPts,
+        reward,
+    };
 }
 
 /* ================================================================== */
@@ -246,19 +181,19 @@ async function maybeCreditReferralBonus(appointment) {
 /* ================================================================== */
 
 console.log('\n═══════════════════════════════════════════════════════════');
-console.log('  REFERRAL BONUS UNIT TESTS');
+console.log('  REFERRAL REWARD CLOUD FUNCTION UNIT TESTS');
+console.log('  (Simulated server-side logic)');
 console.log('═══════════════════════════════════════════════════════════\n');
 
-/* ── Test 1: Valid referral + qualifying appointment = +100 ──────── */
+/* ── Test 1: Valid referral + Completed = +100 to referrer ───────── */
 {
-    console.log('▸ Test 1: Valid referral + qualifying appointment = +100 pts');
+    console.log('▸ Test 1: Valid referral + Completed appointment → +100 pts to referrer');
     resetStore();
     seedReferrer();
     seedReferredCustomer();
-    seedPendingReferral();
 
     const appt = { id: 'apt_001', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
+    const result = await simulateOnAppointmentStatusChange(appt);
 
     t(result.action === 'credited', '  action is "credited"');
     t(result.bonus === 100, '  bonus is 100');
@@ -266,307 +201,302 @@ console.log('══════════════════════�
     t(result.newPts === REFERRAL_SIGNUP_BONUS + 100, '  new pts = 200');
 
     const referrer = getCustomer('client_a_01');
-    t(referrer.referralPoints === 200, '  Client A points balance = 200');
+    t(referrer.rewardPoints === 200, '  Client A rewardPoints = 200');
 
-    const referral = getReferral('LG-ALICE1__client_b_01');
-    t(referral.status === 'Bonus Credited', '  referral status = Bonus Credited');
-    t(referral.appointmentId === 'apt_001', '  referral linked to appointment');
-
-    const tx = getTransactions().find((tx) => tx.id === 'REFERRAL__LG-ALICE1__client_b_01');
-    t(!!tx, '  transaction record exists');
-    t(tx.clientId === 'client_a_01', '  transaction clientId = referrer');
-    t(tx.points === 100, '  transaction points = 100');
-    t(tx.type === 'REFERRAL_BONUS', '  transaction type = REFERRAL_BONUS');
-    t(tx.createdAt !== undefined, '  transaction has createdAt timestamp');
+    const rewards = getReferralRewards();
+    t(rewards.length === 1, '  1 referralRewards record created');
+    t(rewards[0].appointmentId === 'apt_001', '  reward linked to appointment');
+    t(rewards[0].referrerClientId === 'client_a_01', '  reward referrer = Client A');
+    t(rewards[0].referredClientId === 'client_b_01', '  reward referred = Client B');
+    t(rewards[0].points === 100, '  reward points = 100');
+    t(rewards[0].status === 'credited', '  reward status = credited');
+    t(rewards[0].type === 'referral_bonus', '  reward type = referral_bonus');
     console.log('');
 }
 
-/* ── Test 2: No referral = 0 ────────────────────────────────────── */
+/* ── Test 2: No referral (no referredBy) = skip ──────────────────── */
 {
-    console.log('▸ Test 2: No referral (customer without referredByCode) = 0 pts');
+    console.log('▸ Test 2: Customer without referredBy → skip (no points)');
     resetStore();
     seedReferrer();
-    // Client B without referral fields
     store.setState({
         customersList: [...store.getState().customersList, {
             id: 'client_c_01',
             salonId: 'salon_test_01',
             name: 'Charlie NoRef',
             phone: '+919000000003',
-            email: 'charlie@test.com',
-            referralPoints: REFERRAL_SIGNUP_BONUS,
+            rewardPoints: REFERRAL_SIGNUP_BONUS,
             referralCode: 'LG-CHARL1',
+            // No referredBy — not a referred client
         }],
     });
 
     const appt = { id: 'apt_002', customerId: 'client_c_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
+    const result = await simulateOnAppointmentStatusChange(appt);
 
     t(result.action === 'skip', '  action is "skip"');
-    t(result.reason === 'no_referredByCode', '  reason = no_referredByCode');
-
-    const referrer = getCustomer('client_a_01');
-    t(referrer.referralPoints === REFERRAL_SIGNUP_BONUS, '  Client A points unchanged at 100');
-    t(getTransactions().length === 0, '  no transactions created');
+    t(result.reason === 'no_referredBy', '  reason = no_referredBy');
+    t(getReferralRewards().length === 0, '  no referralRewards created');
+    t(getCustomer('client_a_01').rewardPoints === REFERRAL_SIGNUP_BONUS, '  referrer points unchanged');
     console.log('');
 }
 
-/* ── Test 3: Cancelled appointment = 0 ──────────────────────────── */
+/* ── Test 3: Cancelled appointment = skip ────────────────────────── */
 {
-    console.log('▸ Test 3: Cancelled appointment = 0 pts');
+    console.log('▸ Test 3: Cancelled appointment → skip (Cloud Function gate)');
     resetStore();
     seedReferrer();
     seedReferredCustomer();
-    seedPendingReferral();
 
     const appt = { id: 'apt_003', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Cancelled' };
-    const result = await maybeCreditReferralBonus(appt);
+    const result = await simulateOnAppointmentStatusChange(appt);
 
-    // The function is only called when status === "Completed" by main.js,
-    // but if called with Cancelled, it still runs — the referral gets
-    // marked Successful which is wrong.  However, main.js NEVER calls
-    // this function for Cancelled status.  The correct defense is in
-    // main.js (it only calls for Completed).  But the function itself
-    // doesn't check appointment status — it trusts the caller.
-    //
-    // For this test we verify the caller-side guard: main.js only
-    // triggers for Completed.  The function processes whatever it gets.
-    // The real defense against cancelled is that main.js doesn't call it.
-    //
-    // Since the function DOES process it (trusts caller), we verify
-    // the referral IS credited — this is expected given the function
-    // doesn't check appointment status itself.  The protection is in main.js.
-    t(result.action === 'credited', '  function processes it (caller guard is in main.js)');
-    t(getTransactions().length === 1, '  transaction created (caller responsibility to not call for Cancelled)');
-
-    // Reset and test via the caller guard instead
-    resetStore();
-    seedReferrer();
-    seedReferredCustomer();
-    seedPendingReferral();
-
-    // Simulate main.js behavior: only call maybeCreditReferralBonus when Completed
-    const cancelledAppt = { id: 'apt_003b', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Cancelled' };
-    const wouldCallReferral = cancelledAppt.status === 'Completed';
-    t(wouldCallReferral === false, '  main.js would NOT call maybeCreditReferralBonus for Cancelled');
-    t(getTransactions().length === 0, '  no transactions created when caller guards correctly');
+    t(result.action === 'skip', '  action is "skip"');
+    t(result.reason === 'not_completed', '  reason = not_completed (Cloud Function gate)');
+    t(getReferralRewards().length === 0, '  no referralRewards created');
+    t(getCustomer('client_a_01').rewardPoints === REFERRAL_SIGNUP_BONUS, '  referrer points unchanged');
     console.log('');
 }
 
-/* ── Test 4: No-show appointment = 0 ────────────────────────────── */
+/* ── Test 4: No-show / Confirmed appointment = skip ──────────────── */
 {
-    console.log('▸ Test 4: No-show appointment = 0 pts');
+    console.log('▸ Test 4: Confirmed (no-show) appointment → skip');
     resetStore();
     seedReferrer();
     seedReferredCustomer();
-    seedPendingReferral();
 
-    // No-show is treated like Cancelled — main.js never triggers for it.
-    // No-show appointments keep status "Confirmed" or get manually set
-    // to "Cancelled" via the edit modal.  There is no dedicated "No-Show"
-    // status in the current system, but the test verifies the caller guard.
-    const noShowAppt = { id: 'apt_004', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Confirmed' };
-    const wouldCallReferral = noShowAppt.status === 'Completed';
-    t(wouldCallReferral === false, '  main.js would NOT call maybeCreditReferralBonus for No-Show/Confirmed');
-    t(getTransactions().length === 0, '  no transactions created');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS, '  Client A points unchanged');
+    const appt = { id: 'apt_004', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Confirmed' };
+    const result = await simulateOnAppointmentStatusChange(appt);
+
+    t(result.action === 'skip', '  action is "skip"');
+    t(result.reason === 'not_completed', '  reason = not_completed');
+    t(getReferralRewards().length === 0, '  no referralRewards');
     console.log('');
 }
 
-/* ── Test 5: Duplicate processing = still only +100 ─────────────── */
+/* ── Test 5: In Progress appointment = skip ──────────────────────── */
 {
-    console.log('▸ Test 5: Duplicate processing = still only +100 pts (idempotency)');
+    console.log('▸ Test 5: In Progress appointment → skip');
     resetStore();
     seedReferrer();
     seedReferredCustomer();
-    seedPendingReferral();
 
-    const appt = { id: 'apt_005', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
+    const appt = { id: 'apt_005', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'In Progress' };
+    const result = await simulateOnAppointmentStatusChange(appt);
 
-    // First call — credits the bonus
-    const result1 = await maybeCreditReferralBonus(appt);
-    t(result1.action === 'credited', '  first call: credited');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS + 100, '  after first call: 200 pts');
-
-    // Second call — should be skipped (transaction exists)
-    const result2 = await maybeCreditReferralBonus(appt);
-    t(result2.action === 'skip', '  second call: skipped');
-    t(result2.reason === 'already_credited', '  reason = already_credited');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS + 100, '  after second call: still 200 pts (not 300)');
-
-    // Third call — still skipped
-    const result3 = await maybeCreditReferralBonus(appt);
-    t(result3.action === 'skip', '  third call: still skipped');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS + 100, '  after third call: still 200 pts');
-
-    // Only one transaction exists
-    const txList = getTransactions().filter((tx) => tx.referralId === 'LG-ALICE1__client_b_01');
-    t(txList.length === 1, '  exactly 1 transaction record (no duplicates)');
+    t(result.action === 'skip', '  action is "skip"');
+    t(result.reason === 'not_completed', '  reason = not_completed');
     console.log('');
 }
 
-/* ── Test 6: Invalid referral code = 0 ──────────────────────────── */
+/* ── Test 6: Duplicate processing = idempotent (still +100) ──────── */
 {
-    console.log('▸ Test 6: Invalid referral code (no matching referral record) = 0 pts');
+    console.log('▸ Test 6: Duplicate processing → idempotent (still +100, not +200)');
     resetStore();
     seedReferrer();
-    // Client B with a referredByCode that has no matching referral record
-    seedReferredCustomer({ referredByCode: 'LG-NOEXIST' });
+    seedReferredCustomer();
 
     const appt = { id: 'apt_006', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
+
+    const result1 = await simulateOnAppointmentStatusChange(appt);
+    t(result1.action === 'credited', '  first call: credited');
+    t(getCustomer('client_a_01').rewardPoints === 200, '  after first call: 200 pts');
+
+    const result2 = await simulateOnAppointmentStatusChange(appt);
+    t(result2.action === 'skip', '  second call: skipped');
+    t(result2.reason === 'already_rewarded', '  reason = already_rewarded (referralRewards exists)');
+    t(getCustomer('client_a_01').rewardPoints === 200, '  after second call: still 200 pts (not 300)');
+
+    const result3 = await simulateOnAppointmentStatusChange(appt);
+    t(result3.action === 'skip', '  third call: still skipped');
+    t(getCustomer('client_a_01').rewardPoints === 200, '  after third call: still 200 pts');
+
+    t(getReferralRewards().length === 1, '  exactly 1 referralRewards record (no duplicates)');
+    console.log('');
+}
+
+/* ── Test 7: Missing customerId = skip ───────────────────────────── */
+{
+    console.log('▸ Test 7: Missing customerId → skip');
+    resetStore();
+    seedReferrer();
+    seedReferredCustomer();
+
+    const appt = { id: 'apt_007', customerId: '', salonId: 'salon_test_01', status: 'Completed' };
+    const result = await simulateOnAppointmentStatusChange(appt);
 
     t(result.action === 'skip', '  action is "skip"');
-    t(result.reason === 'no_referral_record', '  reason = no_referral_record');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS, '  Client A points unchanged at 100');
-    t(getTransactions().length === 0, '  no transactions created');
+    t(result.reason === 'no_customer_id', '  reason = no_customer_id');
     console.log('');
 }
 
-/* ── Test 7: Client A profile displays updated points ────────────── */
+/* ── Test 8: Customer not found in store = skip ──────────────────── */
 {
-    console.log('▸ Test 7: Client A profile displays updated points after credit');
-    resetStore();
-    const alice = seedReferrer();
-    seedReferredCustomer();
-    seedPendingReferral();
-
-    // Verify initial state
-    let profile = getCustomer('client_a_01');
-    t(profile.referralPoints === REFERRAL_SIGNUP_BONUS, '  initial points = 100');
-
-    // Complete a qualifying appointment
-    const appt = { id: 'apt_007', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    await maybeCreditReferralBonus(appt);
-
-    // Verify profile updated
-    profile = getCustomer('client_a_01');
-    t(profile.referralPoints === 200, '  points after credit = 200');
-    t(profile.referralCode === 'LG-ALICE1', '  referral code preserved');
-    t(profile.name === 'Alice Referrer', '  name preserved');
-    t(profile.phone === '+919000000001', '  phone preserved');
-    t(profile.email === 'alice@test.com', '  email preserved');
-
-    // Verify the points value would render correctly in the UI
-    const pts = Number(profile.referralPoints) || 0;
-    t(pts === 200, '  pts renders as 200 in customer card');
-    console.log('');
-}
-
-/* ── Test 8: Mid-chain recovery — referral "Successful" but no tx ── */
-{
-    console.log('▸ Test 8: Mid-chain recovery (Successful but no transaction)');
+    console.log('▸ Test 8: Customer not found in store → skip');
     resetStore();
     seedReferrer();
-    seedReferredCustomer();
-    // Referral is already "Successful" (previous call crashed after marking
-    // Successful but before recording the transaction and crediting points)
-    seedPendingReferral({ status: 'Successful', appointmentId: 'apt_008' });
 
-    const appt = { id: 'apt_008', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
+    const appt = { id: 'apt_008', customerId: 'nonexistent_client', salonId: 'salon_test_01', status: 'Completed' };
+    const result = await simulateOnAppointmentStatusChange(appt);
 
-    t(result.action === 'credited', '  recovery: bonus credited');
-    t(result.newPts === REFERRAL_SIGNUP_BONUS + 100, '  recovery: points = 200');
-    t(getTransactions().length === 1, '  recovery: transaction created');
-
-    const referral = getReferral('LG-ALICE1__client_b_01');
-    t(referral.status === 'Bonus Credited', '  recovery: referral now Bonus Credited');
+    t(result.action === 'skip', '  action is "skip"');
+    t(result.reason === 'customer_not_found', '  reason = customer_not_found');
     console.log('');
 }
 
-/* ── Test 9: Mid-chain recovery — "Bonus Credited" but no tx ─────── */
+/* ── Test 9: Referrer not found = skip ───────────────────────────── */
 {
-    console.log('▸ Test 9: Recovery from "Bonus Credited" with no transaction (partial failure)');
+    console.log('▸ Test 9: Referrer not found in store → skip');
     resetStore();
-    seedReferrer();
-    seedReferredCustomer();
-    // Referral is "Bonus Credited" but the transaction was never recorded
-    // (points credit failed in the previous run)
-    seedPendingReferral({ status: 'Bonus Credited', appointmentId: 'apt_009', bonusCreditedAt: new Date().toISOString() });
+    seedReferredCustomer({ referredBy: 'nonexistent_referrer' });
 
     const appt = { id: 'apt_009', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
-
-    // With the OLD code, this would have returned early at step 3.
-    // With the NEW code, it detects the missing transaction and re-credits.
-    t(result.action === 'credited', '  partial failure recovery: bonus re-credited');
-    t(result.newPts === REFERRAL_SIGNUP_BONUS + 100, '  points = 200');
-    t(getTransactions().length === 1, '  transaction now exists');
-    console.log('');
-}
-
-/* ── Test 10: Rejected referral = 0 ─────────────────────────────── */
-{
-    console.log('▸ Test 10: Rejected referral = 0 pts');
-    resetStore();
-    seedReferrer();
-    seedReferredCustomer();
-    seedPendingReferral({ status: 'Rejected' });
-
-    const appt = { id: 'apt_010', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
-    const result = await maybeCreditReferralBonus(appt);
+    const result = await simulateOnAppointmentStatusChange(appt);
 
     t(result.action === 'skip', '  action is "skip"');
-    t(result.reason === 'unexpected_status', '  reason = unexpected_status');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS, '  Client A points unchanged');
-    t(getTransactions().length === 0, '  no transactions created');
+    t(result.reason === 'referrer_not_found', '  reason = referrer_not_found');
     console.log('');
 }
 
-/* ── Test 11: Missing input fields = skip ────────────────────────── */
+/* ── Test 10: Referrer profile integrity after credit ────────────── */
 {
-    console.log('▸ Test 11: Missing appointment fields = skip');
+    console.log('▸ Test 10: Referrer profile integrity preserved after credit');
     resetStore();
     seedReferrer();
     seedReferredCustomer();
-    seedPendingReferral();
 
-    const result = await maybeCreditReferralBonus({});
-    t(result.action === 'skip', '  skips with missing fields');
-    t(getCustomer('client_a_01').referralPoints === REFERRAL_SIGNUP_BONUS, '  points unchanged');
+    const appt = { id: 'apt_010', customerId: 'client_b_01', salonId: 'salon_test_01', status: 'Completed' };
+    await simulateOnAppointmentStatusChange(appt);
+
+    const referrer = getCustomer('client_a_01');
+    t(referrer.rewardPoints === 200, '  rewardPoints = 200');
+    t(referrer.name === 'Alice Referrer', '  name preserved');
+    t(referrer.phone === '+919000000001', '  phone preserved');
+    t(referrer.email === 'alice@test.com', '  email preserved');
+    t(referrer.referralCode === 'LG-ALICE1', '  referralCode preserved');
     console.log('');
 }
 
-/* ── Test 12: Transaction audit trail fields ─────────────────────── */
+/* ── Test 11: referralRewards audit record has all required fields ── */
 {
-    console.log('▸ Test 12: Transaction audit trail contains all required fields');
+    console.log('▸ Test 11: referralRewards audit record contains all required fields');
     resetStore();
-    seedReferrer({ id: 'client_x_01', name: 'Xander Audit', referralCode: 'LG-XANDR1' });
+    seedReferrer({ id: 'ref_x', name: 'Xander Audit', salonId: 'salon_a' });
     seedReferredCustomer({
-        id: 'client_y_01',
-        referredByCode: 'LG-XANDR1',
-        referringCustomerId: 'client_x_01',
-        referringCustomerName: 'Xander Audit',
-        referringSalonId: 'salon_test_01',
-    });
-    seedPendingReferral({
-        id: 'LG-XANDR1__client_y_01',
-        code: 'LG-XANDR1',
-        referringCustomerId: 'client_x_01',
-        referringCustomerName: 'Xander Audit',
-        referredCustomerId: 'client_y_01',
-        referredCustomerName: 'Yara Test',
+        id: 'ref_y',
+        name: 'Yara Test',
+        salonId: 'salon_b',
+        referredBy: 'ref_x',
     });
 
-    const appt = { id: 'apt_012', customerId: 'client_y_01', salonId: 'salon_test_01', status: 'Completed' };
-    await maybeCreditReferralBonus(appt);
+    const appt = { id: 'apt_011', customerId: 'ref_y', salonId: 'salon_b', status: 'Completed' };
+    await simulateOnAppointmentStatusChange(appt);
 
-    const tx = getTransactions()[0];
-    t(!!tx, '  transaction exists');
-    t(typeof tx.id === 'string' && tx.id.startsWith('REFERRAL__'), '  id = REFERRAL__<refId>');
-    t(tx.clientId === 'client_x_01', '  clientId = referrer id');
-    t(tx.clientName === 'Xander Audit', '  clientName = referrer name');
-    t(tx.salonId === 'salon_test_01', '  salonId = referred salon');
-    t(tx.points === 100, '  points = 100');
-    t(tx.type === 'REFERRAL_BONUS', '  type = REFERRAL_BONUS');
-    t(typeof tx.createdAt === 'string' && tx.createdAt.length > 0, '  createdAt is non-empty string');
-    t(tx.referralId === 'LG-XANDR1__client_y_01', '  referralId links to referral record');
+    const reward = getReferralRewards()[0];
+    t(!!reward, '  reward record exists');
+    t(reward.appointmentId === 'apt_011', '  appointmentId = apt_011');
+    t(reward.salonId === 'salon_b', '  salonId = referred customer salon');
+    t(reward.referrerClientId === 'ref_x', '  referrerClientId = referrer');
+    t(reward.referrerClientName === 'Xander Audit', '  referrerClientName = referrer name');
+    t(reward.referredClientId === 'ref_y', '  referredClientId = referred customer');
+    t(reward.referredClientName === 'Yara Test', '  referredClientName = referred name');
+    t(reward.points === 100, '  points = 100');
+    t(reward.type === 'referral_bonus', '  type = referral_bonus');
+    t(reward.status === 'credited', '  status = credited');
+    t(typeof reward.createdAt === 'string' && reward.createdAt.length > 0, '  createdAt is non-empty string');
+    console.log('');
+}
+
+/* ── Test 12: Cross-salon referral (referrer in different salon) ──── */
+{
+    console.log('▸ Test 12: Cross-salon referral (referrer in different salon) → credited');
+    resetStore();
+    seedReferrer({ id: 'referrer_cross', salonId: 'salon_alpha', name: 'Cross Referrer' });
+    seedReferredCustomer({
+        id: 'referred_cross',
+        salonId: 'salon_beta',
+        name: 'Cross Referred',
+        referredBy: 'referrer_cross',
+    });
+
+    const appt = { id: 'apt_012', customerId: 'referred_cross', salonId: 'salon_beta', status: 'Completed' };
+    const result = await simulateOnAppointmentStatusChange(appt);
+
+    t(result.action === 'credited', '  cross-salon referral credited');
+    t(result.referrerId === 'referrer_cross', '  referrer = Cross Referrer');
+    t(getCustomer('referrer_cross').rewardPoints === 200, '  referrer in salon_alpha got +100 pts');
+
+    const reward = getReferralRewards()[0];
+    t(reward.referrerSalonId === 'salon_alpha', '  reward.referrerSalonId = referrer salon');
+    t(reward.salonId === 'salon_beta', '  reward.salonId = referred salon');
+    console.log('');
+}
+
+/* ── Test 13: Canonical referredBy field is used (not referredByCode) */
+{
+    console.log('▸ Test 13: Canonical referredBy field is the source of truth');
+    resetStore();
+    seedReferrer({ id: 'canonical_a', name: 'Canonical A' });
+    seedReferredCustomer({
+        id: 'canonical_b',
+        name: 'Canonical B',
+        referredBy: 'canonical_a',
+        // referredByCode exists but referredBy is the canonical field
+        referredByCode: 'LG-SOMECODE',
+    });
+
+    const appt = { id: 'apt_013', customerId: 'canonical_b', salonId: 'salon_test_01', status: 'Completed' };
+    const result = await simulateOnAppointmentStatusChange(appt);
+
+    t(result.action === 'credited', '  credited via referredBy field');
+    t(result.referrerId === 'canonical_a', '  resolved referrer from referredBy (not referredByCode)');
+    console.log('');
+}
+
+/* ── Test 14: Missing customerId = skip ────────────────────────────── */
+{
+    console.log('▸ Test 14: null appointment fields = skip');
+    resetStore();
+    seedReferrer();
+    seedReferredCustomer();
+
+    const result = await simulateOnAppointmentStatusChange({});
+    t(result.action === 'skip', '  skips with null/empty appointment');
+
+    const result2 = await simulateOnAppointmentStatusChange({ id: 'apt_x', status: 'Completed' });
+    t(result2.action === 'skip', '  skips without customerId');
+    console.log('');
+}
+
+/* ── Test 15: Multiple referrals, each idempotent ─────────────────── */
+{
+    console.log('▸ Test 15: Multiple different referrals each get exactly +100');
+    resetStore();
+    seedReferrer({ id: 'multi_a1', name: 'Referrer 1', rewardPoints: 0 });
+    seedReferrer({ id: 'multi_a2', name: 'Referrer 2', rewardPoints: 0 });
+    seedReferredCustomer({ id: 'multi_b1', referredBy: 'multi_a1', name: 'Referred 1' });
+    seedReferredCustomer({ id: 'multi_b2', referredBy: 'multi_a2', name: 'Referred 2' });
+
+    // Complete appointment for Referred 1
+    await simulateOnAppointmentStatusChange({ id: 'apt_m1', customerId: 'multi_b1', salonId: 'salon_test_01', status: 'Completed' });
+    t(getCustomer('multi_a1').rewardPoints === 100, '  Referrer 1 after Referred 1 completes: 100 pts');
+    t(getCustomer('multi_a2').rewardPoints === 0, '  Referrer 2 unchanged: 0 pts');
+
+    // Complete appointment for Referred 2
+    await simulateOnAppointmentStatusChange({ id: 'apt_m2', customerId: 'multi_b2', salonId: 'salon_test_01', status: 'Completed' });
+    t(getCustomer('multi_a1').rewardPoints === 100, '  Referrer 1 still 100 pts');
+    t(getCustomer('multi_a2').rewardPoints === 100, '  Referrer 2 after Referred 2 completes: 100 pts');
+
+    // Try to re-credit Referred 1 — should be skipped
+    await simulateOnAppointmentStatusChange({ id: 'apt_m1', customerId: 'multi_b1', salonId: 'salon_test_01', status: 'Completed' });
+    t(getCustomer('multi_a1').rewardPoints === 100, '  Referrer 1 still 100 pts (idempotent re-run)');
+
+    t(getReferralRewards().length === 2, '  exactly 2 referralRewards records');
     console.log('');
 }
 
 /* ── Summary ─────────────────────────────────────────────────────── */
 console.log('═══════════════════════════════════════════════════════════');
-console.log(`  REFERRAL BONUS TESTS: ${pass} passed, ${fail} failed`);
+console.log(`  REFERRAL REWARD TESTS: ${pass} passed, ${fail} failed`);
 console.log('═══════════════════════════════════════════════════════════\n');
 process.exit(fail === 0 ? 0 : 1);

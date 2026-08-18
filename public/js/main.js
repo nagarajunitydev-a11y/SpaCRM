@@ -612,7 +612,7 @@ const actions = {
             rewards: {
                 customerId: customer.id,
                 name: customer.name,
-                points: Number(customer.referralPoints) || 0,
+                points: Number(customer.rewardPoints) || 0,
                 referralCode,
             },
         });
@@ -826,26 +826,15 @@ const actions = {
             const appointments = store.getState().appointmentsList || [];
             const oldAppointment = appointments.find(a => a.id === id);
             const wasCompleted = oldAppointment && oldAppointment.status === 'Completed';
-            const updated = await appointmentsRepository.updateAppointment(id, payload);
+            await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
-            // Trigger referral bonus when status changes to Completed.
-            // Merge the old appointment (has salonId) with the new payload
-            // so maybeCreditReferralBonus has customerId + salonId.
-            if (payload.status === 'Completed' && !wasCompleted) {
-                const merged = { ...oldAppointment, ...updated, id };
-                appointmentsRepository.maybeCreditReferralBonus(merged).catch(err => {
-                    console.warn('[REFERRAL] Bonus credit failed:', err);
-                });
-            }
+            // Referral reward is now handled server-side by a Cloud Function
+            // (functions/index.js → onAppointmentStatusChange) when status
+            // changes to "Completed". No client-side trigger needed.
         } else {
-            const created = await appointmentsRepository.addAppointment(payload);
+            await appointmentsRepository.addAppointment(payload);
             showNotification('Appointment booked successfully!');
-            // Trigger referral bonus when a new appointment is created as Completed.
-            if (payload.status === 'Completed' && created) {
-                appointmentsRepository.maybeCreditReferralBonus(created).catch(err => {
-                    console.warn('[REFERRAL] Bonus credit failed:', err);
-                });
-            }
+            // Referral reward is triggered server-side — no client-side call needed.
         }
         closeModal();
     },
@@ -859,22 +848,11 @@ const actions = {
             showNotification('Invalid status.', 'error');
             return;
         }
-        // Capture the Firestore return value — in Firebase mode the onSnapshot
-        // store may not have refreshed yet, so we use this as fallback.
-        const updated = await appointmentsRepository.updateAppointment(id, { status });
+        await appointmentsRepository.updateAppointment(id, { status });
         showNotification(`Appointment marked as ${status}!`);
-        if (status === 'Completed') {
-            const appointments = store.getState().appointmentsList || [];
-            const storeAppt = appointments.find(a => a.id === id);
-            // Prefer the store copy (has all fields); fall back to Firestore
-            // return value which at minimum has id + customerId + salonId.
-            const appointment = storeAppt || updated;
-            if (appointment) {
-                appointmentsRepository.maybeCreditReferralBonus(appointment).catch(err => {
-                    console.warn('[REFERRAL] Bonus credit failed:', err);
-                });
-            }
-        }
+        // Referral reward is now handled server-side by a Cloud Function
+        // (functions/index.js → onAppointmentStatusChange) when the
+        // appointment document status changes to "Completed".
     },
 
     async 'submit-salon'(form, event, data) {

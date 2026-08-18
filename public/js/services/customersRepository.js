@@ -5,11 +5,17 @@
  * Every customer is stored under their salon and receives a unique referral
  * code. When a customer is added with a referral code, the code is validated
  * against the global registry (the referring salon is identified automatically)
- * and a Pending referral is created. The referral is marked Successful (and the
- * referrer credited) only when the referred customer books their first
- * appointment — see appointmentsRepository.maybeCreditReferralBonus. Duplicate
- * customers (same phone or exact name) within the salon are rejected before
- * anything is written. Self-referrals are rejected.
+ * and a Pending referral is created. The referral reward is credited
+ * SERVER-SIDE by a Cloud Function (onAppointmentStatusChange) when the
+ * referred customer's appointment reaches "Completed" status.
+ *
+ * Canonical data model:
+ *   - referredBy:          Client A's customer ID (the referrer)
+ *   - rewardPoints:        Canonical points field
+ *   - referralRewards/{id}: Server-created reward audit records
+ *
+ * Duplicate customers (same phone or exact name) within the salon are
+ * rejected before anything is written. Self-referrals are rejected.
  */
 
 import { store } from '../core/store.js';
@@ -24,8 +30,8 @@ import * as referralCodesRepository from './referralCodesRepository.js';
 import * as referralsRepository from './referralsRepository.js';
 
 export const seed = [
-    { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', referralPoints: 150, referralCode: 'LG-OLIVIA' },
-    { id: 'c2', salonId: 'salon_luxe_01', name: 'Jessica Alba', phone: '+1 555-0199', email: 'jessica@example.com', referralPoints: 220, referralCode: 'LG-JESSIC', referredByCode: 'LG-OLIVIA', referringSalonId: 'salon_luxe_01', referringCustomerId: 'c1', referringCustomerName: 'Olivia Wilde' },
+    { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', rewardPoints: 150, referralCode: 'LG-OLIVIA' },
+    { id: 'c2', salonId: 'salon_luxe_01', name: 'Jessica Alba', phone: '+1 555-0199', email: 'jessica@example.com', rewardPoints: 220, referralCode: 'LG-JESSIC', referredBy: 'c1', referredByCode: 'LG-OLIVIA' },
 ];
 
 const repo = createScopedRepository({
@@ -93,13 +99,16 @@ export async function addCustomer(payload) {
     const ownCode = await referralCodesRepository.generateUniqueCode('LG');
     const row = {
         ...payload,
-        referralPoints: REFERRAL_SIGNUP_BONUS,
+        rewardPoints: REFERRAL_SIGNUP_BONUS,
         referralCode: ownCode,
     };
     if (referring) {
         row.referredByCode = referralCodesRepository.normalizeCode(code);
+        // Canonical referral field: the referrer's customer ID.
+        // The Cloud Function uses this to credit points when the
+        // referred client completes their first appointment.
+        row.referredBy = referring.kind === 'customer' ? referring.customerId : null;
         row.referringSalonId = referring.salonId;
-        row.referringCustomerId = referring.kind === 'customer' ? referring.customerId : null;
         row.referringCustomerName = referring.customerName;
     }
 
@@ -169,7 +178,7 @@ export async function addCustomerQuick(payload) {
     const created = await repo.add(
         {
             ...payload,
-            referralPoints: REFERRAL_SIGNUP_BONUS,
+            rewardPoints: REFERRAL_SIGNUP_BONUS,
             referralCode: ownCode,
         },
         { skipValidation: true },
@@ -266,13 +275,16 @@ export function getReferralCode(customer) {
 /**
  * Redeem a reward tier. `tierPoints` is the cost in points; throws when the
  * customer cannot afford it (transaction-safe message for the UI).
+ *
+ * NOTE: Points deduction is a client-side operation for now. In production,
+ * this should be moved to a Cloud Function for atomicity.
  */
 export async function redeemReward(customerId, tierPoints) {
-    const pts = Number(getCustomer(customerId)?.referralPoints) || 0;
+    const pts = Number(getCustomer(customerId)?.rewardPoints) || 0;
     if (pts < tierPoints) {
         throw new Error(`Need at least ${tierPoints} points for this reward.`);
     }
-    return repo.update(customerId, { referralPoints: pts - tierPoints });
+    return repo.update(customerId, { rewardPoints: pts - tierPoints });
 }
 
 /** Delete a customer and unregister their referral code from the registry. */

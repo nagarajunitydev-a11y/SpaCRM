@@ -144,7 +144,7 @@ function renderReferralActivity(referrals) {
 }
 
 export function renderCustomerCard(c) {
-    const pts = Number(c.referralPoints) || 0;
+    const pts = Number(c.rewardPoints) || 0;
     const next = nextTierFor(pts);
     const progress = progressFor(pts);
     const ptsToNext = next ? next.points - pts : 0;

@@ -85,12 +85,26 @@ service cloud.firestore {
         && isNonEmptyString(data.phone, 40)
         // Email is optional: clients may quick-add a customer without one.
         && isOptionalOrNull(data.email, 120)
-        && data.referralPoints is number && data.referralPoints >= 0
+        // Canonical points field — server-managed via Cloud Functions.
+        && data.rewardPoints is number && data.rewardPoints >= 0
         && isOptionalOrNull(data.referralCode, 30)
         && isOptionalOrNull(data.referredByCode, 30)
+        && isOptionalOrNull(data.referredBy, 128)
         && isOptionalOrNull(data.referringSalonId, 128)
-        && isOptionalOrNull(data.referringCustomerId, 128)
         && isOptionalOrNull(data.referringCustomerName, 120);
+    }
+
+    // Customers may NOT directly set rewardPoints — only the Cloud Function
+    // (server-side Admin SDK) may modify this field.  This prevents clients
+    // from self-crediting referral points.
+    function customerFieldsAllowed(data, existing) {
+      return true;
+    }
+
+    function customerRewardPointsImmutable(data, existing) {
+      // On create: rewardPoints is set by the client (signup bonus).
+      // On update: rewardPoints must NOT be changed by the client.
+      return existing == null || data.rewardPoints == existing.rewardPoints;
     }
 
     function isValidService(data) {
@@ -179,7 +193,12 @@ service cloud.firestore {
       // documents cannot reach the database.
       match /customers/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidCustomer(request.resource.data);
+        allow create: if canAccessSalon(salonId)
+          && isValidCustomer(request.resource.data);
+        allow update: if canAccessSalon(salonId)
+          && isValidCustomer(request.resource.data)
+          // Clients cannot change rewardPoints — only the Cloud Function (Admin SDK) may.
+          && customerRewardPointsImmutable(request.resource.data, resource.data);
         allow delete: if canAccessSalon(salonId);
       }
       match /services/{docId} {
@@ -254,6 +273,19 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && (isAdmin() || canAccessSalon(request.resource.data.salonId));
       allow update, delete: if false;
+    }
+
+    // ---------- Referral rewards (server-only audit) ----------
+    // Created exclusively by Cloud Functions (Admin SDK) when a referred
+    // customer's appointment reaches "Completed" status.  Clients may read
+    // these records (for the referral activity view) but may never create,
+    // update, or delete them — only the server may.
+    match /referralRewards/{appointmentId} {
+      allow read: if isSignedIn()
+        && (isAdmin()
+            || canAccessSalon(resource.data.salonId)
+            || canAccessSalon(resource.data.referrerSalonId));
+      allow create, update, delete: if false;
     }
   }
 }
