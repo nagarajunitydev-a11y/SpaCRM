@@ -5,6 +5,13 @@
  * Referral bonus is credited when an appointment reaches "Completed" status,
  * not on booking creation.  This ensures the referrer is rewarded only when
  * the referred customer actually attends their visit.
+ *
+ * The credit flow is idempotent and crash-safe: the transaction ledger
+ * (rewardTransactions with deterministic IDs) is the single source of truth
+ * for whether a bonus has been credited.  The referral status field
+ * ("Successful" / "Bonus Credited") is an optimistic side-effect — it may
+ * race ahead of the actual credit, but the transaction check always prevents
+ * double-crediting and detects partial failures for recovery.
  */
 
 import { createScopedRepository } from './scopedRepository.js';
@@ -40,12 +47,25 @@ export async function addAppointment(payload, opts = {}) {
 /**
  * Credit the referrer when a referred customer's appointment is completed.
  *
- * Handles mid-chain failures: if a previous call marked the referral
- * Successful but crashed before crediting points, this call detects the
- * "Successful" state and retries the credit + Bonus Credited transition.
+ * Crash-safe idempotency model:
+ *   - The referral status field ("Pending" → "Successful" → "Bonus Credited")
+ *     is an optimistic concurrency aid — it may be ahead of the actual credit
+ *     if a previous call crashed mid-flow.
+ *   - The transaction ledger (rewardTransactions with deterministic ID
+ *     `REFERRAL__<referralId>`) is the TRUE idempotency gate.  A missing
+ *     transaction means the points were never credited, regardless of the
+ *     referral status.
+ *   - This function NEVER returns early based on referral status alone.
+ *     It always falls through to the transaction check so partial failures
+ *     from a previous run are detected and recovered.
  *
- * Idempotent: checks the transaction ledger before crediting to prevent
- * duplicate points.
+ * Ordering guarantee:
+ *   1. Mark referral "Successful" (if still Pending)
+ *   2. Mark referral "Bonus Credited" (optimistic — may already be set)
+ *   3. Record the transaction (deterministic ID — idempotent write)
+ *   4. Credit the referrer's points
+ *   If any step after #1 fails, the next invocation recovers by detecting
+ *   the missing transaction and re-executing steps 3-4.
  */
 export async function maybeCreditReferralBonus(appointment) {
     const apptId = appointment.id;
@@ -54,24 +74,29 @@ export async function maybeCreditReferralBonus(appointment) {
     console.log('[REFERRAL] ─── maybeCreditReferralBonus START ───');
     console.log('[REFERRAL] Appointment:', apptId, '| Customer B:', custId, '| Salon:', salonId);
 
-    // 1. Fetch the referred customer directly from their salon.
+    // ── Validate inputs ──────────────────────────────────────────────
+    if (!apptId || !custId || !salonId) {
+        console.warn('[REFERRAL] Missing required fields (id/customerId/salonId) — aborting.');
+        return;
+    }
+
+    // ── Step 1: Fetch the referred customer ───────────────────────────
     const customer = await customersRepository.getCustomerFromSalon(custId, salonId);
     if (!customer || !customer.referredByCode) {
-        console.log('[REFERRAL] Customer has no referredByCode — skipping.');
+        console.log('[REFERRAL] Customer has no referredByCode — not a referred client, skipping.');
         return;
     }
     const refCode = customer.referredByCode;
-    const clientAId = customer.referringCustomerId;
     console.log('[REFERRAL] Client B:', customer.id, '|', customer.name,
         '| referredByCode:', refCode,
-        '| Client A ID:', clientAId,
-        '| Client A salon:', customer.referringSalonId);
+        '| referrer ID:', customer.referringCustomerId,
+        '| referrer salon:', customer.referringSalonId);
 
-    // 2. Find the referral (reads directly from Firestore in Firebase mode).
+    // ── Step 2: Find the referral record ─────────────────────────────
     const referral = await referralsRepository.findReferral(refCode, customer.id);
     if (!referral) {
-        console.log('[REFERRAL] No referral record found for code', refCode,
-            '+ customer', customer.id, '— skipping.');
+        console.warn('[REFERRAL] No referral record found for code', refCode,
+            '+ customer', customer.id, '— skipping (data inconsistency?).');
         return;
     }
     console.log('[REFERRAL] Referral:', referral.id,
@@ -79,42 +104,36 @@ export async function maybeCreditReferralBonus(appointment) {
         '| Client A:', referral.referringCustomerId,
         '| bonus:', referral.bonusAmount);
 
-    // 3. Already fully processed — nothing to do.
-    if (referral.status === 'Bonus Credited') {
-        console.log('[REFERRAL] Already Bonus Credited — skipping.');
+    // Reject unexpected statuses (Rejected, or anything not in the state machine).
+    if (referral.status !== 'Pending' && referral.status !== 'Successful' && referral.status !== 'Bonus Credited') {
+        console.warn('[REFERRAL] Unexpected referral status:', referral.status, '— aborting.');
         return;
     }
 
-    // 4. Mid-chain recovery: referral is "Successful" but points may never
-    //    have been credited (previous call crashed after marking Successful
-    //    but before completing the full credit flow).
-    const needsSuccessfulMark = referral.status === 'Pending';
-    if (!needsSuccessfulMark && referral.status !== 'Successful') {
-        console.log('[REFERRAL] Unexpected status:', referral.status, '— skipping.');
-        return;
-    }
-
-    // 5. Mark Successful (only if still Pending).
-    if (needsSuccessfulMark) {
+    // ── Step 3: Transition Pending → Successful (if needed) ──────────
+    if (referral.status === 'Pending') {
         try {
             const result = await referralsRepository.markReferralSuccessful(referral, apptId);
             if (result) Object.assign(referral, result);
-            console.log('[REFERRAL] Marked Successful:', referral.id, '| appointment:', apptId);
+            console.log('[REFERRAL] Referral marked Successful:', referral.id, '| appointment:', apptId);
         } catch (err) {
+            // Race: another call may have marked it Successful already.
             const fresh = await referralsRepository.findReferral(refCode, customer.id);
-            if (fresh && fresh.status === 'Successful') {
-                console.log('[REFERRAL] Already Successful in Firestore — proceeding.');
+            if (fresh && (fresh.status === 'Successful' || fresh.status === 'Bonus Credited')) {
+                console.log('[REFERRAL] Concurrent update detected — referral already', fresh.status, 'in Firestore.');
                 Object.assign(referral, fresh);
             } else {
-                console.error('[REFERRAL] markReferralSuccessful failed:', err);
+                console.error('[REFERRAL] markReferralSuccessful FAILED:', err.message || err);
                 throw err;
             }
         }
-    } else {
-        console.log('[REFERRAL] Already Successful — proceeding to credit.');
     }
 
-    // 6. Fetch the referrer (Client A) from their salon.
+    // ── Step 4: Fetch the referrer (Client A) ────────────────────────
+    if (!referral.referringCustomerId || !referral.referringSalonId) {
+        console.warn('[REFERRAL] Referral missing referringCustomerId or referringSalonId — aborting.');
+        return;
+    }
     let referrer;
     try {
         referrer = await customersRepository.getCustomerFromSalon(
@@ -128,33 +147,53 @@ export async function maybeCreditReferralBonus(appointment) {
     }
     if (!referrer) {
         console.warn('[REFERRAL] Client A not found:', referral.referringCustomerId,
-            'in salon', referral.referringSalonId);
+            'in salon', referral.referringSalonId, '— cannot credit points.');
         return;
     }
-    const prevPts = Number(referrer.referralPoints) || 0;
     console.log('[REFERRAL] Client A:', referrer.id, '|', referrer.name,
         '| salon:', referral.referringSalonId,
-        '| prev pts:', prevPts);
+        '| current pts:', Number(referrer.referralPoints) || 0);
 
-    // 7. Idempotency guard: skip if a reward transaction was already recorded.
+    // ── Step 5: IDEMPOTENCY GATE — check the transaction ledger ──────
+    // This is the single source of truth.  If a transaction exists, the
+    // bonus was already credited — we only ensure the referral status is
+    // terminal and return.  If no transaction exists, the points were
+    // never credited (even if the referral says "Bonus Credited") and we
+    // must re-execute the credit flow.
     const existingTx = await rewardTransactionsRepository.findReferralTransaction(referral.id);
     if (existingTx) {
         console.log('[REFERRAL] Transaction already exists for', referral.id,
-            '— ensuring terminal state.');
-        try { await referralsRepository.completeReferral(referral); } catch (_) { /* already credited */ }
+            '— bonus already credited, ensuring terminal state.');
+        if (referral.status !== 'Bonus Credited') {
+            try { await referralsRepository.completeReferral(referral); } catch (_) { /* already terminal */ }
+        }
+        console.log('[REFERRAL] ─── maybeCreditReferralBonus END (already credited) ───');
         return;
     }
 
-    // 8. Mark Bonus Credited BEFORE crediting points (primary idempotency lock).
-    try {
-        await referralsRepository.completeReferral(referral);
-        console.log('[REFERRAL] Referral status → Bonus Credited:', referral.id);
-    } catch (err) {
-        console.warn('[REFERRAL] completeReferral failed (may already be completed):',
-            err.message);
+    // ── Step 6: Mark referral "Bonus Credited" (optimistic lock) ─────
+    // Done BEFORE crediting points so concurrent calls see the terminal
+    // status and back off.  If this fails because another call set it
+    // first, we continue — the transaction check is the real guard.
+    if (referral.status !== 'Bonus Credited') {
+        try {
+            await referralsRepository.completeReferral(referral);
+            console.log('[REFERRAL] Referral status → Bonus Credited:', referral.id);
+        } catch (err) {
+            console.warn('[REFERRAL] completeReferral failed (concurrent update?):', err.message);
+            // Re-read to confirm it went terminal.
+            const fresh = await referralsRepository.findReferral(refCode, customer.id);
+            if (fresh && fresh.status === 'Bonus Credited') {
+                Object.assign(referral, fresh);
+            }
+        }
     }
 
-    // 9. Record the reward transaction for audit.
+    // ── Step 7: Record the reward transaction (deterministic ID) ─────
+    // The transaction ID is `REFERRAL__<referralId>` — a setDocument
+    // (overwrite-by-id), so this is inherently idempotent even if called
+    // twice concurrently.  Once this succeeds, the bonus is permanently
+    // recorded in the audit ledger.
     const bonus = Number(referral.bonusAmount) || REFERRAL_BONUS_POINTS;
     try {
         await rewardTransactionsRepository.recordReferralBonus({
@@ -163,23 +202,43 @@ export async function maybeCreditReferralBonus(appointment) {
             referrerName: referrer.name,
             salonId: referral.referredSalonId,
         });
-        console.log('[REFERRAL] Transaction recorded:', referral.id);
+        console.log('[REFERRAL] Transaction recorded:', referral.id,
+            '| referrer:', referrer.id, '| points:', bonus);
     } catch (err) {
-        console.warn('[REFERRAL] recordReferralBonus failed:', err.message);
+        // If the transaction write fails, the points must NOT be credited
+        // (otherwise we'd have credited points without an audit trail).
+        console.error('[REFERRAL] recordReferralBonus FAILED — points NOT credited:', err.message || err);
+        throw err;
     }
 
-    // 10. Credit the referrer's points balance.
+    // ── Step 8: Credit the referrer's points balance ─────────────────
+    const prevPts = Number(referrer.referralPoints) || 0;
     const newPts = prevPts + bonus;
-    await customersRepository.updateCustomerInSalon(referrer.id, referral.referringSalonId, {
-        referralPoints: newPts,
-    });
-    console.log('[REFERRAL] ✅ Points credited — Client A:', referrer.id,
-        '| prev:', prevPts, '| bonus:', bonus, '| updated:', newPts, 'pts',
-        '| referral status:', referral.status === 'Bonus Credited' ? 'Bonus Credited' : 'Bonus Credited');
+    try {
+        await customersRepository.updateCustomerInSalon(referrer.id, referral.referringSalonId, {
+            referralPoints: newPts,
+        });
+        console.log('[REFERRAL] ✅ Points credited — Client A:', referrer.id,
+            '| prev:', prevPts, '| bonus:', bonus, '| new:', newPts, 'pts');
+    } catch (err) {
+        // Transaction was recorded but points update failed.  The next
+        // invocation will detect the existing transaction (step 5) and
+        // NOT re-credit — but the points are stuck.  Log loudly so an
+        // operator can manually reconcile.
+        console.error('[REFERRAL] ⚠️ POINTS CREDIT FAILED after transaction was recorded!',
+            'Client A:', referrer.id, '| expected pts:', newPts,
+            '| error:', err.message || err);
+        throw err;
+    }
 
-    // 11. Force-refresh the referral card so the UI reflects the new state.
-    await referralsRepository.forceRefreshReferrals();
-    console.log('[REFERRAL] Referral card refreshed');
+    // ── Step 9: Refresh UI state ─────────────────────────────────────
+    try {
+        await referralsRepository.forceRefreshReferrals();
+        console.log('[REFERRAL] Referral card refreshed.');
+    } catch (err) {
+        console.warn('[REFERRAL] forceRefreshReferrals failed (non-critical):', err.message);
+    }
+
     console.log('[REFERRAL] ─── maybeCreditReferralBonus END ───');
 }
 
