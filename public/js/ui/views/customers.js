@@ -1,17 +1,11 @@
 /**
  * views/customers.js
- * Clients view: reward tiers, progress toward the next reward, and per-client
- * redeem actions.
+ * Clients view with per-client edit/delete actions.
  */
 
-import { esc, escAttr } from '../../core/sanitize.js';
+import { esc } from '../../core/sanitize.js';
 import { sectionHeader, actionButton, emptyState, iconAction } from '../components.js';
 import { scopedBySalon } from '../../core/utils.js';
-import {
-    REWARD_TIERS,
-    nextTierFor,
-    progressFor,
-} from '../../core/rewards.js';
 
 export function renderCustomers(state) {
     const customers = scopedBySalon(state.customersList, state.currentSalonId);
@@ -20,7 +14,7 @@ export function renderCustomers(state) {
         <div class="space-y-4">
             ${sectionHeader(
                 'Clients',
-                '100 bonus pts given on signup',
+                '',
                 actionButton('Add Client', { action: 'modal', data: { modal: 'customer' }, iconName: 'user-plus' }),
             )}
 
@@ -49,11 +43,6 @@ export function renderCustomers(state) {
 }
 
 export function renderCustomerCard(c) {
-    const pts = Number(c.rewardPoints) || 0;
-    const next = nextTierFor(pts);
-    const progress = progressFor(pts);
-    const ptsToNext = next ? next.points - pts : 0;
-
     return `
         <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
             <div class="flex items-center justify-between gap-3">
@@ -62,28 +51,10 @@ export function renderCustomerCard(c) {
                     <p class="text-xs text-slate-400 mt-0.5 truncate">${esc(c.phone)}</p>
                     <p class="text-[10px] text-slate-500 mt-0.5 truncate">${esc(c.email)}</p>
                 </div>
-                <div class="bg-brand-500/15 text-brand-400 px-2.5 py-1 rounded-xl text-xs font-bold shrink-0">${esc(pts)} pts</div>
-            </div>
-
-            <div class="mt-3">
-                <div class="flex items-center justify-between mb-1">
-                    <span class="text-[10px] text-slate-400 font-medium">
-                        ${next ? `Next reward: <span class="text-brand-400 font-semibold">${esc(next.label)}</span>` : 'Max reward reached!'}
-                    </span>
-                    <span class="text-[10px] text-slate-500">${next ? `${esc(ptsToNext)} pts to go` : ''}</span>
+                <div class="flex items-center gap-2 shrink-0">
+                    ${iconAction('open-edit', { type: 'customer', id: c.id }, 'Edit client', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
+                    ${iconAction('request-delete', { type: 'customer', id: c.id, label: c.name }, 'Delete client', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
                 </div>
-                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden" role="progressbar" aria-valuenow="${escAttr(progress)}" aria-valuemin="0" aria-valuemax="100">
-                    <div class="h-full bg-gradient-to-r from-brand-600 to-brand-400 rounded-full transition-all" style="width:${escAttr(progress)}%"></div>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2 mt-3.5">
-                <button data-action="redeem" data-id="${escAttr(c.id)}" data-name="${escAttr(c.name)}"
-                    class="flex-1 px-3 py-2 bg-brand-600 hover:bg-brand-500 text-white text-[10px] font-semibold rounded-xl transition active:scale-95 touch-manipulation flex items-center justify-center space-x-1.5">
-                    <i data-lucide="gift" class="w-3.5 h-3.5"></i><span>Redeem Reward</span>
-                </button>
-                ${iconAction('open-edit', { type: 'customer', id: c.id }, 'Edit client', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
-                ${iconAction('request-delete', { type: 'customer', id: c.id, label: c.name }, 'Delete client', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
             </div>
         </div>
     `;

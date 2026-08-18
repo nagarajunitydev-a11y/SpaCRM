@@ -311,17 +311,6 @@ async function main() {
     await waitFor(`document.body.innerText.includes('Validation Test Client')`);
     assert(true, 'valid appointment saved');
 
-    console.log('\n[6] Reward tier redemption');
-    await click(`[data-action="tab"][data-tab="customers"]`);
-    await new Promise((r) => setTimeout(r, 150));
-    assert(await evaluate(`document.body.innerText.includes('₹25 Service Voucher')`), 'reward tiers shown');
-    await click('[data-action="redeem"]');
-    await waitFor(`document.querySelector('[data-action="redeem-reward"]') !== null`);
-    assert(await evaluate(`document.querySelectorAll('[data-action="redeem-reward"]').length >= 1`), 'affordable tier enabled');
-    await click('[data-action="redeem-reward"]');
-    await new Promise((r) => setTimeout(r, 300));
-    assert(await evaluate(`document.body.innerText.includes('Reward redeemed')`), 'tier redemption confirmation');
-
     console.log('\n[7] Logout + Super Admin');
     await click('[data-action="logout"]');
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
