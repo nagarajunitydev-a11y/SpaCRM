@@ -8,11 +8,12 @@ service cloud.firestore {
     }
 
     function getRole(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data.role;
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.role == 'super_admin';
     }
 
     function isAdmin() {
-      return isSignedIn() && getRole(request.auth.uid) == 'super_admin';
+      return isSignedIn() && getRole(request.auth.uid);
     }
 
     function ownsSalon(salonId) {

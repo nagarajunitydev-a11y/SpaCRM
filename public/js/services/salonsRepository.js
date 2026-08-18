@@ -87,9 +87,12 @@ export async function addSalon(payload) {
         store.setState({ salonsList: [...store.getState().salonsList, row] });
         return row;
     }
+    if (!state.currentUser || !state.currentUser.uid) {
+        throw new Error('You must be signed in to create a salon branch.');
+    }
     const ownerId = state.accountRole === 'super_admin'
-        ? ''
-        : state.currentUser ? state.currentUser.uid : '';
+        ? state.currentUser.uid
+        : state.currentUser.uid;
     const row = await addDocument(['salons'], {
         ...payload,
         ownerId,
