@@ -46,7 +46,6 @@ export const store = createStore({
     dashboardTab: 'today',
     isModalOpen: false,
     modalType: null,
-    rewards: null, // { customerId, name, points } context for the rewards modal
     modalRecord: null, // { id, type } record being edited in an open modal
     deleteTarget: null, // { type, id, label } record awaiting delete confirmation
     notificationsEnabled: false,
@@ -56,12 +55,6 @@ export const store = createStore({
     servicesList: [],
     staffList: [],
     appointmentsList: [],
-    referralsList: [],
-    referralsLoaded: false,
-    referralsError: null,
-    transactionsList: [],
-    transactionsLoaded: false,
-    transactionsError: null,
 });
 
 export default store;

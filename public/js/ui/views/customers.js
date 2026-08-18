@@ -1,26 +1,17 @@
 /**
  * views/customers.js
- * Clients & referrals view: salon referral code, referral bonus program, reward
- * tiers, progress toward the next reward, and per-client share/redeem actions.
+ * Clients view: reward tiers, progress toward the next reward, and per-client
+ * redeem actions.
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
-import { sectionHeader, actionButton, emptyState, iconAction, statCard, badge } from '../components.js';
+import { sectionHeader, actionButton, emptyState, iconAction } from '../components.js';
 import { scopedBySalon } from '../../core/utils.js';
 import {
     REWARD_TIERS,
-    REFERRAL_SIGNUP_BONUS,
-    REFERRAL_BONUS_POINTS,
     nextTierFor,
     progressFor,
 } from '../../core/rewards.js';
-
-const REFERRAL_STATUS_CLASSES = {
-    'Bonus Credited': 'bg-emerald-500/15 text-emerald-400',
-    Successful: 'bg-brand-500/15 text-brand-400',
-    Pending: 'bg-amber-500/15 text-amber-400',
-    Rejected: 'bg-rose-500/15 text-rose-400',
-};
 
 export function renderCustomers(state) {
     const customers = scopedBySalon(state.customersList, state.currentSalonId);
@@ -28,12 +19,10 @@ export function renderCustomers(state) {
     return `
         <div class="space-y-4">
             ${sectionHeader(
-                'Clients & Referrals',
-                `${REFERRAL_SIGNUP_BONUS} bonus pts given on signup`,
+                'Clients',
+                '100 bonus pts given on signup',
                 actionButton('Add Client', { action: 'modal', data: { modal: 'customer' }, iconName: 'user-plus' }),
             )}
-
-            ${renderReferralSection(state)}
 
             <div class="relative">
                 <input type="text" data-action="customer-search-list" placeholder="Search clients by name, phone, email…"
@@ -59,90 +48,6 @@ export function renderCustomers(state) {
     `;
 }
 
-/** Salon owner referral overview: code, stats and activity for this salon. */
-function renderReferralSection(state) {
-    const salon = (state.salonsList || []).find((s) => s.id === state.currentSalonId);
-    if (!salon) return '';
-    const code = salon.referralCode || '';
-
-    const referrals = (state.referralsList || []).filter((r) => r.referredSalonId === state.currentSalonId);
-
-    // Loading state — show a subtle placeholder while the Firestore listener syncs.
-    if (state.referralsLoaded === false && referrals.length === 0) {
-        return `
-            <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl">
-                <div class="flex items-center gap-2 mb-2">
-                    <i data-lucide="megaphone" class="w-3 h-3 text-brand-400"></i>
-                    <span class="font-bold text-[11px] text-slate-100">Referral Program</span>
-                </div>
-            </div>
-        `;
-    }
-
-    return `
-        <div class="bg-slate-900 border border-slate-800 p-3 rounded-2xl">
-            <div class="flex items-center justify-between gap-2 mb-2">
-                <h3 class="font-bold text-[11px] text-slate-100 flex items-center space-x-1.5">
-                    <i data-lucide="megaphone" class="w-3 h-3 text-brand-400"></i>
-                    <span>Referral Program</span>
-                </h3>
-                <div class="flex items-center gap-1.5 shrink-0">
-                    <button data-action="show-referral-info" aria-label="How referrals work" title="How referrals work"
-                        class="w-5 h-5 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
-                        <i data-lucide="info" class="w-3 h-3"></i>
-                    </button>
-                    <span class="text-[9px] text-slate-400 font-medium">Friends earn ${esc(REFERRAL_BONUS_POINTS)} bonus pts</span>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2 bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-2">
-                <div class="min-w-0 flex-1">
-                    <p class="text-[9px] text-slate-400 uppercase tracking-wider">Salon referral code</p>
-                    <p class="font-mono font-bold text-sm text-brand-400 mt-0.5 truncate">${esc(code)}</p>
-                </div>
-                <button data-action="copy-salon-code" data-code="${escAttr(code)}"
-                    class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[9px] font-semibold rounded-lg transition active:scale-95 touch-manipulation flex items-center space-x-1 shrink-0">
-                    <i data-lucide="copy" class="w-3 h-3"></i><span>Copy</span>
-                </button>
-                <button data-action="share-salon-code" data-code="${escAttr(code)}"
-                    class="px-2.5 py-1.5 bg-brand-600 hover:bg-brand-500 text-white text-[9px] font-semibold rounded-lg transition active:scale-95 touch-manipulation flex items-center space-x-1 shrink-0">
-                    <i data-lucide="share-2" class="w-3 h-3"></i><span>Share</span>
-                </button>
-            </div>
-
-            ${renderReferralActivity(referrals)}
-        </div>
-    `;
-}
-
-function renderReferralActivity(referrals) {
-    if (referrals.length === 0) {
-        return `<p class="text-[9px] text-slate-500 mt-2">No referrals yet — share your salon code so friends can earn bonus points.</p>`;
-    }
-    return `
-        <div class="mt-2">
-            <p class="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Referral activity</p>
-            <div class="space-y-1.5">
-                ${referrals.map((r) => `
-                    <div class="flex items-center justify-between gap-2 bg-slate-950/60 border border-slate-800/60 rounded-lg px-2.5 py-2">
-                        <div class="min-w-0">
-                            <p class="text-[11px] font-semibold text-slate-100 truncate">${esc(r.referredCustomerName || 'A friend')}</p>
-                            <p class="text-[9px] text-slate-500 truncate">Referred by ${esc(r.referringCustomerName || 'a salon')} · ${esc(r.code)}</p>
-                        </div>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                            ${badge(r.status, REFERRAL_STATUS_CLASSES[r.status] || 'bg-slate-500/15 text-slate-400')}
-                            ${r.status === 'Pending'
-                                ? `<button data-action="reject-referral" data-id="${escAttr(r.id)}" aria-label="Reject referral"
-                                    class="px-2 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-[9px] font-semibold rounded-lg transition active:scale-95 touch-manipulation">Reject</button>`
-                                : ''}
-                        </div>
-                    </div>
-                `).join('')}
-            </div>
-        </div>
-    `;
-}
-
 export function renderCustomerCard(c) {
     const pts = Number(c.rewardPoints) || 0;
     const next = nextTierFor(pts);
@@ -156,7 +61,6 @@ export function renderCustomerCard(c) {
                     <h4 class="font-bold text-sm text-slate-100 truncate">${esc(c.name)}</h4>
                     <p class="text-xs text-slate-400 mt-0.5 truncate">${esc(c.phone)}</p>
                     <p class="text-[10px] text-slate-500 mt-0.5 truncate">${esc(c.email)}</p>
-                    ${c.referredByCode ? `<p class="text-[10px] text-brand-400/80 mt-0.5 truncate">Referred by ${esc(c.referringCustomerName || 'a salon')}</p>` : ''}
                 </div>
                 <div class="bg-brand-500/15 text-brand-400 px-2.5 py-1 rounded-xl text-xs font-bold shrink-0">${esc(pts)} pts</div>
             </div>
@@ -177,10 +81,6 @@ export function renderCustomerCard(c) {
                 <button data-action="redeem" data-id="${escAttr(c.id)}" data-name="${escAttr(c.name)}"
                     class="flex-1 px-3 py-2 bg-brand-600 hover:bg-brand-500 text-white text-[10px] font-semibold rounded-xl transition active:scale-95 touch-manipulation flex items-center justify-center space-x-1.5">
                     <i data-lucide="gift" class="w-3.5 h-3.5"></i><span>Redeem Reward</span>
-                </button>
-                <button data-action="share-referral" data-id="${escAttr(c.id)}" aria-label="Share referral"
-                    class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-semibold rounded-xl transition active:scale-95 touch-manipulation flex items-center space-x-1.5">
-                    <i data-lucide="share-2" class="w-3.5 h-3.5"></i><span>Share</span>
                 </button>
                 ${iconAction('open-edit', { type: 'customer', id: c.id }, 'Edit client', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
                 ${iconAction('request-delete', { type: 'customer', id: c.id, label: c.name }, 'Delete client', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}

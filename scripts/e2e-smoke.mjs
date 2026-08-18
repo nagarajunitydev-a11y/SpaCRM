@@ -197,44 +197,6 @@ async function main() {
     await waitFor(`document.body.innerText.includes('Test Client')`);
     assert(true, 'new client appears in list (real button click)');
 
-    console.log('\n[5a] Referral program (salon code + code validation)');
-    await click(`[data-action="tab"][data-tab="customers"]`);
-    await new Promise((r) => setTimeout(r, 150));
-    // Salon owner sees their salon's referral code + share/copy actions.
-    assert(await evaluate(`document.body.innerText.includes('SLN-LUXE01')`), 'salon referral code shown');
-    assert(await evaluate(`document.querySelector('[data-action="copy-salon-code"]') !== null`), 'copy salon code button present');
-    assert(await evaluate(`document.querySelector('[data-action="share-salon-code"]') !== null`), 'share salon code button present');
-    // Stat cards reflect the seeded bonus-credited referral.
-    assert(await evaluate(`document.body.innerText.includes('Bonus Earned (pts)')`), 'referral stat cards shown');
-
-    // An unknown referral code must be rejected and nothing saved.
-    await click(`[data-action="modal"][data-modal="customer"]`);
-    await waitFor(`document.querySelector('form[data-action="submit-customer"]') !== null`);
-    await fillForm({ name: 'Bad Referral Client', phone: '9876511111', email: 'bad@ref.com', referralCode: 'ZZZ-999' });
-    await click('form[data-action="submit-customer"] button[type="submit"]');
-    await new Promise((r) => setTimeout(r, 300));
-    assert(await evaluate(`document.body.innerText.includes('Invalid referral code')`), 'invalid referral code rejected');
-    assert(await evaluate(`!document.body.innerText.includes('Bad Referral Client')`), 'no client saved with invalid code');
-    await click('[data-action="close-modal"]');
-    await new Promise((r) => setTimeout(r, 150));
-
-    // A valid referral code saves the client and auto-identifies the referrer.
-    await click(`[data-action="modal"][data-modal="customer"]`);
-    await waitFor(`document.querySelector('form[data-action="submit-customer"]') !== null`);
-    await fillForm({ name: 'Referred Client', phone: '9876522222', email: 'ref@client.com', referralCode: 'LG-OLIVIA' });
-    await click('form[data-action="submit-customer"] button[type="submit"]');
-    await waitFor(`document.body.innerText.includes('Referred Client')`);
-    assert(await evaluate(`document.body.innerText.includes('Referred by Olivia Wilde')`), 'referring customer auto-identified');
-    assert(await evaluate(`document.body.innerText.includes('Pending')`), 'pending referral shown in activity');
-    assert(await evaluate(`document.querySelector('[data-action="reject-referral"]') !== null`), 'reject action shown for pending referral');
-
-    // Owner can reject a pending referral.
-    await click('[data-action="reject-referral"]');
-    await new Promise((r) => setTimeout(r, 300));
-    assert(await evaluate(`document.body.innerText.includes('Referral rejected')`), 'reject confirmation toast');
-    assert(await evaluate(`document.querySelector('[data-action="reject-referral"]') === null`), 'no reject button after rejection');
-
-
     // Service modal
     await click(`[data-action="tab"][data-tab="services"]`);
     await new Promise((r) => setTimeout(r, 150));
@@ -349,15 +311,12 @@ async function main() {
     await waitFor(`document.body.innerText.includes('Validation Test Client')`);
     assert(true, 'valid appointment saved');
 
-    console.log('\n[6] Referral bonus UI');
+    console.log('\n[6] Reward tier redemption');
     await click(`[data-action="tab"][data-tab="customers"]`);
     await new Promise((r) => setTimeout(r, 150));
-    assert(await evaluate(`document.body.innerText.includes('Referral Rewards Program')`), 'rewards program summary shown');
     assert(await evaluate(`document.body.innerText.includes('₹25 Service Voucher')`), 'reward tiers shown');
-    assert(await evaluate(`document.querySelector('[data-action="share-referral"]') !== null`), 'share button on client card');
     await click('[data-action="redeem"]');
     await waitFor(`document.querySelector('[data-action="redeem-reward"]') !== null`);
-    assert(await evaluate(`document.body.innerText.includes('Referral code: LG-')`), 'rewards modal shows referral code');
     assert(await evaluate(`document.querySelectorAll('[data-action="redeem-reward"]').length >= 1`), 'affordable tier enabled');
     await click('[data-action="redeem-reward"]');
     await new Promise((r) => setTimeout(r, 300));

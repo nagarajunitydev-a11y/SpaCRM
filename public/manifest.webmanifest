@@ -1,7 +1,7 @@
 {
     "name": "LuxeGlow - Salon & Spa CRM",
     "short_name": "LuxeGlow CRM",
-    "description": "Elevated beauty business management, cloud referrals, and live scheduling.",
+    "description": "Elevated beauty business management, reward points, and live scheduling.",
     "start_url": "/",
     "scope": "/",
     "display": "standalone",

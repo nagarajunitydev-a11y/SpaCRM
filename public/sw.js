@@ -7,7 +7,7 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'luxeglow-crm-v8';
+const CACHE_NAME = 'luxeglow-crm-v9';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -35,8 +35,6 @@ const APP_SHELL = [
     '/js/services/servicesRepository.js',
     '/js/services/staffRepository.js',
     '/js/services/appointmentsRepository.js',
-    '/js/services/referralCodesRepository.js',
-    '/js/services/referralsRepository.js',
     '/js/ui/notification.js',
     '/js/ui/icons.js',
     '/js/ui/components.js',

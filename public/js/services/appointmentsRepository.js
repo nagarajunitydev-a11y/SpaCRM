@@ -1,15 +1,6 @@
 /**
  * appointmentsRepository.js
  * Tenant-scoped appointments / bookings.
- *
- * Referral bonus is credited SERVER-SIDE by a Cloud Function
- * (functions/index.js → onAppointmentStatusChange) when an appointment
- * document is updated to status "Completed". This ensures the referrer
- * is rewarded only when the referred customer actually attends their visit,
- * and the credit is atomic and idempotent via Firestore transactions.
- *
- * This module no longer handles referral crediting — that logic has been
- * moved to Firebase Cloud Functions for data integrity guarantees.
  */
 
 import { createScopedRepository } from './scopedRepository.js';

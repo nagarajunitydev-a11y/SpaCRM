@@ -1,37 +1,21 @@
 /**
  * customersRepository.js
- * Tenant-scoped customers + referral bonus program.
+ * Tenant-scoped customers with reward points.
  *
- * Every customer is stored under their salon and receives a unique referral
- * code. When a customer is added with a referral code, the code is validated
- * against the global registry (the referring salon is identified automatically)
- * and a Pending referral is created. The referral reward is credited
- * SERVER-SIDE by a Cloud Function (onAppointmentStatusChange) when the
- * referred customer's appointment reaches "Completed" status.
- *
- * Canonical data model:
- *   - referredBy:          Client A's customer ID (the referrer)
- *   - rewardPoints:        Canonical points field
- *   - referralRewards/{id}: Server-created reward audit records
- *
- * Duplicate customers (same phone or exact name) within the salon are
- * rejected before anything is written. Self-referrals are rejected.
+ * Every customer is stored under their salon and receives signup bonus
+ * points when created. Duplicate customers (same phone or exact name)
+ * within the salon are rejected before anything is written.
  */
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { getDocument, updateDocument } from './db.js';
 import { createScopedRepository } from './scopedRepository.js';
-import {
-    REFERRAL_SIGNUP_BONUS,
-    referralCodeFor,
-} from '../core/rewards.js';
-import * as referralCodesRepository from './referralCodesRepository.js';
-import * as referralsRepository from './referralsRepository.js';
+
+const SIGNUP_BONUS = 100;
 
 export const seed = [
-    { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', rewardPoints: 150, referralCode: 'LG-OLIVIA' },
-    { id: 'c2', salonId: 'salon_luxe_01', name: 'Jessica Alba', phone: '+1 555-0199', email: 'jessica@example.com', rewardPoints: 220, referralCode: 'LG-JESSIC', referredBy: 'c1', referredByCode: 'LG-OLIVIA' },
+    { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', rewardPoints: 150 },
+    { id: 'c2', salonId: 'salon_luxe_01', name: 'Jessica Alba', phone: '+1 555-0199', email: 'jessica@example.com', rewardPoints: 220 },
 ];
 
 const repo = createScopedRepository({
@@ -65,12 +49,8 @@ export function findCustomerByPhone(phone) {
 }
 
 /**
- * Add a client, awarding the signup bonus points and a unique referral code.
- * When `referralCode` is provided the code is validated, a Pending referral
- * is created, and the referrer will be credited when the new client books
- * their first appointment (see appointmentsRepository). Self-referrals are
- * rejected. Duplicate clients within the salon are rejected. Idempotent —
- * retrying the same referral never creates duplicate Pending referrals.
+ * Add a client, awarding the signup bonus points.
+ * Duplicate clients within the salon are rejected.
  */
 export async function addCustomer(payload) {
     const existing = findCustomerByPhone(payload.phone) || findCustomerByName(payload.name);
@@ -78,198 +58,33 @@ export async function addCustomer(payload) {
         throw new Error(`A client already exists in this salon (${existing.name}${existing.phone ? `, ${existing.phone}` : ''}).`);
     }
 
-    const code = (payload.referralCode || '').trim();
-    console.log('[REFERRAL-CUSTOMER] Adding client:', payload.name,
-        '| referralCode:', code || '(none)');
-
-    const referring = code
-        ? await referralCodesRepository.lookupReferralCode(code)
-        : null;
-    if (code && !referring) {
-        throw new Error('Invalid referral code. Check the code and try again.');
-    }
-    if (referring) {
-        console.log('[REFERRAL-CUSTOMER] Referral code resolved →',
-            '| kind:', referring.kind,
-            '| salonId:', referring.salonId,
-            '| customerId:', referring.customerId || '(salon-level)',
-            '| customerName:', referring.customerName || '(none)');
-    }
-
-    const ownCode = await referralCodesRepository.generateUniqueCode('LG');
     const row = {
         ...payload,
-        rewardPoints: REFERRAL_SIGNUP_BONUS,
-        referralCode: ownCode,
+        rewardPoints: SIGNUP_BONUS,
     };
-    if (referring) {
-        row.referredByCode = referralCodesRepository.normalizeCode(code);
-        // Canonical referral field: the referrer's customer ID.
-        // The Cloud Function uses this to credit points when the
-        // referred client completes their first appointment.
-        row.referredBy = referring.kind === 'customer' ? referring.customerId : null;
-        row.referringSalonId = referring.salonId;
-        row.referringCustomerName = referring.customerName;
-    }
 
-    const created = await repo.add(row);
-    console.log('[REFERRAL-CUSTOMER] Client created →', created.id,
-        '| salonId:', created.salonId,
-        '| ownCode:', ownCode,
-        '| referredByCode:', created.referredByCode || '(none)',
-        '| referringCustomerId:', created.referringCustomerId || '(none)',
-        '| pts:', created.referralPoints);
-
-    // Register the new customer's referral code in the global registry.
-    // Side-effect: a failure here must not block customer creation.
-    try {
-        await referralCodesRepository.registerReferralCode(
-            referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
-        );
-        console.log('[REFERRAL-CUSTOMER] Registered own referral code:', ownCode);
-    } catch (err) {
-        console.warn('[REFERRAL] Failed to register referral code for', created.id, err);
-    }
-
-    // Create a Pending referral (completed on first appointment).
-    // Side-effect: a failure here must not block customer creation.
-    if (referring && referring.kind === 'customer' && referring.customerId) {
-        if (referring.customerId === created.id) {
-            console.warn('[REFERRAL-CUSTOMER] Self-referral rejected:',
-                'referrer', referring.customerId, '== referred', created.id);
-        } else {
-            try {
-                await referralsRepository.createReferral({
-                    code: referralCodesRepository.normalizeCode(code),
-                    referringSalonId: referring.salonId,
-                    referringCustomerId: referring.customerId,
-                    referringCustomerName: referring.customerName,
-                    referredSalonId: created.salonId,
-                    referredCustomerId: created.id,
-                    referredCustomerName: created.name,
-                    referredCustomerPhone: created.phone,
-                });
-                console.log('[REFERRAL-CUSTOMER] Pending referral created:',
-                    'referrer A:', referring.customerId,
-                    '@ salon:', referring.salonId,
-                    '→ referred B:', created.id,
-                    '@ salon:', created.salonId);
-                // Ensure the Referral Program card shows the new Pending entry.
-                referralsRepository.forceRefreshReferrals().catch(() => {});
-            } catch (err) {
-                console.warn('[REFERRAL-CUSTOMER] Failed to create referral for',
-                    created.id, '| referrer:', referring.customerId, err);
-            }
-        }
-    }
-
-    return created;
+    return repo.add(row);
 }
 
 /**
  * Quick-add from the appointment picker. Returns the existing client when one
- * matches (name/phone), otherwise creates one — never duplicates. No referral
- * code is processed here.
+ * matches (name/phone), otherwise creates one — never duplicates.
  */
 export async function addCustomerQuick(payload) {
     const existing = findCustomerByName(payload.name) || findCustomerByPhone(payload.phone);
     if (existing) return existing;
-    const ownCode = await referralCodesRepository.generateUniqueCode('LG');
-    const created = await repo.add(
+    return repo.add(
         {
             ...payload,
-            rewardPoints: REFERRAL_SIGNUP_BONUS,
-            referralCode: ownCode,
+            rewardPoints: SIGNUP_BONUS,
         },
         { skipValidation: true },
     );
-    // Side-effect: a failure here must not block customer creation.
-    try {
-        await referralCodesRepository.registerReferralCode(
-            referralCodesRepository.customerCodeEntry(ownCode, created, created.salonId),
-        );
-    } catch (err) {
-        console.warn('[REFERRAL] Failed to register referral code for quick-add', created.id, err);
-    }
-    return created;
 }
 
 /** Get a customer row by id. */
 export function getCustomer(id) {
     return listCustomers().find((c) => c.id === id) || null;
-}
-
-/**
- * Fetch a customer by id from a specific salon, bypassing the current salon
- * scope. Used for cross-salon referral lookups (e.g. crediting a referrer who
- * belongs to a different salon). In demo mode searches the full store; in
- * Firebase mode reads directly from Firestore.
- */
-export async function getCustomerFromSalon(customerId, salonId) {
-    if (!customerId || !salonId) return null;
-    if (isDemoMode()) {
-        return (store.getState().customersList || []).find(
-            (c) => c.id === customerId && c.salonId === salonId,
-        ) || null;
-    }
-    try {
-        return await getDocument(['salons', salonId, 'customers'], customerId);
-    } catch (err) {
-        console.warn('[REFERRAL] getCustomerFromSalon failed for',
-            customerId, 'in salon', salonId,
-            '— likely cross-salon permission restriction:', err.message || err);
-        return null;
-    }
-}
-
-/**
- * Update a customer in a specific salon. Used for cross-salon operations like
- * crediting a referrer's points when the referrer belongs to a different salon.
- *
- * In Firebase mode, writes to Firestore first (so the write can fail safely),
- * then applies an optimistic local store update so the UI reflects the change
- * immediately — the Firestore onSnapshot listener will later confirm it.
- */
-export async function updateCustomerInSalon(customerId, salonId, patch) {
-    if (!customerId || !salonId) return null;
-    console.log('[REFERRAL-UPDATE] updateCustomerInSalon:', customerId,
-        '| salon:', salonId, '| patch:', JSON.stringify(patch));
-    if (isDemoMode()) {
-        const list = store.getState().customersList || [];
-        store.setState({
-            customersList: list.map((c) =>
-                c.id === customerId && c.salonId === salonId ? { ...c, ...patch } : c,
-            ),
-        });
-        return { id: customerId, ...patch };
-    }
-    // Write to Firestore first — if this fails, no local mutation happens.
-    const result = await updateDocument(['salons', salonId, 'customers'], customerId, patch);
-    console.log('[REFERRAL-UPDATE] Firestore write done:', customerId, '| salon:', salonId);
-    // Optimistic local update for instant UI feedback before the listener syncs.
-    const list = store.getState().customersList || [];
-    store.setState({
-        customersList: list.map((c) =>
-            c.id === customerId && c.salonId === salonId ? { ...c, ...patch } : c,
-        ),
-    });
-    return result;
-}
-
-/** Stable referral code for a customer (fallback derived from id). */
-export function getReferralCode(customer) {
-    if (!customer) return '';
-    if (customer.referralCode) return customer.referralCode;
-    const stable = referralCodeFor(customer);
-    // Persist the code so it stays identical across devices/sessions.
-    repo.update(customer.id, { referralCode: stable }).catch(() => {});
-    // Register in the global registry so the code can be looked up for referrals.
-    if (customer.salonId) {
-        referralCodesRepository.registerReferralCode(
-            referralCodesRepository.customerCodeEntry(stable, customer, customer.salonId),
-        ).catch(() => {});
-    }
-    return stable;
 }
 
 /**
@@ -287,12 +102,8 @@ export async function redeemReward(customerId, tierPoints) {
     return repo.update(customerId, { rewardPoints: pts - tierPoints });
 }
 
-/** Delete a customer and unregister their referral code from the registry. */
+/** Delete a customer. */
 export async function deleteCustomer(id) {
-    const customer = getCustomer(id);
-    if (customer && customer.referralCode) {
-        await referralCodesRepository.unregisterReferralCode(customer.referralCode).catch(() => {});
-    }
     return repo.remove(id);
 }
 
@@ -304,12 +115,9 @@ export default {
     findCustomerByName,
     findCustomerByPhone,
     updateCustomer,
-    updateCustomerInSalon,
     deleteCustomer,
     listCustomers,
     getCustomer,
-    getCustomerFromSalon,
-    getReferralCode,
     redeemReward,
     seed,
 };

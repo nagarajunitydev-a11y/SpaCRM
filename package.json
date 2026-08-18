@@ -1,6 +1,6 @@
 {
     "name": "luxeglow-crm",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "private": true,
     "type": "module",
     "description": "LuxeGlow Salon & Spa CRM — modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
@@ -8,14 +8,10 @@
         "serve": "python -m http.server 5500 --directory public",
         "build:css": "tailwindcss -i styles/tailwind-source.css -o public/styles/tailwind.css --minify",
         "check": "node scripts/syntax-check.mjs",
-        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/unit-referral-bonus.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
-        "test:referral": "node scripts/unit-referral-bonus.mjs",
-        "deploy:functions": "firebase deploy --only functions",
+        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
         "deploy:rules": "firebase deploy --only firestore:rules",
         "deploy:hosting": "firebase deploy --only hosting",
-        "deploy:all": "firebase deploy",
-        "migrate:dry": "node scripts/migrate-referral-data.js --dry-run",
-        "migrate:live": "node scripts/migrate-referral-data.js"
+        "deploy:all": "firebase deploy --only hosting,firestore:rules"
     },
     "dependencies": {
         "firebase": "^12.17.1"
