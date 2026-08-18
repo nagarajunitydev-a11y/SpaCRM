@@ -18,7 +18,7 @@ export function iconEl(name, cls = 'w-4 h-4') {
 }
 
 /** Brand logo mark. */
-export function logoMark(size = 'w-8 h-8', iconClass = 'w-7 h-7') {
+export function logoMark(size = 'w-10 h-10', iconClass = 'w-8 h-8') {
     return `
         <div class="${escAttr(size)} shrink-0 flex items-center justify-center">
             <img src="/logo.png" alt="Qvrix Luxe" class="${escAttr(iconClass)} object-contain">

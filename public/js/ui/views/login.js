@@ -35,7 +35,7 @@ export function renderLogin(state) {
 
             <div class="text-center mb-8 mt-4">
                 <div class="mb-5 mx-auto flex items-center justify-center">
-                    <img src="/logo.png" alt="Qvrix Luxe" class="w-20 h-20 object-contain">
+                    <img src="/logo.png" alt="Qvrix Luxe" class="w-24 h-24 object-contain">
                 </div>
                 <h2 class="text-2xl font-extrabold text-white tracking-tight mb-2">Qvrix Luxe Salon CRM</h2>
                 <p class="text-xs text-slate-400 max-w-xs mx-auto">${isSignup ? 'Create an account' : 'Sign in to your Qvrix Luxe account'}</p>
