@@ -7,7 +7,7 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'qvrix-luxe-v1';
+const CACHE_NAME = 'qvrix-luxe-v2';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -26,6 +26,7 @@ const APP_SHELL = [
     '/js/core/router.js',
     '/js/core/utils.js',
     '/js/core/rewards.js',
+    '/js/core/revenue.js',
     '/js/core/validate.js',
     '/js/services/firebase.js',
     '/js/services/authService.js',
@@ -36,6 +37,7 @@ const APP_SHELL = [
     '/js/services/servicesRepository.js',
     '/js/services/staffRepository.js',
     '/js/services/appointmentsRepository.js',
+    '/js/services/seedData.js',
     '/js/ui/notification.js',
     '/js/ui/icons.js',
     '/js/ui/components.js',

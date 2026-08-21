@@ -4,12 +4,9 @@
  */
 
 import { createScopedRepository } from './scopedRepository.js';
+import { serviceSeed } from './seedData.js';
 
-export const seed = [
-    { id: 's1', salonId: 'salon_luxe_01', name: 'Balayage & Gloss', price: 160, duration: '120m' },
-    { id: 's2', salonId: 'salon_luxe_01', name: 'Signature Facial', price: 95, duration: '60m' },
-    { id: 's3', salonId: 'salon_luxe_01', name: 'Precision Haircut', price: 75, duration: '45m' },
-];
+export const seed = serviceSeed;
 
 const repo = createScopedRepository({
     stateKey: 'servicesList',

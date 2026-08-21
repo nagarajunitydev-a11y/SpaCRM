@@ -7,6 +7,7 @@
 import { esc } from '../../core/sanitize.js';
 import { statCard, quickAction, badge, emptyState, sectionHeader } from '../components.js';
 import { formatCurrency, scopedBySalon } from '../../core/utils.js';
+import { computeEstimatedRevenue } from '../../core/revenue.js';
 
 /** Local YYYY-MM-DD string (no timezone shift). */
 function localDateStr(d) {
@@ -87,9 +88,10 @@ function renderAppointmentCard(a) {
 
 export function renderDashboard(state) {
     const allAppointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
+    const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const activeTab = state.dashboardTab || 'today';
     const filtered = filterByPeriod(allAppointments, activeTab);
-    const totalRevenue = filtered.reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+    const { total: totalRevenue } = computeEstimatedRevenue(filtered, services);
 
     return `
         <div class="space-y-5">
@@ -99,7 +101,7 @@ export function renderDashboard(state) {
                 <h2 class="text-xl font-extrabold text-white">Your Salon at a Glance</h2>
                 <div class="grid grid-cols-2 gap-3 mt-4">
                     ${statCard(`${periodLabel(activeTab)} Bookings`, filtered.length)}
-                    ${statCard('Est. Revenue', formatCurrency(totalRevenue || filtered.length * 85), 'text-emerald-400')}
+                    ${statCard('Est. Revenue', formatCurrency(totalRevenue), 'text-emerald-400')}
                 </div>
             </div>
 

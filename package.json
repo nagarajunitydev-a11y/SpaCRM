@@ -8,7 +8,7 @@
         "serve": "python -m http.server 5500 --directory public",
         "build:css": "tailwindcss -i styles/tailwind-source.css -o public/styles/tailwind.css --minify",
         "check": "node scripts/syntax-check.mjs",
-        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
+        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/unit-revenue.mjs && node scripts/e2e-revenue.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
         "deploy:rules": "firebase deploy --only firestore:rules",
         "deploy:hosting": "firebase deploy --only hosting",
         "deploy:all": "firebase deploy --only hosting,firestore:rules"
