@@ -7,7 +7,7 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'qvrix-luxe-v2';
+const CACHE_NAME = 'qvrix-luxe-v3';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -28,6 +28,8 @@ const APP_SHELL = [
     '/js/core/rewards.js',
     '/js/core/revenue.js',
     '/js/core/validate.js',
+    '/js/core/referral.js',
+    '/js/core/wallet.js',
     '/js/services/firebase.js',
     '/js/services/authService.js',
     '/js/services/db.js',
@@ -37,6 +39,11 @@ const APP_SHELL = [
     '/js/services/servicesRepository.js',
     '/js/services/staffRepository.js',
     '/js/services/appointmentsRepository.js',
+    '/js/services/referralsRepository.js',
+    '/js/services/referralCodesRepository.js',
+    '/js/services/referralSettingsRepository.js',
+    '/js/services/walletRepository.js',
+    '/js/services/referralService.js',
     '/js/services/seedData.js',
     '/js/ui/notification.js',
     '/js/ui/icons.js',
@@ -50,6 +57,9 @@ const APP_SHELL = [
     '/js/ui/views/admin.js',
     '/js/ui/views/salonSetup.js',
     '/js/ui/views/modals.js',
+    '/js/ui/views/referrals.js',
+    '/js/ui/views/payment.js',
+    '/js/ui/views/customerProfile.js',
 ];
 
 self.addEventListener('install', (event) => {

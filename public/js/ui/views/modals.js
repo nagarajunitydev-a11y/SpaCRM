@@ -11,6 +11,9 @@ import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
 import { scopedBySalon } from '../../core/utils.js';
+import { sanitizeSettings } from '../../core/referral.js';
+import renderPaymentForm from './payment.js';
+import renderCustomerProfile from './customerProfile.js';
 
 const TITLES = {
     customer: 'Add New Client',
@@ -19,6 +22,8 @@ const TITLES = {
     appointment: 'Book Appointment',
     salon: 'Provision New Salon',
     rewards: 'Client Rewards',
+    payment: 'Collect Payment',
+    'customer-profile': 'Client Profile',
     'confirm-delete': 'Confirm Deletion',
 };
 
@@ -70,6 +75,14 @@ function renderForm(state, type) {
         return renderDeleteConfirm(state);
     }
 
+    if (type === 'payment') {
+        return renderPaymentForm(state);
+    }
+
+    if (type === 'customer-profile') {
+        return renderCustomerProfile(state);
+    }
+
     if (type === 'customer') {
         const rec = editingRecord(state, 'customer');
         return `
@@ -78,6 +91,13 @@ function renderForm(state, type) {
                 ${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}
                 ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 ${formField('Email', textInput('email', 'olivia@example.com', { type: 'email', autocomplete: 'email', value: rec?.email }))}
+                ${!rec && sanitizeSettings(state.referralSettings).enabled
+                    ? formField(
+                        'Referral Code (optional)',
+                        textInput('referralCode', 'e.g. PRIY4K7M', { required: false, className: 'uppercase tracking-widest font-mono' }),
+                        'Enter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.',
+                    )
+                    : ''}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client (100 Bonus Pts)'}</button>
             </form>
         `;

@@ -53,7 +53,62 @@ service cloud.firestore {
       return isNonEmptyString(data.name, 120)
         && isOptionalOrNull(data.phone, 40)
         && isOptionalOrNull(data.email, 120)
-        && (data.rewardPoints == null || (data.rewardPoints is number && data.rewardPoints >= 0));
+        && (data.rewardPoints == null || (data.rewardPoints is number && data.rewardPoints >= 0))
+        // Referral wallet (rupees) - always a non-negative number when present.
+        && (data.walletBalance == null || (data.walletBalance is number && data.walletBalance >= 0))
+        && isOptionalOrNull(data.referralCode, 16)
+        && isOptionalOrNull(data.referredBy, 128)
+        && isOptionalOrNull(data.referredByCode, 16);
+    }
+
+    // ---------- Referral programme ----------
+
+    function isValidReferralSettings(data) {
+      return data.enabled is bool
+        && (data.rewardType == 'fixed' || data.rewardType == 'percent')
+        && data.rewardValue is number && data.rewardValue >= 0
+        && (data.maxRewardAmount == null || (data.maxRewardAmount is number && data.maxRewardAmount >= 0))
+        && data.minInvoiceAmount is number && data.minInvoiceAmount >= 0
+        && (data.rewardTrigger == 'invoice_paid' || data.rewardTrigger == 'appointment_completed')
+        && data.expiryDays is number && data.expiryDays >= 0 && data.expiryDays <= 3650
+        && data.maxRedemptionPercent is number
+        && data.maxRedemptionPercent >= 0 && data.maxRedemptionPercent <= 100;
+    }
+
+    function isValidReferralCode(data) {
+      return isNonEmptyString(data.code, 16)
+        && isNonEmptyString(data.customerId, 128)
+        && data.active is bool;
+    }
+
+    function isValidReferralStatus(status) {
+      return status == 'Pending' || status == 'Qualified' || status == 'Credited'
+        || status == 'Redeemed' || status == 'Expired' || status == 'Reversed';
+    }
+
+    function isValidReferral(data) {
+      return isNonEmptyString(data.referrerId, 128)
+        && isNonEmptyString(data.referredId, 128)
+        // Self-referral is impossible at the database level, not just in the app.
+        && data.referrerId != data.referredId
+        && isNonEmptyString(data.code, 16)
+        && isValidReferralStatus(data.status)
+        && data.rewardAmount is number && data.rewardAmount >= 0
+        && data.redeemedAmount is number && data.redeemedAmount >= 0
+        && data.reversedAmount is number && data.reversedAmount >= 0
+        && data.expiredAmount is number && data.expiredAmount >= 0
+        // Nothing may ever be redeemed beyond what the referral earned.
+        && data.redeemedAmount <= data.rewardAmount;
+    }
+
+    function isValidWalletTransaction(data) {
+      return isNonEmptyString(data.customerId, 128)
+        && data.source == 'REFERRAL'
+        && isNonEmptyString(data.type, 40)
+        && data.amount is number && data.amount >= 0
+        && data.balanceBefore is number && data.balanceBefore >= 0
+        && data.balanceAfter is number && data.balanceAfter >= 0
+        && (data.direction == 'credit' || data.direction == 'debit');
     }
 
     function isValidService(data) {
@@ -114,6 +169,50 @@ service cloud.firestore {
         allow read: if canAccessSalon(salonId);
         allow create, update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
         allow delete: if canAccessSalon(salonId);
+      }
+
+      // Referral programme configuration (single `config` document).
+      match /referralSettings/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId)
+          && isValidReferralSettings(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Referral code registry. The document id IS the code, so uniqueness is
+      // enforced by the key; a code is retired (active:false), never deleted.
+      match /referralCodes/{code} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId)
+          && isValidReferralCode(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Referral records. The document id is derived from the referred client,
+      // so one client can never accumulate a second referrer. A referral is
+      // always created in `Pending` with nothing credited yet.
+      match /referrals/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create: if canAccessSalon(salonId)
+          && isValidReferral(request.resource.data)
+          && request.resource.data.status == 'Pending'
+          && request.resource.data.rewardAmount == 0
+          && request.resource.data.redeemedAmount == 0;
+        allow update: if canAccessSalon(salonId)
+          && isValidReferral(request.resource.data)
+          // The two parties to a referral are fixed for its whole lifetime.
+          && request.resource.data.referrerId == resource.data.referrerId
+          && request.resource.data.referredId == resource.data.referredId;
+        allow delete: if false;
+      }
+
+      // Wallet ledger: append-only. Denying update/delete is what makes the
+      // referral money history a genuine audit trail.
+      match /walletTransactions/{txId} {
+        allow read: if canAccessSalon(salonId);
+        allow create: if canAccessSalon(salonId)
+          && isValidWalletTransaction(request.resource.data);
+        allow update, delete: if false;
       }
     }
 

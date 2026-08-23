@@ -55,6 +55,16 @@ export const store = createStore({
     servicesList: [],
     staffList: [],
     appointmentsList: [],
+
+    // ---- Referral programme ----
+    referralsList: [],
+    referralsLoaded: false,
+    referralsError: null,
+    referralCodesList: [],
+    walletTransactionsList: [],
+    referralSettings: null, // null until loaded; DEFAULT_REFERRAL_SETTINGS applies
+    referralTab: 'list', // 'list' | 'settings'
+    referralStatusFilter: 'all',
 });
 
 export default store;

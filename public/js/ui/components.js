@@ -71,6 +71,7 @@ export function bottomNav(state) {
         { tab: 'dashboard', label: 'Home', icon: 'layout-dashboard' },
         { tab: 'appointments', label: 'Bookings', icon: 'calendar' },
         { tab: 'customers', label: 'Clients', icon: 'users' },
+        { tab: 'referrals', label: 'Referrals', icon: 'gift' },
         { tab: 'services', label: 'Services', icon: 'sparkles' },
         { tab: 'staff', label: 'Staff', icon: 'user-check' },
     ];
@@ -90,9 +91,9 @@ export function bottomNav(state) {
                 const cls = active ? 'text-brand-500' : isLogout ? 'text-rose-400' : 'text-slate-400 hover:text-slate-200';
                 const attrs = item.tab ? `data-action="tab" data-tab="${escAttr(item.tab)}"` : `data-action="logout"`;
                 return `
-                    <button ${attrs} aria-current="${active ? 'page' : 'false'}" class="flex flex-col items-center space-y-1 transition min-w-[52px] py-1 touch-manipulation active:scale-95 ${escAttr(cls)}">
+                    <button ${attrs} aria-current="${active ? 'page' : 'false'}" class="flex flex-col items-center space-y-1 transition flex-1 min-w-0 py-1 touch-manipulation active:scale-95 ${escAttr(cls)}">
                         <i data-lucide="${escAttr(item.icon)}" class="w-5 h-5"></i>
-                        <span class="text-[10px] font-semibold">${esc(item.label)}</span>
+                        <span class="text-[9px] font-semibold truncate max-w-full">${esc(item.label)}</span>
                     </button>
                 `;
             }).join('')}

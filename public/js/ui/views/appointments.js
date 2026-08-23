@@ -45,6 +45,8 @@ export function renderAppointments(state) {
                                     <p class="text-[11px] text-brand-400 font-medium mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3 shrink-0"></i><span class="truncate">${esc(a.staffName)}</span></p>
                                     ${a.amount ? `<p class="text-[11px] text-emerald-400 font-semibold mt-1">${formatCurrency(a.amount)}${a.paid ? ' <span class="text-emerald-500/60">• Paid</span>' : ' <span class="text-amber-400/60">• Unpaid</span>'}</p>` : ''}
                                     ${a.paymentMethod ? `<p class="text-[10px] text-slate-500 mt-0.5">${PAYMENT_METHOD_LABELS[a.paymentMethod] || a.paymentMethod}</p>` : ''}
+                                    ${a.walletRedeemed > 0 ? `<p class="text-[10px] text-brand-400 mt-0.5">Wallet ${formatCurrency(a.walletRedeemed)}${a.amountDue > 0 ? ` + ${formatCurrency(a.amountDue)}` : ''}</p>` : ''}
+                                    ${a.refunded ? '<p class="text-[10px] text-rose-400 mt-0.5 font-semibold">Refunded</p>' : ''}
                                 </div>
                                 <div class="text-right shrink-0">
                                     <span class="text-xs font-bold text-slate-200 block">${esc(a.date)}</span>
@@ -54,7 +56,7 @@ export function renderAppointments(state) {
                                 <div class="flex items-center flex-wrap gap-1 shrink-0">
                                     ${a.status === 'Confirmed' ? quickStatusButton(a.id, 'Confirmed', 'In Progress', 'Start', 'bg-blue-500/15 text-blue-400') : ''}
                                     ${a.status === 'In Progress' ? quickStatusButton(a.id, 'In Progress', 'Completed', 'Complete', 'bg-emerald-500/15 text-emerald-400') : ''}
-                                    ${a.status !== 'Completed' && a.status !== 'Cancelled' ? iconAction('collect-payment', { id: a.id }, 'Collect Payment', 'indian-rupee', 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400') : ''}
+                                    ${a.status !== 'Cancelled' ? iconAction('open-payment', { id: a.id }, a.paid ? 'View invoice' : 'Collect Payment', 'indian-rupee', a.paid ? 'bg-slate-800 hover:bg-slate-700 text-slate-300' : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400') : ''}
                                     ${iconAction('open-edit', { type: 'appointment', id: a.id }, 'Edit appointment', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
                                     ${iconAction('request-delete', { type: 'appointment', id: a.id, label: a.customerName }, 'Delete appointment', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
                                 </div>

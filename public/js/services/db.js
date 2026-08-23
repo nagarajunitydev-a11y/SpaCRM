@@ -22,11 +22,18 @@ import {
     query as fbQuery,
     where as fbWhere,
     orderBy as fbOrderBy,
+    runTransaction as fbRunTransaction,
 } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 
-/** Convert a Firestore document snapshot to a plain object. */
+/** True when a snapshot actually exists (`exists` is a method in the modular SDK). */
+function snapExists(docSnap) {
+    if (!docSnap) return false;
+    return typeof docSnap.exists === 'function' ? docSnap.exists() : !!docSnap.exists;
+}
+
+/** Convert a Firestore document snapshot to a plain object (null when absent). */
 export function mapDoc(docSnap) {
-    if (!docSnap || !docSnap.exists) return null;
+    if (!snapExists(docSnap)) return null;
     return { id: docSnap.id, ...docSnap.data() };
 }
 
@@ -125,6 +132,61 @@ export async function updateDocument(segments, id, data) {
     return { id, ...data };
 }
 
+/**
+ * Run an atomic Firestore transaction.
+ *
+ * `work` receives a small path-based facade over the native transaction so
+ * callers keep speaking the same `(segments, id)` language as the rest of this
+ * module and never import the Firestore SDK themselves. Firestore requires all
+ * reads before any write, and may re-run `work` on contention, so `work` must
+ * be free of side effects outside the transaction.
+ *
+ *   await runAtomic(async (tx) => {
+ *       const row = await tx.get(['salons', id, 'referrals'], refId);
+ *       if (row) throw new Error('already exists');
+ *       tx.set(['salons', id, 'referrals'], refId, data);
+ *   });
+ *
+ * Returns whatever `work` returns, or null in demo mode (no backend).
+ */
+export async function runAtomic(work) {
+    const fb = getFirebase();
+    if (!fb) return null;
+    return fbRunTransaction(fb.db, async (tx) => {
+        const facade = {
+            async get(segments, id) {
+                return mapDoc(await tx.get(docRef(...segments, id)));
+            },
+            set(segments, id, data) {
+                tx.set(docRef(...segments, id), data);
+            },
+            update(segments, id, data) {
+                tx.update(docRef(...segments, id), data);
+            },
+            delete(segments, id) {
+                tx.delete(docRef(...segments, id));
+            },
+        };
+        return work(facade);
+    });
+}
+
+/**
+ * Atomically create a document only when its id is still free. Returns
+ * `{ created, row }` — `created` is false when another writer won the race.
+ * This is the primitive that makes referral codes and referral links unique.
+ */
+export async function createIfAbsent(segments, id, data) {
+    const fb = getFirebase();
+    if (!fb) return { created: false, row: null };
+    return runAtomic(async (tx) => {
+        const existing = await tx.get(segments, id);
+        if (existing) return { created: false, row: existing };
+        tx.set(segments, id, data);
+        return { created: true, row: { id, ...data } };
+    });
+}
+
 /** Delete a document. */
 export async function deleteDocument(segments, id) {
     const fb = getFirebase();
@@ -145,4 +207,6 @@ export default {
     setDocument,
     updateDocument,
     deleteDocument,
+    runAtomic,
+    createIfAbsent,
 };

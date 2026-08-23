@@ -16,6 +16,11 @@ import * as servicesRepository from './services/servicesRepository.js';
 import * as staffRepository from './services/staffRepository.js';
 import * as appointmentsRepository from './services/appointmentsRepository.js';
 import * as rewardTransactionsRepository from './services/rewardTransactionsRepository.js';
+import * as referralsRepository from './services/referralsRepository.js';
+import * as referralCodesRepository from './services/referralCodesRepository.js';
+import * as referralSettingsRepository from './services/referralSettingsRepository.js';
+import * as walletRepository from './services/walletRepository.js';
+import * as referralService from './services/referralService.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
@@ -24,7 +29,7 @@ import { refreshIcons } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
-import { debounce, scopedBySalon } from './core/utils.js';
+import { debounce, scopedBySalon, formatCurrency } from './core/utils.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments from './ui/views/appointments.js';
@@ -34,6 +39,16 @@ import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
 import renderSalonSetup from './ui/views/salonSetup.js';
 import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
+import renderReferrals, {
+    setReferralSearch,
+    referralRows,
+    filterReferrals,
+    renderReferralListBody,
+} from './ui/views/referrals.js';
+import { renderPaymentSummary, defaultInvoiceAmount } from './ui/views/payment.js';
+import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
+import { splitPayment, invoiceNoFor } from './core/wallet.js';
+import { serviceAmountFor } from './core/revenue.js';
 
 const appEl = document.getElementById('app');
 
@@ -51,6 +66,11 @@ function seedDemoData() {
         transactionsList: [...rewardTransactionsRepository.seed],
         transactionsLoaded: true,
         transactionsError: null,
+        referralsList: [],
+        referralsLoaded: true,
+        referralsError: null,
+        referralCodesList: [],
+        walletTransactionsList: [],
     });
 }
 
@@ -87,6 +107,31 @@ function resolveSalonScope() {
     staffRepository.setSalon(target);
     appointmentsRepository.setSalon(target);
     rewardTransactionsRepository.resubscribeTransactions();
+    referralsRepository.setSalon(target);
+    referralCodesRepository.setSalon(target);
+    walletRepository.setSalon(target);
+    referralSettingsRepository.setSalon(target);
+}
+
+/**
+ * One-off referral housekeeping per salon: give pre-programme clients a code
+ * and sweep credits that have passed their expiry window. Guarded by a
+ * per-salon flag so the store subscription that triggers it can never loop.
+ */
+const referralMaintenanceDone = new Set();
+
+function maybeRunReferralMaintenance() {
+    const state = store.getState();
+    const salonId = state.currentSalonId;
+    if (!salonId || referralMaintenanceDone.has(salonId)) return;
+    if (state.userRole !== 'salon_owner') return;
+    if (!state.referralsLoaded || (state.customersList || []).length === 0) return;
+
+    referralMaintenanceDone.add(salonId);
+    Promise.resolve()
+        .then(() => referralService.backfillReferralCodes())
+        .then(() => referralService.expireDueReferrals())
+        .catch((err) => console.warn('[referral] Maintenance pass failed:', err));
 }
 
 function syncSalonScope() {
@@ -101,6 +146,7 @@ function renderOwnerTab(state) {
     switch (state.activeTab) {
         case 'appointments': return renderAppointments(state);
         case 'customers': return renderCustomers(state);
+        case 'referrals': return renderReferrals(state);
         case 'services': return renderServices(state);
         case 'staff': return renderStaff(state);
         default: return renderDashboard(state);
@@ -227,8 +273,53 @@ async function resolveAppointmentCustomer(data) {
         phone: data.customerPhone || '',
         email: data.customerEmail || '',
     });
+    referralService.ensureReferralCode(created).catch((err) => console.warn('[referral] Code allocation failed:', err));
     showNotification(`New client "${created.name}" added & linked.`);
     return created;
+}
+
+/**
+ * Evaluate an appointment against the referral programme after its status or
+ * payment changed. Never throws into the caller: a settlement problem must not
+ * roll back the booking/billing action the user actually performed.
+ */
+async function runReferralSettlement(appointment) {
+    try {
+        const result = await referralService.settleAppointment(appointment);
+        if (result && result.credited) {
+            showNotification(`Referral reward ${formatCurrency(result.amount)} credited to ${result.referrerName || 'the referrer'}.`);
+        }
+        return result;
+    } catch (err) {
+        console.warn('[referral] Settlement failed:', err);
+        return null;
+    }
+}
+
+/**
+ * Undo the referral money attached to an invoice that was refunded or whose
+ * appointment was cancelled: return any wallet amount redeemed on it, then
+ * claw back the reward it earned.
+ */
+async function runReferralReversal(appointment, reason) {
+    if (!appointment || !appointment.id) return;
+    try {
+        const restored = await referralService.reverseRedemptionForAppointment(appointment, reason);
+        if (restored && restored.restored > 0) {
+            showNotification(`${formatCurrency(restored.restored)} returned to the client's referral wallet.`);
+        }
+        const reversal = await referralService.reverseRewardForAppointment(appointment.id, reason);
+        if (reversal && reversal.reversed && reversal.amount > 0) {
+            showNotification(`Referral reward of ${formatCurrency(reversal.amount)} reversed.`);
+        }
+    } catch (err) {
+        console.warn('[referral] Reversal failed:', err);
+    }
+}
+
+/** The appointment row currently in the store. */
+function findAppointment(id) {
+    return (store.getState().appointmentsList || []).find((a) => a.id === id) || null;
 }
 
 function clearFieldErrors(form) {
@@ -322,6 +413,45 @@ function handleFormInput(event) {
     if (form.dataset.action === 'submit-appointment') {
         saveDraft('appointment', readFormData(form));
     }
+    if (form.dataset.action === 'collect-payment') {
+        updatePaymentSummary(form);
+    }
+    if (form.dataset.action === 'submit-referral-settings' && event.target.name === 'rewardType') {
+        const unit = form.querySelector('[data-reward-value-unit]');
+        if (unit) unit.textContent = event.target.value === REWARD_TYPES.PERCENT ? '(%)' : '(\u20B9)';
+    }
+}
+
+/**
+ * Recompute the wallet/due breakdown under the billing form. Purely a preview:
+ * the redemption is re-validated against freshly read balances inside the
+ * transaction that actually moves the money.
+ */
+function updatePaymentSummary(form) {
+    const container = form.querySelector('[data-payment-summary]');
+    if (!container) return;
+
+    const state = store.getState();
+    const data = readFormData(form);
+    const appointment = findAppointment(data.id);
+    if (!appointment) return;
+
+    const customer = customersRepository.getCustomer(appointment.customerId);
+    const settings = sanitizeSettings(state.referralSettings);
+    const invoiceAmount = round2(num(data.invoiceAmount));
+    const walletBalance = referralService.walletBalanceOf(customer);
+    const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount, settings }) : 0;
+
+    container.innerHTML = renderPaymentSummary({
+        invoiceAmount,
+        walletRedeem: round2(num(data.walletRedeem)),
+        walletBalance,
+        cap,
+    });
+    sanitizeDOM(container);
+
+    const useMax = form.querySelector('[data-action="wallet-use-max"]');
+    if (useMax) useMax.dataset.amount = String(cap);
 }
 
 function updateCustomerSuggestions(el) {
@@ -412,6 +542,10 @@ const actions = {
             closeModal();
             return;
         }
+        if (deleteTarget.type === 'customer') {
+            await referralCodesRepository.deactivateCodeFor(deleteTarget.id)
+                .catch((err) => console.warn('[referral] Could not retire referral code:', err));
+        }
         await deleter();
         const noun = { customer: 'Client', service: 'Service', staff: 'Staff member', appointment: 'Appointment' }[deleteTarget.type] || 'Record';
         showNotification(`${noun} deleted.`);
@@ -459,6 +593,7 @@ const actions = {
             showNotification(`Linked existing client "${customer.name}".`);
         } else {
             customer = await customersRepository.addCustomerQuick({ name });
+            referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
             showNotification(`New client "${customer.name}" added & linked.`);
         }
 
@@ -577,14 +712,46 @@ const actions = {
     async 'submit-customer'(form, event, data) {
         const id = data.id;
         const payload = { name: data.name, phone: toIndianE164(data.phone), email: data.email };
+
         if (id) {
             await customersRepository.updateCustomer(id, payload);
             showNotification('Client updated successfully!');
-        } else {
-            await customersRepository.addCustomer(payload);
-            showNotification('Client added!');
+            closeModal();
+            return;
         }
+
+        // Reject an unusable referral code BEFORE the client is created, so a
+        // typo never leaves a half-finished registration behind. Self-referral
+        // is caught here too (same phone/email as the code's owner).
+        const enteredCode = data.referralCode || '';
+        if (enteredCode) {
+            const precheck = referralService.validateReferralCode(enteredCode, {
+                id: null,
+                phone: payload.phone,
+                email: payload.email,
+            });
+            if (!precheck.ok) throw new Error(precheck.error);
+        }
+
+        const created = await customersRepository.addCustomer(payload);
+        showNotification('Client added!');
         closeModal();
+
+        try {
+            await referralService.ensureReferralCode(created);
+        } catch (err) {
+            console.warn('[referral] Code allocation failed:', err);
+        }
+
+        if (enteredCode) {
+            try {
+                const { referrer } = await referralService.linkReferral(created, enteredCode);
+                showNotification(`Referral linked: referred by ${referrer.name}.`);
+            } catch (err) {
+                // The client exists; only the referral link failed.
+                showNotification(err.message || 'Referral code could not be applied.', 'error');
+            }
+        }
     },
 
     async 'submit-service'(form, event, data) {
@@ -630,8 +797,15 @@ const actions = {
             status: data.status || 'Confirmed',
         };
         if (id) {
+            const before = findAppointment(id);
             await appointmentsRepository.updateAppointment(id, payload);
             showNotification('Appointment updated!');
+            const merged = { ...(before || {}), ...payload };
+            if (payload.status === 'Cancelled' && before && before.status !== 'Cancelled') {
+                await runReferralReversal(merged, 'Appointment cancelled');
+            } else {
+                await runReferralSettlement(merged);
+            }
         } else {
             await appointmentsRepository.addAppointment(payload);
             showNotification('Appointment booked successfully!');
@@ -648,17 +822,168 @@ const actions = {
             showNotification('Invalid status.', 'error');
             return;
         }
+        const appointment = findAppointment(id);
         await appointmentsRepository.updateAppointment(id, { status });
         showNotification(`Appointment marked as ${status}!`);
+        if (appointment) await runReferralSettlement({ ...appointment, status });
     },
 
-    async 'collect-payment'(el) {
+    async 'open-payment'(el) {
         const id = el.dataset.id;
         if (!id) return;
+        const appt = findAppointment(id);
+        if (!appt) {
+            showNotification('Appointment not found.', 'error');
+            return;
+        }
+        openModal('payment', appt);
+    },
+
+    /* ---------------- Referral programme ---------------- */
+
+    async 'referral-tab'(el) {
+        store.setState({ referralTab: el.dataset.referralTab === 'settings' ? 'settings' : 'list' });
+    },
+
+    async 'referral-filter'(el) {
+        store.setState({ referralStatusFilter: el.dataset.status || 'all' });
+    },
+
+    async 'referral-search'(el) {
+        // Patch the list in place instead of writing to the store: a re-render
+        // would move focus out of the input mid-typing.
+        setReferralSearch(el.value);
         const state = store.getState();
-        const appt = (state.appointmentsList || []).find((a) => a.id === id);
-        if (!appt) return;
-        store.setState({ modalType: 'appointment', modalRecord: appt, isModalOpen: true });
+        const rows = filterReferrals(referralRows(state), {
+            status: state.referralStatusFilter || 'all',
+            query: el.value,
+        });
+        const container = appEl.querySelector('[data-referral-list]');
+        if (!container) return;
+        container.innerHTML = renderReferralListBody(rows);
+        sanitizeDOM(container);
+        refreshIcons(container);
+    },
+
+    async 'submit-referral-settings'(form, event, data) {
+        await referralSettingsRepository.saveSettings({
+            enabled: data.enabled === 'on' || data.enabled === true,
+            rewardType: data.rewardType,
+            rewardValue: Number(data.rewardValue),
+            maxRewardAmount: Number(data.maxRewardAmount || 0),
+            minInvoiceAmount: Number(data.minInvoiceAmount),
+            rewardTrigger: data.rewardTrigger,
+            expiryDays: Number(data.expiryDays),
+            maxRedemptionPercent: Number(data.maxRedemptionPercent),
+        });
+        showNotification('Referral settings saved.');
+    },
+
+    async 'customer-profile'(el) {
+        const customer = customersRepository.getCustomer(el.dataset.id);
+        if (!customer) {
+            showNotification('Client not found.', 'error');
+            return;
+        }
+        // Make sure the client actually owns a code before the profile shows it.
+        referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
+        openModal('customer-profile', { id: customer.id });
+    },
+
+    async 'generate-referral-code'(el) {
+        const customer = customersRepository.getCustomer(el.dataset.id);
+        if (!customer) return;
+        const code = await referralService.ensureReferralCode(customer);
+        showNotification(code ? `Referral code ${code} generated.` : 'Could not generate a code.', code ? 'success' : 'error');
+    },
+
+    async 'copy-referral-code'(el) {
+        const code = el.dataset.code || '';
+        if (!code) return;
+        try {
+            await navigator.clipboard.writeText(code);
+            showNotification(`Referral code ${code} copied.`);
+        } catch (err) {
+            // Clipboard access can be denied (permissions, insecure context).
+            showNotification(`Referral code: ${code}`);
+        }
+    },
+
+    async 'wallet-use-max'(el) {
+        const form = el.closest('form');
+        const input = form && form.querySelector('[name="walletRedeem"]');
+        if (!input) return;
+        input.value = el.dataset.amount || '0';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    },
+
+    async 'collect-payment'(form, event, data) {
+        const appointment = findAppointment(data.id);
+        if (!appointment) throw new Error('Appointment not found.');
+        if (appointment.paid === true) throw new Error('This invoice has already been settled.');
+        if (appointment.status === 'Cancelled') throw new Error('A cancelled appointment cannot be billed.');
+
+        const invoiceAmount = round2(num(data.invoiceAmount));
+        const requested = round2(num(data.walletRedeem));
+        const customer = customersRepository.getCustomer(appointment.customerId);
+        const balance = referralService.walletBalanceOf(customer);
+
+        // The wallet leg runs first because it is the part that must be atomic.
+        // If it fails nothing is billed and the error surfaces to the user.
+        let redemption = { redeemed: 0, balanceBefore: balance, balanceAfter: balance };
+        if (requested > 0) {
+            if (!customer) throw new Error('A client record is required to redeem referral rewards.');
+            redemption = await referralService.redeem({
+                customer,
+                appointment,
+                invoiceAmount,
+                requestedAmount: requested,
+            });
+        }
+
+        const split = splitPayment({ invoiceAmount, walletRedeemed: redemption.redeemed });
+        const patch = {
+            invoiceNo: invoiceNoFor(appointment.id),
+            invoiceAmount: split.invoiceAmount,
+            // `amount` is what the shared revenue rules read as the booked
+            // service amount; once billing has happened the settled invoice
+            // total is the authoritative figure for that appointment.
+            amount: split.invoiceAmount,
+            walletRedeemed: split.walletRedeemed,
+            walletBalanceBefore: redemption.balanceBefore,
+            walletBalanceAfter: redemption.balanceAfter,
+            amountDue: split.amountDue,
+            paid: true,
+            paymentMethod: split.amountDue > 0 ? (data.paymentMethod || 'cash') : 'wallet',
+            paymentReference: data.paymentReference || '',
+            paidAt: new Date().toISOString(),
+            refunded: false,
+        };
+
+        await appointmentsRepository.updateAppointment(appointment.id, patch);
+        showNotification(split.walletRedeemed > 0
+            ? `Payment collected: ${formatCurrency(split.walletRedeemed)} wallet + ${formatCurrency(split.amountDue)}.`
+            : `Payment of ${formatCurrency(split.amountDue)} collected.`);
+
+        await runReferralSettlement({ ...appointment, ...patch });
+        closeModal();
+    },
+
+    async 'refund-invoice'(el) {
+        const appointment = findAppointment(el.dataset.id);
+        if (!appointment) throw new Error('Appointment not found.');
+        if (appointment.paid !== true) throw new Error('This invoice has not been settled.');
+        if (appointment.refunded === true) throw new Error('This invoice has already been refunded.');
+
+        await runReferralReversal(appointment, 'Invoice refunded');
+        await appointmentsRepository.updateAppointment(appointment.id, {
+            paid: false,
+            refunded: true,
+            refundedAt: new Date().toISOString(),
+            refund: round2(num(appointment.invoiceAmount)),
+        });
+        showNotification('Invoice refunded.');
+        closeModal();
     },
 
     async 'submit-salon'(form, event, data) {
@@ -676,6 +1001,11 @@ const actions = {
 
 const debouncedClientSearch = debounce((el) => {
     const handler = actions['customer-search-list'];
+    Promise.resolve(handler(el)).catch((err) => console.warn(err));
+}, 200);
+
+const debouncedReferralSearch = debounce((el) => {
+    const handler = actions['referral-search'];
     Promise.resolve(handler(el)).catch((err) => console.warn(err));
 }, 200);
 
@@ -713,6 +1043,10 @@ function attachDelegation() {
         const listSearch = event.target.closest('[data-action="customer-search-list"]');
         if (listSearch) {
             debouncedClientSearch(listSearch);
+        }
+        const referralSearch = event.target.closest('[data-action="referral-search"]');
+        if (referralSearch) {
+            debouncedReferralSearch(referralSearch);
         }
         handleFormInput(event);
     });
@@ -794,6 +1128,7 @@ async function bootstrap() {
 
     store.subscribe(renderApp);
     store.subscribe(() => resolveSalonScope());
+    store.subscribe(() => maybeRunReferralMaintenance());
 
     attachDelegation();
     renderApp();

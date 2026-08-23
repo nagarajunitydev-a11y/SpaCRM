@@ -9,6 +9,7 @@ import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
 import { listenCollection, addDocument, updateDocument, deleteDocument } from './db.js';
 import { validateForm } from '../core/validate.js';
+import { makeId } from '../core/utils.js';
 
 /** Form schema that guards each scoped collection (defense in depth). */
 const COLLECTION_FORM_KEYS = {
@@ -100,7 +101,9 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
         // Firestore path.
         const row = { salonId, ...payload };
         if (isDemoMode()) {
-            const record = { id: `${collectionName.slice(0, 3)}_${Date.now().toString(36)}`, ...row };
+            // makeId adds a random suffix: two records created inside the same
+            // millisecond must never share an id (the store dedupes by id).
+            const record = { id: makeId(collectionName.slice(0, 3)), ...row };
             setData([...data(), record]);
             return record;
         }

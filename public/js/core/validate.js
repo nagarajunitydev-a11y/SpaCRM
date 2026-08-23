@@ -9,6 +9,8 @@
  * All validation operates on already-trimmed values (readFormData trims).
  */
 
+import { isValidCodeFormat, normalizeCode, REWARD_TYPES, REWARD_TRIGGERS, num, round2 } from './referral.js';
+
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -79,6 +81,13 @@ const numberMin = (min, msg) => (v) => {
     return Number.isFinite(n) && n >= min ? null : msg;
 };
 const indianPhone = (msg) => (v) => (isBlank(v) ? null : isValidIndianPhone(v) ? null : msg);
+const numberMax = (max, msg) => (v) => {
+    if (isBlank(v)) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n <= max ? null : msg;
+};
+/** Optional referral code: blank is fine, anything present must be well-formed. */
+const referralCode = (msg) => (v) => (isBlank(v) ? null : isValidCodeFormat(v) ? null : msg);
 
 /** Runs every validator for a field, stopping at the first failure. */
 function check(errors, field, value, validators) {
@@ -139,6 +148,63 @@ export function validateForm(formKey, data, ctx = {}) {
         check(errors, 'name', v('name'), [required('Name is required.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'email', v('email'), [email('Enter a valid email address.')]);
+        // The referral code is optional; when supplied it must be a valid code.
+        // Whether it actually resolves to another client (and is not a
+        // self-referral) is decided by referralService.validateReferralCode.
+        check(errors, 'referralCode', v('referralCode'), [referralCode('Enter a valid 8-character referral code.')]);
+        return errors;
+    }
+
+    if (formKey === 'collect-payment') {
+        check(errors, 'invoiceAmount', v('invoiceAmount'), [
+            required('Invoice amount is required.'),
+            numberMin(0.01, 'Enter a valid invoice amount.'),
+        ]);
+        check(errors, 'walletRedeem', v('walletRedeem'), [numberMin(0, 'Redemption must be zero or more.')]);
+
+        const invoice = round2(num(v('invoiceAmount')));
+        const redeem = round2(num(v('walletRedeem')));
+        if (!errors.walletRedeem && redeem > invoice) {
+            errors.walletRedeem = 'Redemption cannot exceed the invoice amount.';
+        }
+        // A cash/UPI/card leg is only required when the wallet does not cover
+        // the whole invoice (a fully wallet-paid invoice needs no method).
+        if (!errors.walletRedeem && round2(invoice - redeem) > 0) {
+            check(errors, 'paymentMethod', v('paymentMethod'), [required('Select a payment method.')]);
+        }
+        return errors;
+    }
+
+    if (formKey === 'submit-referral-settings') {
+        const rewardType = v('rewardType');
+        if (rewardType !== REWARD_TYPES.FIXED && rewardType !== REWARD_TYPES.PERCENT) {
+            errors.rewardType = 'Select a reward type.';
+        }
+
+        const valueRules = [required('Reward value is required.'), numberMin(0, 'Reward value must be zero or more.')];
+        if (rewardType === REWARD_TYPES.PERCENT) valueRules.push(numberMax(100, 'A percentage reward cannot exceed 100%.'));
+        check(errors, 'rewardValue', v('rewardValue'), valueRules);
+
+        check(errors, 'maxRewardAmount', v('maxRewardAmount'), [numberMin(0, 'Reward cap must be zero or more.')]);
+        check(errors, 'minInvoiceAmount', v('minInvoiceAmount'), [
+            required('Minimum invoice amount is required.'),
+            numberMin(0, 'Minimum invoice amount must be zero or more.'),
+        ]);
+        check(errors, 'expiryDays', v('expiryDays'), [
+            required('Expiry period is required.'),
+            numberMin(0, 'Expiry period must be zero or more days.'),
+            numberMax(3650, 'Expiry period cannot exceed 3650 days.'),
+        ]);
+        check(errors, 'maxRedemptionPercent', v('maxRedemptionPercent'), [
+            required('Maximum redemption percentage is required.'),
+            numberMin(0, 'Maximum redemption must be zero or more.'),
+            numberMax(100, 'Maximum redemption cannot exceed 100%.'),
+        ]);
+
+        const trigger = v('rewardTrigger');
+        if (trigger !== REWARD_TRIGGERS.INVOICE_PAID && trigger !== REWARD_TRIGGERS.APPOINTMENT_COMPLETED) {
+            errors.rewardTrigger = 'Select when the reward is credited.';
+        }
         return errors;
     }
 
@@ -177,4 +243,4 @@ export function validateForm(formKey, data, ctx = {}) {
     return errors;
 }
 
-export default { validateForm, isBlank, isValidDate, isValidIndianPhone, toIndianE164, normalizePhoneDigits, EMAIL_RE, TIME_RE, DATE_RE };
+export default { validateForm, isBlank, isValidDate, isValidIndianPhone, toIndianE164, normalizePhoneDigits, normalizeCode, EMAIL_RE, TIME_RE, DATE_RE };

@@ -5,7 +5,8 @@
 
 import { esc } from '../../core/sanitize.js';
 import { sectionHeader, actionButton, emptyState, iconAction } from '../components.js';
-import { scopedBySalon } from '../../core/utils.js';
+import { scopedBySalon, formatCurrency } from '../../core/utils.js';
+import { num, round2 } from '../../core/referral.js';
 
 export function renderCustomers(state) {
     const customers = scopedBySalon(state.customersList, state.currentSalonId);
@@ -43,6 +44,17 @@ export function renderCustomers(state) {
 }
 
 export function renderCustomerCard(c) {
+    const balance = round2(Math.max(0, num(c.walletBalance)));
+    const code = c.referralCode
+        ? `<span class="text-[10px] text-brand-400 font-mono tracking-wider">${esc(c.referralCode)}</span>`
+        : '';
+    const wallet = balance > 0
+        ? `<span class="text-[10px] text-emerald-400 font-semibold">${esc(formatCurrency(balance))} wallet</span>`
+        : '';
+    const meta = code || wallet
+        ? `<p class="mt-1 flex items-center gap-2 truncate">${code}${code && wallet ? '<span class="text-slate-700">•</span>' : ''}${wallet}</p>`
+        : '';
+
     return `
         <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl">
             <div class="flex items-center justify-between gap-3">
@@ -50,8 +62,10 @@ export function renderCustomerCard(c) {
                     <h4 class="font-bold text-sm text-slate-100 truncate">${esc(c.name)}</h4>
                     <p class="text-xs text-slate-400 mt-0.5 truncate">${esc(c.phone)}</p>
                     <p class="text-[10px] text-slate-500 mt-0.5 truncate">${esc(c.email)}</p>
+                    ${meta}
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
+                    ${iconAction('customer-profile', { id: c.id }, 'Referral profile', 'gift', 'bg-brand-500/10 hover:bg-brand-500/20 text-brand-400')}
                     ${iconAction('open-edit', { type: 'customer', id: c.id }, 'Edit client', 'pencil', 'bg-slate-800 hover:bg-slate-700 text-slate-300')}
                     ${iconAction('request-delete', { type: 'customer', id: c.id, label: c.name }, 'Delete client', 'trash-2', 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-400')}
                 </div>

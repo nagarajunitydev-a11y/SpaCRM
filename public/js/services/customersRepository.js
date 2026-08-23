@@ -1,10 +1,15 @@
 /**
  * customersRepository.js
- * Tenant-scoped customers with reward points.
+ * Tenant-scoped customers with reward points and a referral wallet.
  *
  * Every customer is stored under their salon and receives signup bonus
  * points when created. Duplicate customers (same phone or exact name)
  * within the salon are rejected before anything is written.
+ *
+ * Two independent balances live on a client record and are never mixed:
+ *   `rewardPoints`  - the loyalty scheme, measured in points;
+ *   `walletBalance` - the referral wallet, measured in rupees, moved only by
+ *                     referralService.js inside an atomic transaction.
  */
 
 import { store } from '../core/store.js';
@@ -12,6 +17,9 @@ import { isDemoMode } from './firebase.js';
 import { createScopedRepository } from './scopedRepository.js';
 
 const SIGNUP_BONUS = 100;
+
+/** A new client starts with an empty referral wallet. */
+const STARTING_WALLET_BALANCE = 0;
 
 export const seed = [
     { id: 'c1', salonId: 'salon_luxe_01', name: 'Olivia Wilde', phone: '+1 555-0143', email: 'olivia@example.com', rewardPoints: 150 },
@@ -61,6 +69,7 @@ export async function addCustomer(payload) {
     const row = {
         ...payload,
         rewardPoints: SIGNUP_BONUS,
+        walletBalance: STARTING_WALLET_BALANCE,
     };
 
     return repo.add(row);
@@ -77,6 +86,7 @@ export async function addCustomerQuick(payload) {
         {
             ...payload,
             rewardPoints: SIGNUP_BONUS,
+            walletBalance: STARTING_WALLET_BALANCE,
         },
         { skipValidation: true },
     );
@@ -102,6 +112,13 @@ export async function redeemReward(customerId, tierPoints) {
     return repo.update(customerId, { rewardPoints: pts - tierPoints });
 }
 
+/** Find a client in the current salon by their referral code. */
+export function findCustomerByReferralCode(code) {
+    const q = String(code || '').trim().toUpperCase();
+    if (!q) return null;
+    return listCustomers().find((c) => String(c.referralCode || '').toUpperCase() === q) || null;
+}
+
 /** Delete a customer. */
 export async function deleteCustomer(id) {
     return repo.remove(id);
@@ -114,6 +131,7 @@ export default {
     addCustomerQuick,
     findCustomerByName,
     findCustomerByPhone,
+    findCustomerByReferralCode,
     updateCustomer,
     deleteCustomer,
     listCustomers,

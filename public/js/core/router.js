@@ -8,7 +8,7 @@ import { store } from './store.js';
 import { clearDraft } from './draft.js';
 
 export const TABS = {
-    salonOwner: ['dashboard', 'appointments', 'customers', 'services', 'staff'],
+    salonOwner: ['dashboard', 'appointments', 'customers', 'referrals', 'services', 'staff'],
     superAdmin: ['admin_salons'],
 };
 
