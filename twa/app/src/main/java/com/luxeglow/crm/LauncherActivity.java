@@ -19,7 +19,7 @@ import android.webkit.WebViewClient;
 public class LauncherActivity extends Activity {
 
     private WebView webView;
-    private static final String APP_URL = "https://spacrm-two.vercel.app/?platform=android";
+    private static final String APP_URL = "https://spacrm-ishari.vercel.app/?platform=android";
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override

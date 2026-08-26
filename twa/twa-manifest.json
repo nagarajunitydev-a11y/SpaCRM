@@ -1,6 +1,6 @@
 {
   "packageId": "com.luxeglow.crm",
-  "host": "spacrm-two.vercel.app",
+  "host": "spacrm-ishari.vercel.app",
   "name": "Qvrix Luxe - Salon & Spa CRM",
   "launcherName": "Qvrix Luxe",
   "display": "standalone",
@@ -13,8 +13,8 @@
   "backgroundColor": "#020617",
   "enableNotifications": true,
   "startUrl": "/",
-  "iconUrl": "https://spacrm-two.vercel.app/icons/icon-512.png",
-  "maskableIconUrl": "https://spacrm-two.vercel.app/icons/icon-512.png",
+  "iconUrl": "https://spacrm-ishari.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://spacrm-ishari.vercel.app/icons/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "D:\\Projects\\VSCode\\SpaCRM\\twa\\keys\\luxeglow-release.keystore",
