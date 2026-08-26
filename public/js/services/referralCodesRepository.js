@@ -83,9 +83,21 @@ export async function allocateCode(customer, salonIdOverride = null) {
     if (existing) return existing.code || existing.id;
     if (isValidCodeFormat(customer.referralCode)) return normalizeCode(customer.referralCode);
 
-    const salonId = salonIdOverride || store.getState().currentSalonId || customer.salonId || null;
-    if (!isDemoMode() && !salonId) {
-        throw new Error('No salon selected. Cannot allocate a referral code.');
+    const state = store.getState();
+    const salonId = salonIdOverride || state.currentSalonId || customer.salonId || null;
+    if (!isDemoMode()) {
+        if (!salonId) {
+            throw new Error('No salon selected. Cannot allocate a referral code.');
+        }
+        // Fail fast with an actionable message instead of letting a stale/
+        // mismatched salon scope reach Firestore as an opaque permission-denied.
+        // `salonsList` is always server-filtered to salons this account owns
+        // (super admins are exempt — they can act on any salon).
+        const owns = state.accountRole === 'super_admin'
+            || (state.salonsList || []).some((s) => s.id === salonId);
+        if (!owns) {
+            throw new Error('You do not have access to this salon. Please reselect your salon and try again.');
+        }
     }
     const taken = new Set(listCodes().map((row) => normalizeCode(row.code || row.id)));
 
