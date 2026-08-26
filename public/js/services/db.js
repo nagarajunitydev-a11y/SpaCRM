@@ -50,6 +50,18 @@ export function docRef(...segments) {
 }
 
 /**
+ * Generate a fresh, unique document id inside a collection WITHOUT writing
+ * anything. Lets a caller mint an id up front and reference it from several
+ * sibling documents inside one atomic transaction (e.g. a new customer's id
+ * needs to appear on both the customer doc and its appointment).
+ */
+export function newDocId(...collectionSegments) {
+    const fb = getFirebase();
+    if (!fb) return null;
+    return fbDoc(colRef(...collectionSegments)).id;
+}
+
+/**
  * Subscribe to a collection and invoke `onData(rows)` whenever it changes.
  * Returns an unsubscribe function. Never throws — errors are reported.
  */
@@ -200,6 +212,7 @@ export default {
     mapDoc,
     colRef,
     docRef,
+    newDocId,
     listenCollection,
     getCollection,
     getDocument,

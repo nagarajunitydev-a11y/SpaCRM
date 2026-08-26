@@ -25,6 +25,14 @@ service cloud.firestore {
       return isAdmin() || ownsSalon(salonId);
     }
 
+    // True once the salon owner has explicitly turned public online booking
+    // on. This is the single gate every anonymous write in this file checks —
+    // with it off, none of the public-booking rules below grant anything.
+    function isPublicBookingEnabled(salonId) {
+      return exists(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config)
+        && get(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config).data.enabled == true;
+    }
+
     // ---------- Server/database-level validation ----------
 
     function isNonEmptyString(v, max) {
@@ -59,6 +67,72 @@ service cloud.firestore {
         && isOptionalOrNull(data.referralCode, 16)
         && isOptionalOrNull(data.referredBy, 128)
         && isOptionalOrNull(data.referredByCode, 16);
+    }
+
+    // A customer created by an anonymous public-booking visitor must start
+    // with exactly the same signup bonus/empty wallet an internally-created
+    // customer gets — a public writer can never grant itself extra points or
+    // a starting wallet balance.
+    function isValidPublicNewCustomer(data) {
+      return isValidCustomer(data)
+        && data.rewardPoints == 100
+        && data.walletBalance == 0
+        && data.source == 'public_booking';
+    }
+
+    // An appointment created by an anonymous public-booking visitor must be a
+    // plain, unpaid, un-refunded Confirmed booking — it can never be created
+    // already Completed/Cancelled, already paid, or already carrying a wallet
+    // redemption (billing only ever happens inside the authenticated CRM).
+    function isValidPublicAppointment(data) {
+      return isValidAppointment(data)
+        && data.status == 'Confirmed'
+        && (data.source == 'whatsapp' || data.source == 'public_booking')
+        && (data.paid == null || data.paid == false)
+        && (data.refunded == null || data.refunded == false)
+        && (data.walletRedeemed == null || data.walletRedeemed == 0)
+        && (data.invoiceAmount == null || data.invoiceAmount == 0);
+    }
+
+    // ---------- Public online booking ----------
+
+    function isValidBookingSettings(data) {
+      return data.enabled is bool
+        && isOptionalString(data.displayName, 120)
+        && data.slotIntervalMinutes is number && data.slotIntervalMinutes >= 5 && data.slotIntervalMinutes <= 120
+        && data.advanceBookingDays is number && data.advanceBookingDays >= 1 && data.advanceBookingDays <= 180
+        && data.minNoticeMinutes is number && data.minNoticeMinutes >= 0 && data.minNoticeMinutes <= 1440
+        && data.workingHours is map
+        && data.publicServices is list && data.publicServices.size() <= 200
+        && data.publicStaff is list && data.publicStaff.size() <= 200;
+    }
+
+    // A minimal phone -> customerId index so the public booking page can
+    // check "does this mobile number already exist" without ever being
+    // granted read access to the real customer records (which would expose
+    // every client's name/phone/wallet to any visitor). See
+    // core/bookingConfig.js and services/publicBookingService.js for the full
+    // design rationale, including the residual trust trade-off of a public
+    // create-only write here.
+    function isValidPhoneIndex(data) {
+      return isNonEmptyString(data.customerId, 128);
+    }
+
+    // A slot lock is the ATOMIC double-booking guard: one document per staff
+    // member per 5-minute tick an appointment occupies (see
+    // core/scheduling.js `lockKeysForBooking`). Its document id is
+    // deterministic, so a second booking that tries to occupy an
+    // already-locked tick fails this `create` rule outright — the database
+    // itself rejects the race, not a stale client-side read. The documents
+    // carry zero customer PII (staff name / date / time / an opaque
+    // appointment id only), so they are safe to expose to public visitors —
+    // that is exactly the "is this staff member busy right now" information
+    // the booking page's slot picker needs to render.
+    function isValidSlotLock(data) {
+      return isNonEmptyString(data.appointmentId, 128)
+        && isNonEmptyString(data.staffName, 120)
+        && data.date is string && data.date.size() == 10
+        && data.time is string && data.time.size() == 5;
     }
 
     // ---------- Referral programme ----------
@@ -148,9 +222,11 @@ service cloud.firestore {
       allow delete: if isAdmin() || resource.data.ownerId == request.auth.uid;
 
       match /customers/{docId} {
+        // Public visitors can never read the customer list (name/phone/wallet
+        // for every client) — they can only ever create their OWN new record.
         allow read: if canAccessSalon(salonId);
-        allow create: if canAccessSalon(salonId)
-          && isValidCustomer(request.resource.data);
+        allow create: if (canAccessSalon(salonId) && isValidCustomer(request.resource.data))
+          || (isPublicBookingEnabled(salonId) && isValidPublicNewCustomer(request.resource.data));
         allow update: if canAccessSalon(salonId)
           && isValidCustomer(request.resource.data);
         allow delete: if canAccessSalon(salonId);
@@ -166,14 +242,55 @@ service cloud.firestore {
         allow delete: if canAccessSalon(salonId);
       }
       match /appointments/{docId} {
+        // Public visitors can never read/update/delete any appointment — they
+        // can only create their OWN new Confirmed, unpaid booking. The CRM's
+        // own action handlers (status changes, billing, cancellation) still
+        // require an authenticated, salon-scoped session, exactly as before.
         allow read: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
+        allow create: if (canAccessSalon(salonId) && isValidAppointment(request.resource.data))
+          || (isPublicBookingEnabled(salonId) && isValidPublicAppointment(request.resource.data));
+        allow update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
         allow delete: if canAccessSalon(salonId);
       }
 
-      // Referral programme configuration (single `config` document).
+      // Public online-booking configuration (single `config` document) plus
+      // the public-safe services/staff snapshot the booking page reads.
+      match /bookingSettings/{docId} {
+        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.enabled == true);
+        allow list: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidBookingSettings(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Phone -> customerId lookup index for the public booking page. The
+      // document id is the customer's normalized phone digits.
+      match /customerPhoneIndex/{phoneKey} {
+        allow get: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
+        allow list: if canAccessSalon(salonId);
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidPhoneIndex(request.resource.data);
+        allow update, delete: if false;
+      }
+
+      // Atomic per-staff, per-5-minute-tick booking locks (see
+      // isValidSlotLock above). Readable by anyone so the booking page can
+      // render live availability; only ever created (never updated), and
+      // released (deleted) only by the authenticated owner when an
+      // appointment is cancelled/rescheduled/deleted.
+      match /appointmentSlots/{lockKey} {
+        allow read: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidSlotLock(request.resource.data);
+        allow update: if false;
+        allow delete: if canAccessSalon(salonId);
+      }
+
+      // Referral programme configuration (single `config` document). Publicly
+      // readable: reward terms are marketing copy the salon wants shown on
+      // the booking page ("Refer a friend and earn..."), never sensitive.
       match /referralSettings/{docId} {
-        allow read: if canAccessSalon(salonId);
+        allow get: if true;
+        allow list: if canAccessSalon(salonId);
         allow create, update: if canAccessSalon(salonId)
           && isValidReferralSettings(request.resource.data);
         allow delete: if false;
@@ -181,8 +298,11 @@ service cloud.firestore {
 
       // Referral code registry. The document id IS the code, so uniqueness is
       // enforced by the key; a code is retired (active:false), never deleted.
+      // A public visitor may look up ONE known, active code (to apply it on
+      // the booking page) but can never list the registry to enumerate codes.
       match /referralCodes/{code} {
-        allow read: if canAccessSalon(salonId);
+        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.active == true);
+        allow list: if canAccessSalon(salonId);
         allow create, update: if canAccessSalon(salonId)
           && isValidReferralCode(request.resource.data);
         allow delete: if false;
@@ -190,10 +310,12 @@ service cloud.firestore {
 
       // Referral records. The document id is derived from the referred client,
       // so one client can never accumulate a second referrer. A referral is
-      // always created in `Pending` with nothing credited yet.
+      // always created in `Pending` with nothing credited yet — including one
+      // created by a public-booking visitor when a new customer applies a
+      // referral code while booking.
       match /referrals/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create: if canAccessSalon(salonId)
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
           && isValidReferral(request.resource.data)
           && request.resource.data.status == 'Pending'
           && request.resource.data.rewardAmount == 0

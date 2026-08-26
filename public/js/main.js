@@ -21,6 +21,7 @@ import * as referralCodesRepository from './services/referralCodesRepository.js'
 import * as referralSettingsRepository from './services/referralSettingsRepository.js';
 import * as walletRepository from './services/walletRepository.js';
 import * as referralService from './services/referralService.js';
+import * as bookingSettingsRepository from './services/bookingSettingsRepository.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
@@ -46,6 +47,7 @@ import renderReferrals, {
     renderReferralListBody,
 } from './ui/views/referrals.js';
 import { renderPaymentSummary, defaultInvoiceAmount } from './ui/views/payment.js';
+import { renderBookingLinkModal, bookingLinkFor } from './ui/views/bookingLink.js';
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
@@ -111,6 +113,7 @@ function resolveSalonScope() {
     referralCodesRepository.setSalon(target);
     walletRepository.setSalon(target);
     referralSettingsRepository.setSalon(target);
+    bookingSettingsRepository.setSalon(target);
 }
 
 /**
@@ -136,6 +139,50 @@ function maybeRunReferralMaintenance() {
 
 function syncSalonScope() {
     resolveSalonScope();
+}
+
+/**
+ * Keep the public-safe services/staff snapshot (see
+ * bookingSettingsRepository.syncPublicCatalog) in step with the real catalog
+ * whenever it changes while the owner's app is open. Cheaply skips when
+ * nothing relevant changed (the store fires on every unrelated state change
+ * too), and debounces the actual write so a burst of edits only syncs once.
+ *
+ * Writing the sync's result calls store.setState, which re-renders the WHOLE
+ * app — including wiping any transient, imperatively-inserted DOM (inline
+ * form field-error messages are never part of store state, only inserted
+ * directly into the DOM by renderFieldErrors). A background sync landing
+ * while a modal is open would silently erase whatever the user is looking
+ * at mid-interaction, so it defers — never skips — until no modal is open.
+ */
+function runSyncPublicCatalog() {
+    const state = store.getState();
+    if (state.isModalOpen) {
+        setTimeout(runSyncPublicCatalog, 500);
+        return;
+    }
+    if (!state.currentSalonId) return;
+    bookingSettingsRepository
+        .syncPublicCatalog(
+            scopedBySalon(state.servicesList, state.currentSalonId),
+            scopedBySalon(state.staffList, state.currentSalonId),
+        )
+        .catch((err) => console.warn('[booking] Public catalog sync failed:', err));
+}
+const debouncedSyncPublicCatalog = debounce(runSyncPublicCatalog, 800);
+
+let lastCatalogSignature = null;
+
+function maybeSyncPublicCatalog() {
+    const state = store.getState();
+    const signature = JSON.stringify([
+        state.currentSalonId,
+        (state.servicesList || []).map((s) => [s.id, s.name, s.price, s.duration]),
+        (state.staffList || []).map((s) => [s.id, s.name, s.role]),
+    ]);
+    if (signature === lastCatalogSignature) return;
+    lastCatalogSignature = signature;
+    debouncedSyncPublicCatalog();
 }
 
 /* ------------------------------------------------------------------ */
@@ -917,6 +964,75 @@ const actions = {
         input.dispatchEvent(new Event('input', { bubbles: true }));
     },
 
+    /* ---------------- Public booking link ---------------- */
+
+    async 'copy-booking-link'(el) {
+        const link = el.dataset.link || '';
+        if (!link) return;
+        try {
+            await navigator.clipboard.writeText(link);
+            showNotification('Booking link copied.');
+        } catch (err) {
+            showNotification(`Booking link: ${link}`);
+        }
+    },
+
+    async 'toggle-booking-qr'() {
+        const container = appEl.querySelector('#booking-link-qr');
+        if (!container) return;
+        const hidden = container.classList.contains('hidden');
+        if (!hidden) {
+            container.classList.add('hidden');
+            return;
+        }
+        if (!container.dataset.rendered) {
+            const link = bookingLinkFor(store.getState().currentSalonId);
+            try {
+                if (!window.QRCode) throw new Error('QR generator unavailable.');
+                container.innerHTML = window.QRCode.toSVG(link, { size: 220 });
+                container.dataset.rendered = '1';
+            } catch (err) {
+                console.warn('[booking] QR generation failed:', err);
+                showNotification('Could not generate a QR code for this link.', 'error');
+                return;
+            }
+        }
+        container.classList.remove('hidden');
+    },
+
+    async 'toggle-day-closed'(el) {
+        const day = el.dataset.day;
+        const row = el.closest('.flex.items-center.gap-2');
+        if (!row) return;
+        row.querySelectorAll(`[name="start_${day}"], [name="end_${day}"]`).forEach((input) => {
+            input.disabled = el.checked;
+        });
+    },
+
+    async 'submit-booking-settings'(form, event, data) {
+        const workingHours = {};
+        for (const key of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+            workingHours[key] = {
+                closed: data[`closed_${key}`] === 'on' || data[`closed_${key}`] === true,
+                start: data[`start_${key}`] || '10:00',
+                end: data[`end_${key}`] || '19:00',
+            };
+        }
+        await bookingSettingsRepository.saveSettings({
+            enabled: data.enabled === 'on' || data.enabled === true,
+            displayName: data.displayName || '',
+            slotIntervalMinutes: Number(data.slotIntervalMinutes),
+            advanceBookingDays: Number(data.advanceBookingDays),
+            minNoticeMinutes: Number(data.minNoticeMinutes),
+            workingHours,
+        });
+        await bookingSettingsRepository.syncPublicCatalog(
+            scopedBySalon(store.getState().servicesList, store.getState().currentSalonId),
+            scopedBySalon(store.getState().staffList, store.getState().currentSalonId),
+        );
+        showNotification('Booking link settings saved.');
+    },
+
     async 'collect-payment'(form, event, data) {
         const appointment = findAppointment(data.id);
         if (!appointment) throw new Error('Appointment not found.');
@@ -1129,6 +1245,7 @@ async function bootstrap() {
     store.subscribe(renderApp);
     store.subscribe(() => resolveSalonScope());
     store.subscribe(() => maybeRunReferralMaintenance());
+    store.subscribe(() => maybeSyncPublicCatalog());
 
     attachDelegation();
     renderApp();

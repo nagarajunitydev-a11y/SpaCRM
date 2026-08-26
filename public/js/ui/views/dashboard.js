@@ -110,6 +110,7 @@ export function renderDashboard(state) {
                 ${quickAction('customer', 'Client', 'user-plus', 'bg-indigo-500/10 text-indigo-400')}
                 ${quickAction('service', 'Service', 'sparkle', 'bg-emerald-500/10 text-emerald-400')}
                 ${quickAction('staff', 'Staff', 'user-check', 'bg-amber-500/10 text-amber-400')}
+                ${quickAction('booking-link', 'Booking Link', 'link', 'bg-teal-500/10 text-teal-400')}
             </div>
 
             <div class="space-y-3">

@@ -14,6 +14,7 @@ import { scopedBySalon } from '../../core/utils.js';
 import { sanitizeSettings } from '../../core/referral.js';
 import renderPaymentForm from './payment.js';
 import renderCustomerProfile from './customerProfile.js';
+import renderBookingLinkModal from './bookingLink.js';
 
 const TITLES = {
     customer: 'Add New Client',
@@ -24,6 +25,7 @@ const TITLES = {
     rewards: 'Client Rewards',
     payment: 'Collect Payment',
     'customer-profile': 'Client Profile',
+    'booking-link': 'Booking Link',
     'confirm-delete': 'Confirm Deletion',
 };
 
@@ -81,6 +83,10 @@ function renderForm(state, type) {
 
     if (type === 'customer-profile') {
         return renderCustomerProfile(state);
+    }
+
+    if (type === 'booking-link') {
+        return renderBookingLinkModal(state);
     }
 
     if (type === 'customer') {

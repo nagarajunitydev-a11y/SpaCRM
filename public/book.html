@@ -7,46 +7,32 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Qvrix Luxe">
-    <meta name="description" content="Qvrix Luxe - Salon & Spa CRM. Elevated beauty business management, reward points, and live scheduling.">
-    <title>Qvrix Luxe - Salon &amp; Spa CRM</title>
+    <meta name="description" content="Book an appointment online — no account required.">
+    <title>Book an Appointment</title>
 
-    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" type="image/png">
     <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
-    <!-- Tailwind CSS (production build — see npm run build:css) -->
+    <!-- Same production static CSS build the main app uses. -->
     <link rel="stylesheet" href="/styles/tailwind.css">
-    <!-- Lucide Icons (self-hosted so Tracking Prevention / CDN issues can
-         never block icon rendering; falls back to the CDN if unavailable) -->
     <script src="/vendor/lucide.min.js" onerror="this.onerror=null;this.src='https://unpkg.com/lucide@1.31.0/dist/umd/lucide.min.js'"></script>
-    <!-- Dependency-free QR code generator used only by the Booking Link
-         panel's "QR Code" button — self-hosted, no external service. -->
-    <script src="/vendor/qrcode.js"></script>
-    <!-- Google Fonts: Plus Jakarta Sans -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="/styles/main.css">
 
-    <!-- Production Firebase wiring: on any deployed (non-local) origin the app
-         always boots against the live backend. Local development keeps the
-         demo mode + opt-in ?firebase=1 query-flag behaviour. -->
+    <!-- Identical production Firebase wiring to index.html — this page must
+         resolve the SAME salon-scoped backend the CRM writes to. Kept as an
+         inline duplicate (not a shared include) because this is a static,
+         no-build-step site; see main.js's own copy of this block for the
+         canonical version. Local development keeps the demo-mode fallback
+         (no config injected) so this page is testable without credentials. -->
     <script>
         (function () {
             if (typeof window.__firebase_config !== 'undefined') return;
             var host = window.location.hostname || '';
             var isLocal = host === 'localhost' || host === '127.0.0.1' || host === '';
             if (isLocal) return;
-            // Web-app configs are intentionally public (access control is
-            // enforced by Security Rules + Firebase Authentication).
-            // authDomain is the SAME origin as the app (spacrm-two.vercel.app)
-            // so the Google OAuth helper runs on one origin — cross-origin
-            // authDomains (crmapp-1299dddb.firebaseapp.com) get their storage
-            // partitioned by Chrome/Android, which silently breaks
-            // signInWithRedirect inside the TWA. vercel.json proxies
-            // /__/auth/* back to crmapp-1299dddb.firebaseapp.com.
             window.__firebase_config = JSON.stringify({
                 apiKey: 'AIzaSyAQ8LY9AWyVyfMbxOMGxoNSvjEqgXXu-eM',
                 authDomain: 'spacrm-two.vercel.app',
@@ -57,23 +43,22 @@
             });
         })();
     </script>
-    <!-- Development Firebase wiring (opt-in: append ?firebase=1 to the URL).
-         No-op unless a host has NOT already injected __firebase_config and the
-         query flag is present; default demo mode is preserved otherwise. -->
     <script src="/js/firebase-config.dev.js" defer></script>
 </head>
 <body class="h-full bg-slate-900 text-slate-100 font-sans antialiased selection:bg-brand-500 selection:text-white">
 
     <div id="app" class="app-shell h-full flex flex-col w-full max-w-md mx-auto bg-slate-950 shadow-2xl overflow-hidden relative border-x border-slate-800" aria-live="polite">
-        <!-- Dynamic Application Shell -->
+        <!-- Dynamic booking wizard -->
     </div>
 
     <noscript>
         <div class="fixed inset-0 z-[999] bg-slate-950 text-slate-100 flex items-center justify-center p-6 text-center">
-            <p class="text-sm font-semibold">Qvrix Luxe requires JavaScript to run. Please enable JavaScript and reload.</p>
+            <p class="text-sm font-semibold">This booking page requires JavaScript. Please enable JavaScript and reload.</p>
         </div>
     </noscript>
 
-    <script type="module" src="/js/main.js"></script>
+    <!-- No service worker here on purpose: booking availability is
+         time-sensitive and must always be read live, never served stale. -->
+    <script type="module" src="/js/public-booking/publicBookingApp.js"></script>
 </body>
 </html>

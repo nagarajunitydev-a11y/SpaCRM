@@ -11,6 +11,10 @@
     {
       "source": "/__/:path*",
       "destination": "https://crmapp-1299dddb.firebaseapp.com/__/:path*"
+    },
+    {
+      "source": "/book/:salonId",
+      "destination": "/book.html"
     }
   ],
 

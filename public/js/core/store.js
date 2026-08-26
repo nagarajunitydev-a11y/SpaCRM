@@ -4,7 +4,14 @@
  * Pure JS — no external dependency.
  */
 
-function createStore(initialState) {
+/**
+ * Factory for the same minimal observable store the app singleton below is
+ * built from. Exported so any other independent runtime in this codebase
+ * (the public booking page, which shares no state with the authenticated
+ * SPA) can reuse the identical, already-tested primitive instead of
+ * reimplementing it.
+ */
+export function createStore(initialState) {
     let state = { ...initialState };
     const listeners = new Set();
 
@@ -65,6 +72,10 @@ export const store = createStore({
     referralSettings: null, // null until loaded; DEFAULT_REFERRAL_SETTINGS applies
     referralTab: 'list', // 'list' | 'settings'
     referralStatusFilter: 'all',
+
+    // ---- Public online booking ----
+    bookingSettings: null, // null until loaded; DEFAULT_BOOKING_SETTINGS applies
+    bookingSettingsDocExists: false, // true once a real bookingSettings/config doc has been saved
 });
 
 export default store;

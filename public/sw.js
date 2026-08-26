@@ -7,7 +7,7 @@
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'qvrix-luxe-v3';
+const CACHE_NAME = 'qvrix-luxe-v4';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -30,6 +30,8 @@ const APP_SHELL = [
     '/js/core/validate.js',
     '/js/core/referral.js',
     '/js/core/wallet.js',
+    '/js/core/scheduling.js',
+    '/js/core/bookingConfig.js',
     '/js/services/firebase.js',
     '/js/services/authService.js',
     '/js/services/db.js',
@@ -44,6 +46,7 @@ const APP_SHELL = [
     '/js/services/referralSettingsRepository.js',
     '/js/services/walletRepository.js',
     '/js/services/referralService.js',
+    '/js/services/bookingSettingsRepository.js',
     '/js/services/seedData.js',
     '/js/ui/notification.js',
     '/js/ui/icons.js',
@@ -60,6 +63,8 @@ const APP_SHELL = [
     '/js/ui/views/referrals.js',
     '/js/ui/views/payment.js',
     '/js/ui/views/customerProfile.js',
+    '/js/ui/views/bookingLink.js',
+    '/vendor/qrcode.js',
 ];
 
 self.addEventListener('install', (event) => {
@@ -92,6 +97,15 @@ self.addEventListener('fetch', (event) => {
     // Cross-origin (Firebase CDN, Google Fonts, Tailwind, Lucide):
     // network-only. Never cache, never block offline (fail through).
     if (url.origin !== self.location.origin) {
+        return;
+    }
+
+    // Public booking page: network-only, never cached. Availability (slots,
+    // working hours, catalog) is time-sensitive and must always be read
+    // live — and falling back to the cached CRM index.html here (this
+    // service worker's own offline behaviour for every OTHER path) would
+    // silently show a customer the wrong page instead of a clear error.
+    if (url.pathname === '/book.html' || url.pathname.startsWith('/book/')) {
         return;
     }
 
