@@ -219,6 +219,15 @@ service cloud.firestore {
         && isOptionalString(data.get('ownerId', ''), 128);
     }
 
+    function isValidAuditLog(data) {
+      return isNonEmptyString(data.action, 60)
+        && isNonEmptyString(data.actorUid, 128)
+        && data.actorUid == request.auth.uid
+        && isOptionalOrNull(data.get('targetSalonId', null), 128)
+        && isOptionalOrNull(data.get('note', null), 500)
+        && data.at is string;
+    }
+
     // ---------- Users ----------
     match /users/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
@@ -231,8 +240,14 @@ service cloud.firestore {
       allow create: if isSignedIn()
         && (isAdmin() || request.resource.data.ownerId == request.auth.uid)
         && isValidSalon(request.resource.data);
+      // A super admin may additionally set `status` ('active' | 'suspended').
       allow update: if (isAdmin() || resource.data.ownerId == request.auth.uid)
-        && isValidSalon(request.resource.data);
+        && isValidSalon(request.resource.data)
+        && (request.resource.data.get('status', 'active') == 'active'
+            || request.resource.data.get('status', 'active') == 'suspended')
+        && (isAdmin()
+            || request.resource.data.get('status', 'active')
+               == resource.data.get('status', 'active'));
       allow delete: if isAdmin() || resource.data.ownerId == request.auth.uid;
 
       match /customers/{docId} {
@@ -359,6 +374,41 @@ service cloud.firestore {
             || canAccessSalon(resource.data.salonId));
       allow create: if isSignedIn()
         && (isAdmin() || canAccessSalon(request.resource.data.get('salonId', '')));
+      allow update, delete: if false;
+    }
+    // ================= SUPER ADMIN CONSOLE =================
+    // Read-only, platform-wide access for the separate Super Admin app.
+    // COLLECTION GROUP queries are NOT authorized by the per-salon
+    // `match /salons/{salonId}/<col>/{id}` rules above -- a collectionGroup()
+    // query is matched only by a `match /{path=**}/<col>/{id}` rule. These
+    // grant super admins (and nobody else) the cross-salon reads the console
+    // needs, including the server-side count()/sum()/avg() aggregations that
+    // keep raw documents out of the browser. Writes are never granted here.
+    match /{path=**}/customers/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/appointments/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/services/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/staff/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/referrals/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/walletTransactions/{docId} {
+      allow read: if isAdmin();
+    }
+
+    // Admin audit trail: append-only, super-admin only. Every sensitive
+    // console action (suspend/reactivate a salon) writes one row here and no
+    // one -- not even a super admin -- may rewrite or erase history.
+    match /adminAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
       allow update, delete: if false;
     }
   }
