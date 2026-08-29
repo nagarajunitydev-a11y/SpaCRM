@@ -335,10 +335,22 @@ async function runReferralSettlement(appointment) {
         const result = await referralService.settleAppointment(appointment);
         if (result && result.credited) {
             showNotification(`Referral reward ${formatCurrency(result.amount)} credited to ${result.referrerName || 'the referrer'}.`);
+            console.log('[referral] Settlement succeeded:', {
+                appointmentId: appointment?.id,
+                referrerId: appointment?.customerId,
+                amount: result.amount,
+                referral: result.referral?.id
+            });
+        } else if (result && !result.credited) {
+            console.log('[referral] Settlement did not credit (expected in many cases):', {
+                appointmentId: appointment?.id,
+                reason: result.reason
+            });
         }
         return result;
     } catch (err) {
         console.warn('[referral] Settlement failed:', err);
+        showNotification(`Settlement error: ${err.message}`, 'error');
         return null;
     }
 }
@@ -1074,6 +1086,7 @@ const actions = {
             paymentReference: data.paymentReference || '',
             paidAt: new Date().toISOString(),
             refunded: false,
+            status: 'Completed',
         };
 
         await appointmentsRepository.updateAppointment(appointment.id, patch);
@@ -1081,12 +1094,20 @@ const actions = {
             ? `Payment collected: ${formatCurrency(split.walletRedeemed)} wallet + ${formatCurrency(split.amountDue)}.`
             : `Payment of ${formatCurrency(split.amountDue)} collected.`);
 
-        // Ensure appointment status is "Completed" for referral settlement.
-        // Referral settlement requires BOTH status='Completed' AND paid=true.
-        // The appointment may still be in "In Progress" or "Confirmed" status
-        // when payment is collected, so we ensure Completed here before settlement.
-        const appointmentForSettlement = { ...appointment, ...patch, status: 'Completed' };
-        await runReferralSettlement(appointmentForSettlement);
+        // Ensure appointment has status='Completed' AND paid=true for settlement.
+        // Both conditions are required by the default trigger (invoice_paid).
+        // Build the appointment object with all updates for settlement.
+        const appointmentForSettlement = { ...appointment, ...patch };
+        const settlementResult = await runReferralSettlement(appointmentForSettlement);
+
+        // After settlement completes successfully, give Firestore listeners a moment
+        // to fire and update the store. Listeners are scoped per salon and already
+        // subscribed, so they will automatically receive Firestore changes to referrals,
+        // customers, and wallet transactions. The timeout allows the real-time updates
+        // to propagate before the modal closes.
+        if (settlementResult && settlementResult.credited) {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+        }
         closeModal();
     },
 

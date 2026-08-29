@@ -335,11 +335,20 @@ export async function linkReferral(referredCustomer, code) {
  * it is never an error.
  */
 export async function settleAppointment(appointment) {
-    if (!appointment || !appointment.customerId) return { credited: false, reason: 'no-client' };
+    if (!appointment || !appointment.customerId) {
+        console.log('[referral] settle: missing appointment or customerId', appointment);
+        return { credited: false, reason: 'no-client' };
+    }
 
     const referral = referralsRepository.findByReferred(appointment.customerId);
-    if (!referral) return { credited: false, reason: 'no-referral' };
-    if (referral.status !== REFERRAL_STATUS.PENDING) return { credited: false, reason: 'already-settled' };
+    if (!referral) {
+        console.log('[referral] settle: no referral found for customer', appointment.customerId);
+        return { credited: false, reason: 'no-referral' };
+    }
+    if (referral.status !== REFERRAL_STATUS.PENDING) {
+        console.log('[referral] settle: referral not pending', { referralId: referral.id, status: referral.status });
+        return { credited: false, reason: 'already-settled' };
+    }
 
     const terms = termsFor(referral);
     if (!settings().enabled) return { credited: false, reason: 'programme-disabled' };
