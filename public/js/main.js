@@ -33,7 +33,14 @@ import { saveDraft, getDraft } from './core/draft.js';
 import { debounce, scopedBySalon, formatCurrency } from './core/utils.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
-import renderAppointments from './ui/views/appointments.js';
+import renderAppointments, {
+    DEFAULT_APPOINTMENT_FILTERS,
+    setAppointmentSearch,
+    filterAppointments,
+    renderAppointmentListBody,
+    filterFooter,
+    activeFilterCount,
+} from './ui/views/appointments.js';
 import renderCustomers, { renderCustomerCard } from './ui/views/customers.js';
 import renderServices from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
@@ -887,6 +894,42 @@ const actions = {
         if (appointment) await runReferralSettlement({ ...appointment, status });
     },
 
+    /* ---------------- Appointment filters ---------------- */
+
+    async 'appointment-filter'(el) {
+        const field = el.dataset.field;
+        if (!field || !(field in DEFAULT_APPOINTMENT_FILTERS)) return;
+        const current = { ...DEFAULT_APPOINTMENT_FILTERS, ...(store.getState().appointmentFilters || {}) };
+        store.setState({ appointmentFilters: { ...current, [field]: el.value } });
+    },
+
+    async 'appointment-search'(el) {
+        // Patch the list in place instead of writing to the store: a re-render
+        // would move focus out of the input mid-typing.
+        setAppointmentSearch(el.value);
+        const state = store.getState();
+        const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
+        const filters = { ...DEFAULT_APPOINTMENT_FILTERS, ...(state.appointmentFilters || {}) };
+        const filtered = filterAppointments(appointments, { ...filters, query: el.value });
+        const container = appEl.querySelector('[data-appointment-list]');
+        if (container) {
+            container.innerHTML = renderAppointmentListBody(filtered, appointments.length);
+            sanitizeDOM(container);
+            refreshIcons(container);
+        }
+        const footer = appEl.querySelector('[data-appointment-filter-footer]');
+        if (footer) {
+            footer.innerHTML = filterFooter(activeFilterCount(filters, el.value));
+            sanitizeDOM(footer);
+            refreshIcons(footer);
+        }
+    },
+
+    async 'clear-appointment-filters'() {
+        setAppointmentSearch('');
+        store.setState({ appointmentFilters: { ...DEFAULT_APPOINTMENT_FILTERS } });
+    },
+
     async 'open-payment'(el) {
         const id = el.dataset.id;
         if (!id) return;
@@ -1151,6 +1194,11 @@ const debouncedReferralSearch = debounce((el) => {
     Promise.resolve(handler(el)).catch((err) => console.warn(err));
 }, 200);
 
+const debouncedAppointmentSearch = debounce((el) => {
+    const handler = actions['appointment-search'];
+    Promise.resolve(handler(el)).catch((err) => console.warn(err));
+}, 200);
+
 function attachDelegation() {
     if (!appEl) return;
 
@@ -1170,7 +1218,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || el.dataset.action !== 'salon') return;
+        if (!el || (el.dataset.action !== 'salon' && el.dataset.action !== 'appointment-filter')) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
@@ -1189,6 +1237,10 @@ function attachDelegation() {
         const referralSearch = event.target.closest('[data-action="referral-search"]');
         if (referralSearch) {
             debouncedReferralSearch(referralSearch);
+        }
+        const appointmentSearch = event.target.closest('[data-action="appointment-search"]');
+        if (appointmentSearch) {
+            debouncedAppointmentSearch(appointmentSearch);
         }
         handleFormInput(event);
     });
