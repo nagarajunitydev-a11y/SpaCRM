@@ -1081,7 +1081,12 @@ const actions = {
             ? `Payment collected: ${formatCurrency(split.walletRedeemed)} wallet + ${formatCurrency(split.amountDue)}.`
             : `Payment of ${formatCurrency(split.amountDue)} collected.`);
 
-        await runReferralSettlement({ ...appointment, ...patch });
+        // Ensure appointment status is "Completed" for referral settlement.
+        // Referral settlement requires BOTH status='Completed' AND paid=true.
+        // The appointment may still be in "In Progress" or "Confirmed" status
+        // when payment is collected, so we ensure Completed here before settlement.
+        const appointmentForSettlement = { ...appointment, ...patch, status: 'Completed' };
+        await runReferralSettlement(appointmentForSettlement);
         closeModal();
     },
 
