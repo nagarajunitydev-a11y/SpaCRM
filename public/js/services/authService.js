@@ -122,8 +122,16 @@ async function doEnsureUserProfile(user) {
         console.log('[AUTH] Created new user profile for uid:', user.uid);
         return { uid: user.uid, ...profile };
     } catch (err) {
-        console.warn('[AUTH] Could not read/create user profile:', err);
-        return { uid: user.uid, role: 'salon_owner' };
+        // A genuine failure (e.g. a permission error) must never be reported
+        // as success. The profile was NOT read or created, so returning a
+        // fabricated { uid, role } here would make the caller log
+        // "User profile found/created" for an operation that actually
+        // failed, and would leave the app running on a profile that was
+        // never persisted to Firestore (so it fails again identically on
+        // every subsequent load). Propagate the error instead — the caller
+        // already has a dedicated failure path.
+        console.error('[AUTH] Could not read/create user profile:', err);
+        throw err;
     }
 }
 
