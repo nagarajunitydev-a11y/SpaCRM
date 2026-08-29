@@ -24,6 +24,7 @@ export const TX_TYPES = {
 export const seed = [];
 
 let unsub = null;
+let subscribedFor = null; // scope ('all' or salonId) of the active listener
 
 /**
  * Subscribe to the global reward transactions ledger. Super admins see all;
@@ -32,14 +33,12 @@ let unsub = null;
 export function resubscribeTransactions() {
     const state = store.getState();
 
-    // Never stack listeners: always tear down the previous subscription
-    // before evaluating whether (and how) to create a new one.
-    if (unsub) {
-        unsub();
-        unsub = null;
-    }
-
     if (isDemoMode()) {
+        if (unsub) {
+            unsub();
+            unsub = null;
+            subscribedFor = null;
+        }
         if (!state.transactionsLoaded) {
             store.setState({ transactionsList: [...seed], transactionsLoaded: true, transactionsError: null });
         }
@@ -47,14 +46,40 @@ export function resubscribeTransactions() {
     }
 
     if (!state.currentUser) {
+        if (unsub) {
+            unsub();
+            unsub = null;
+            subscribedFor = null;
+        }
         return;
     }
 
     const isAdmin = state.accountRole === 'super_admin';
     if (!isAdmin && !state.currentSalonId) {
+        if (unsub) {
+            unsub();
+            unsub = null;
+            subscribedFor = null;
+        }
         store.setState({ transactionsList: [], transactionsLoaded: true });
         return;
     }
+
+    const scopeKey = isAdmin ? 'all' : state.currentSalonId;
+    // Never tear down and recreate the SAME listener: this is called from
+    // resolveSalonScope() on every scope-key change, which fires several
+    // times during a normal sign-in (salonsLoaded flipping, target salon
+    // resolving); only a genuine scope change should touch the subscription.
+    // Rapid subscribe/unsubscribe/resubscribe churn on the same Firestore
+    // watch target is a known trigger for the SDK's internal
+    // "INTERNAL ASSERTION FAILED: Unexpected state" crash.
+    if (scopeKey === subscribedFor && unsub) return;
+
+    if (unsub) {
+        unsub();
+        unsub = null;
+    }
+    subscribedFor = scopeKey;
 
     const opts = isAdmin ? {} : { where: [['salonId', '==', state.currentSalonId]] };
     unsub = listenCollection(

@@ -34,12 +34,12 @@ import {
     signInAnonymously,
     GoogleAuthProvider,
     signOut as fbSignOut,
-} from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
     doc as fbDoc,
     getDoc,
     setDoc as fbSetDoc,
-} from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 /** Google OAuth provider configured for real account sign-in. */
 function googleProvider() {

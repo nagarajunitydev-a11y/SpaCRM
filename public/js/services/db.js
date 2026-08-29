@@ -23,7 +23,7 @@ import {
     where as fbWhere,
     orderBy as fbOrderBy,
     runTransaction as fbRunTransaction,
-} from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+} from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 /** True when a snapshot actually exists (`exists` is a method in the modular SDK). */
 function snapExists(docSnap) {
@@ -69,18 +69,61 @@ export function listenCollection(segments, onData, onError, options = {}) {
     const fb = getFirebase();
     if (!fb) return () => {};
 
-    const col = colRef(...segments);
-    let q = col;
-    if (options.where) q = fbQuery(col, ...options.where.map(([field, op, value]) => fbWhere(field, op, value)));
-    if (options.orderBy) q = fbQuery(q, fbOrderBy(options.orderBy.field, options.orderBy.dir || 'asc'));
+    // Never register a listener against an incomplete/invalid path. A
+    // missing segment (e.g. a salon id that hasn't resolved yet, or an
+    // undefined id passed in error) would otherwise either throw deep inside
+    // the SDK's path-parsing or silently create a listener on an unintended
+    // collection path.
+    const hasInvalidSegment = segments.some(
+        (s) => s === undefined || s === null || s === '' || typeof s !== 'string',
+    );
+    if (hasInvalidSegment) {
+        console.warn(`Firestore listen skipped — invalid path segment(s): ${JSON.stringify(segments)}`);
+        return () => {};
+    }
+
+    let q;
+    try {
+        const col = colRef(...segments);
+        q = col;
+        if (options.where) q = fbQuery(col, ...options.where.map(([field, op, value]) => fbWhere(field, op, value)));
+        if (options.orderBy) q = fbQuery(q, fbOrderBy(options.orderBy.field, options.orderBy.dir || 'asc'));
+    } catch (err) {
+        console.warn(`Firestore query build failed (${segments.join('/')}):`, err);
+        if (onError) onError(err);
+        return () => {};
+    }
 
     try {
-        return onSnapshot(q, (snapshot) => {
-            onData(snapshot.docs.map(mapDoc));
+        const rawUnsub = onSnapshot(q, (snapshot) => {
+            // A bug in the consumer's onData callback (or a store listener it
+            // triggers) must never take down the whole app or leave the
+            // Firestore watch stream mid-callback in a bad state.
+            try {
+                onData(snapshot.docs.map(mapDoc));
+            } catch (err) {
+                console.error(`Firestore listen callback failed (${segments.join('/')}):`, err);
+            }
         }, (err) => {
             console.warn(`Firestore listen failed (${segments.join('/')}):`, err);
-            if (onError) onError(err);
+            if (onError) {
+                try {
+                    onError(err);
+                } catch (cbErr) {
+                    console.error(`Firestore onError handler failed (${segments.join('/')}):`, cbErr);
+                }
+            }
         });
+        // Defensive: the SDK's unsubscribe is safe to call more than once,
+        // but guard anyway so a caller-side double-unsubscribe (or one that
+        // races app teardown) can never throw into the caller.
+        return () => {
+            try {
+                rawUnsub();
+            } catch (err) {
+                console.warn(`Firestore unsubscribe failed (${segments.join('/')}):`, err);
+            }
+        };
     } catch (err) {
         console.warn(`Firestore listen setup failed (${segments.join('/')}):`, err);
         if (onError) onError(err);

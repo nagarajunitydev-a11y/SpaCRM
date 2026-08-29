@@ -1216,19 +1216,45 @@ function registerServiceWorker() {
 async function bootstrap() {
     await initFirebase();
 
+    // Scoped repos are safe to "prime" with no salon before auth/salon
+    // resolves: with a null id, scopedRepository.subscribe() returns
+    // immediately without ever touching Firestore (see scopedRepository.js).
+    // The real, salon-scoped listeners are only created later by
+    // resolveSalonScope() once a signed-in user AND a resolved salon id are
+    // both available.
+    customersRepository.initCustomers(null);
+    servicesRepository.initServices(null);
+    staffRepository.initStaff(null);
+    appointmentsRepository.initAppointments(null);
+
     if (isDemoMode()) {
         seedDemoData();
+        // Firestore is never touched in demo mode; initSalons() only marks
+        // salonsLoaded so the rest of the app's bootstrap logic behaves the
+        // same as the live-Firebase path.
+        salonsRepository.initSalons();
         store.setState({ authReady: true });
-        initializeRepositories();
     } else {
         onAuthStateChanged(async (user) => {
             try {
                 await authService.handleAuthStateChanged(user);
-                // Auth is now ready; initialize repos if this is the first auth state change.
-                if (!store.getState().authReady) {
-                    store.setState({ authReady: true });
-                    initializeRepositories();
-                }
+                if (!store.getState().authReady) store.setState({ authReady: true });
+                // The single place that (re)establishes the salons and
+                // rewardTransactions listeners once auth is ready.
+                // IMPORTANT: this must be the ONLY call that triggers those
+                // subscriptions on a fresh sign-in — resolveSalonScope()'s
+                // own scope-key guard (see below) already dedupes repeated
+                // calls, but calling salonsRepository.initSalons() /
+                // rewardTransactionsRepository.resubscribeTransactions()
+                // directly here (in addition to this) previously caused a
+                // subscribe -> unsubscribe -> resubscribe churn on the same
+                // Firestore watch target within a single tick, right as
+                // persistence was still settling. That rapid churn is a
+                // known trigger for the Firestore SDK's internal
+                // WatchChangeAggregator/TargetState assertion failure
+                // ("INTERNAL ASSERTION FAILED: Unexpected state (ID: b815)"),
+                // so repository (re)subscription must only ever happen
+                // through resolveSalonScope()/syncSalonScope().
                 syncSalonScope();
                 renderApp();
             } catch (err) {
@@ -1251,16 +1277,6 @@ async function bootstrap() {
     renderApp();
     resolveSalonScope();
     registerServiceWorker();
-}
-
-/** Initialize all repositories once auth is ready. */
-function initializeRepositories() {
-    salonsRepository.initSalons();
-    customersRepository.initCustomers(null);
-    servicesRepository.initServices(null);
-    staffRepository.initStaff(null);
-    appointmentsRepository.initAppointments(null);
-    rewardTransactionsRepository.resubscribeTransactions();
 }
 
 bootstrap();

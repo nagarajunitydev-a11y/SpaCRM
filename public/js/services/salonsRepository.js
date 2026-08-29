@@ -20,19 +20,41 @@ let subscribing = false;  // guards re-entrant store-triggered subscribes
 
 function subscribe() {
     if (subscribing) return;
-    if (unsub) {
-        unsub();
-        unsub = null;
-    }
     if (isDemoMode()) return;
     const state = store.getState();
-    if (!state.currentUser) return;
+
+    if (!state.currentUser) {
+        if (unsub) {
+            unsub();
+            unsub = null;
+        }
+        subscribedFor = null;
+        return;
+    }
+
     const opts = {};
     if (state.accountRole === 'salon_owner' && state.currentUser) {
         opts.where = [['ownerId', '==', state.currentUser.uid]];
     }
     const scopeKey = opts.where ? opts.where[0][2] : 'all';
-    if (scopeKey !== subscribedFor && state.salonsLoaded) {
+
+    // Never tear down and recreate the SAME Firestore watch target: this
+    // function is called from resolveSalonScope() on nearly every store
+    // update (including the update the listener's OWN first snapshot
+    // triggers via `salonsLoaded: true`). Without this guard, every one of
+    // those calls unsubscribed and immediately resubscribed the identical
+    // listener — a rapid subscribe/unsubscribe/resubscribe churn on the same
+    // watch target that is a known trigger for the Firestore SDK's internal
+    // "INTERNAL ASSERTION FAILED: Unexpected state" (WatchChangeAggregator /
+    // TargetState) crash. Only a genuine scope change (a different owner uid,
+    // or switching to/from the admin's unfiltered view) may resubscribe.
+    if (scopeKey === subscribedFor && unsub) return;
+
+    if (unsub) {
+        unsub();
+        unsub = null;
+    }
+    if (state.salonsLoaded) {
         subscribing = true;
         store.setState({ salonsList: [], salonsLoaded: false, salonsError: null });
         subscribing = false;
