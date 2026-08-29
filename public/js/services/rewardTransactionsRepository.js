@@ -32,6 +32,13 @@ let unsub = null;
 export function resubscribeTransactions() {
     const state = store.getState();
 
+    // Never stack listeners: always tear down the previous subscription
+    // before evaluating whether (and how) to create a new one.
+    if (unsub) {
+        unsub();
+        unsub = null;
+    }
+
     if (isDemoMode()) {
         if (!state.transactionsLoaded) {
             store.setState({ transactionsList: [...seed], transactionsLoaded: true, transactionsError: null });
@@ -40,7 +47,6 @@ export function resubscribeTransactions() {
     }
 
     if (!state.currentUser) {
-        if (unsub) { unsub(); unsub = null; }
         return;
     }
 

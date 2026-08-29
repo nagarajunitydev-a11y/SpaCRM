@@ -241,14 +241,14 @@ service cloud.firestore {
         && (isAdmin() || request.resource.data.ownerId == request.auth.uid)
         && isValidSalon(request.resource.data);
       // A super admin may additionally set `status` ('active' | 'suspended').
-      allow update: if (isAdmin() || resource.data.ownerId == request.auth.uid)
+      allow update: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid)
         && isValidSalon(request.resource.data)
         && (request.resource.data.get('status', 'active') == 'active'
             || request.resource.data.get('status', 'active') == 'suspended')
         && (isAdmin()
             || request.resource.data.get('status', 'active')
                == resource.data.get('status', 'active'));
-      allow delete: if isAdmin() || resource.data.ownerId == request.auth.uid;
+      allow delete: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
 
       match /customers/{docId} {
         // Public visitors can never read the customer list (name/phone/wallet

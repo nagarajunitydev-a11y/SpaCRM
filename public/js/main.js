@@ -1219,10 +1219,16 @@ async function bootstrap() {
     if (isDemoMode()) {
         seedDemoData();
         store.setState({ authReady: true });
+        initializeRepositories();
     } else {
         onAuthStateChanged(async (user) => {
             try {
                 await authService.handleAuthStateChanged(user);
+                // Auth is now ready; initialize repos if this is the first auth state change.
+                if (!store.getState().authReady) {
+                    store.setState({ authReady: true });
+                    initializeRepositories();
+                }
                 syncSalonScope();
                 renderApp();
             } catch (err) {
@@ -1236,12 +1242,6 @@ async function bootstrap() {
         });
     }
 
-    salonsRepository.initSalons();
-    customersRepository.initCustomers(null);
-    servicesRepository.initServices(null);
-    staffRepository.initStaff(null);
-    appointmentsRepository.initAppointments(null);
-
     store.subscribe(renderApp);
     store.subscribe(() => resolveSalonScope());
     store.subscribe(() => maybeRunReferralMaintenance());
@@ -1251,6 +1251,16 @@ async function bootstrap() {
     renderApp();
     resolveSalonScope();
     registerServiceWorker();
+}
+
+/** Initialize all repositories once auth is ready. */
+function initializeRepositories() {
+    salonsRepository.initSalons();
+    customersRepository.initCustomers(null);
+    servicesRepository.initServices(null);
+    staffRepository.initStaff(null);
+    appointmentsRepository.initAppointments(null);
+    rewardTransactionsRepository.resubscribeTransactions();
 }
 
 bootstrap();
