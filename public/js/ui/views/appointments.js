@@ -1,11 +1,10 @@
 /**
  * views/appointments.js
- * Appointments list view, with a client-side filter bar (date range, status,
- * staff, customer, service, payment status, booking source, search) layered
- * over the existing scoped appointment list. No new Firestore reads: the
- * salon's appointments are already fully subscribed via appointmentsRepository,
- * exactly as before this filter bar existed — filtering only narrows what is
- * already in the store.
+ * Appointments list view, with a compact client-side filter bar (status,
+ * staff, service, payment status, search) layered over the existing scoped
+ * appointment list. No new Firestore reads: the salon's appointments are
+ * already fully subscribed via appointmentsRepository, exactly as before this
+ * filter bar existed — filtering only narrows what is already in the store.
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
@@ -29,23 +28,11 @@ const PAYMENT_STATUS_OPTIONS = [
     { value: 'refunded', label: 'Refunded' },
 ];
 
-/** `source` is only stamped by the public booking page; an internal booking has none. */
-const BOOKING_SOURCE_LABELS = {
-    in_salon: 'In Salon',
-    whatsapp: 'WhatsApp',
-    public_booking: 'Public Booking',
-};
-const BOOKING_SOURCE_OPTIONS = Object.entries(BOOKING_SOURCE_LABELS).map(([value, label]) => ({ value, label }));
-
 export const DEFAULT_APPOINTMENT_FILTERS = Object.freeze({
-    dateFrom: '',
-    dateTo: '',
     status: 'all',
     staffName: 'all',
-    customerId: 'all',
     serviceName: 'all',
     paymentStatus: 'all',
-    source: 'all',
 });
 
 /**
@@ -63,12 +50,6 @@ export function setAppointmentSearch(value) {
     searchQuery = String(value || '');
 }
 
-function bookingSourceOf(appointment) {
-    return appointment.source === 'whatsapp' || appointment.source === 'public_booking'
-        ? appointment.source
-        : 'in_salon';
-}
-
 function paymentStatusOf(appointment) {
     if (appointment.refunded) return 'refunded';
     return appointment.paid ? 'paid' : 'unpaid';
@@ -80,14 +61,10 @@ export function filterAppointments(rows, filters = {}) {
     const q = String(f.query || '').trim().toLowerCase();
 
     return (rows || []).filter((a) => {
-        if (f.dateFrom && String(a.date || '') < f.dateFrom) return false;
-        if (f.dateTo && String(a.date || '') > f.dateTo) return false;
         if (f.status !== 'all' && a.status !== f.status) return false;
         if (f.staffName !== 'all' && a.staffName !== f.staffName) return false;
-        if (f.customerId !== 'all' && a.customerId !== f.customerId) return false;
         if (f.serviceName !== 'all' && a.serviceName !== f.serviceName) return false;
         if (f.paymentStatus !== 'all' && paymentStatusOf(a) !== f.paymentStatus) return false;
-        if (f.source !== 'all' && bookingSourceOf(a) !== f.source) return false;
         if (q) {
             const haystack = [a.customerName, a.serviceName, a.staffName, a.invoiceNo].map((v) => String(v || '').toLowerCase());
             if (!haystack.some((v) => v.includes(q))) return false;
@@ -152,7 +129,7 @@ export function renderAppointmentListBody(rows, totalCount) {
 function filterSelect(field, options, value) {
     return `
         <select data-action="appointment-filter" data-field="${escAttr(field)}"
-            class="w-full bg-slate-950 border border-slate-800 px-3 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
+            class="w-full bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-brand-500">
             ${options.map((o) => `<option value="${escAttr(o.value)}" ${String(o.value) === String(value) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
         </select>
     `;
@@ -162,41 +139,26 @@ function filterBar(state, filters, query) {
     const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
     const staffNames = [...new Set(appointments.map((a) => a.staffName).filter(Boolean))].sort();
     const serviceNames = [...new Set(appointments.map((a) => a.serviceName).filter(Boolean))].sort();
-    const customers = scopedBySalon(state.customersList, state.currentSalonId)
-        .slice()
-        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
     const count = activeFilterCount(filters, query);
 
     return `
-        <div class="bg-slate-900/60 border border-slate-800/60 p-3.5 rounded-2xl space-y-2.5">
+        <div class="bg-slate-900/60 border border-slate-800/60 p-2.5 rounded-xl space-y-1.5">
             <div class="relative">
                 <input type="text" data-action="appointment-search" placeholder="Search customer, service, staff, invoice…"
                     value="${escAttr(query)}"
-                    class="w-full bg-slate-950 border border-slate-800 pl-9 pr-3 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
-                <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    class="w-full bg-slate-950 border border-slate-800 pl-8 pr-3 py-1.5 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-                <input type="date" data-action="appointment-filter" data-field="dateFrom" value="${escAttr(filters.dateFrom)}"
-                    class="w-full bg-slate-950 border border-slate-800 px-3 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
-                <input type="date" data-action="appointment-filter" data-field="dateTo" value="${escAttr(filters.dateTo)}"
-                    class="w-full bg-slate-950 border border-slate-800 px-3 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-2 gap-1.5">
                 ${filterSelect('status', [{ value: 'all', label: 'All statuses' }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s }))], filters.status)}
                 ${filterSelect('paymentStatus', [{ value: 'all', label: 'All payments' }, ...PAYMENT_STATUS_OPTIONS], filters.paymentStatus)}
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-2 gap-1.5">
                 ${filterSelect('staffName', [{ value: 'all', label: 'All staff' }, ...staffNames.map((s) => ({ value: s, label: s }))], filters.staffName)}
                 ${filterSelect('serviceName', [{ value: 'all', label: 'All services' }, ...serviceNames.map((s) => ({ value: s, label: s }))], filters.serviceName)}
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-                ${filterSelect('customerId', [{ value: 'all', label: 'All customers' }, ...customers.map((c) => ({ value: c.id, label: c.name }))], filters.customerId)}
-                ${filterSelect('source', [{ value: 'all', label: 'All sources' }, ...BOOKING_SOURCE_OPTIONS], filters.source)}
             </div>
 
             <div data-appointment-filter-footer>${filterFooter(count)}</div>

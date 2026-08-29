@@ -62,7 +62,7 @@ export const store = createStore({
     servicesList: [],
     staffList: [],
     appointmentsList: [],
-    appointmentFilters: { dateFrom: '', dateTo: '', status: 'all', staffName: 'all', customerId: 'all', serviceName: 'all', paymentStatus: 'all', source: 'all' },
+    appointmentFilters: { status: 'all', staffName: 'all', serviceName: 'all', paymentStatus: 'all' },
 
     // ---- Referral programme ----
     referralsList: [],
