@@ -298,6 +298,12 @@ function attachDelegation() {
     appEl.addEventListener('click', (event) => {
         const el = event.target.closest('[data-action]');
         if (!el || el.disabled) return;
+        // A native date input opens its picker on click. Processing it here
+        // reads the old (usually empty) value and immediately re-renders the
+        // schedule, which replaces the input before the browser can show the
+        // picker. Date changes are intentionally handled below, after a value
+        // has actually been selected.
+        if (el.dataset.action === 'pick-date') return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         event.preventDefault();

@@ -42,12 +42,53 @@ export const DEFAULT_APPOINTMENT_FILTERS = Object.freeze({
  */
 let searchQuery = '';
 
+// This is deliberately in-memory only. A booking created during the current
+// session is easy to spot, but a refresh never re-labels an existing booking
+// as new. Staff clear the marker simply by interacting with its card.
+const newAppointmentIds = new Set();
+
 export function getAppointmentSearch() {
     return searchQuery;
 }
 
 export function setAppointmentSearch(value) {
     searchQuery = String(value || '');
+}
+
+export function markAppointmentAsNew(id) {
+    if (id) newAppointmentIds.add(String(id));
+}
+
+export function clearNewAppointment(id) {
+    return id ? newAppointmentIds.delete(String(id)) : false;
+}
+
+function creationTimeValue(value) {
+    if (!value) return null;
+    // Firestore timestamps are normally converted to ISO strings in this app,
+    // but accepting their native shape keeps legacy/imported rows harmless.
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return date instanceof Date && Number.isFinite(date.getTime()) ? date.getTime() : null;
+    }
+    if (typeof value === 'object' && Number.isFinite(value.seconds)) {
+        const nanos = Number.isFinite(value.nanoseconds) ? value.nanoseconds : 0;
+        return (value.seconds * 1000) + Math.floor(nanos / 1e6);
+    }
+    const time = value instanceof Date ? value.getTime() : Date.parse(String(value));
+    return Number.isFinite(time) ? time : null;
+}
+
+/** Newest booking first. Invalid/missing timestamps stay safely at the end. */
+export function sortAppointmentsByCreation(rows) {
+    return (rows || []).map((appointment, index) => ({ appointment, index, createdAt: creationTimeValue(appointment.createdAt) }))
+        .sort((a, b) => {
+            if (a.createdAt !== null && b.createdAt !== null && a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+            if (a.createdAt !== null && b.createdAt === null) return -1;
+            if (a.createdAt === null && b.createdAt !== null) return 1;
+            return a.index - b.index;
+        })
+        .map(({ appointment }) => appointment);
 }
 
 function paymentStatusOf(appointment) {
@@ -90,10 +131,19 @@ function quickStatusButton(id, from, to, label, colors) {
 }
 
 function appointmentCard(a) {
+    const isNew = newAppointmentIds.has(String(a.id));
+    const isInProgress = a.status === 'In Progress';
+    const cardStyle = isInProgress
+        ? 'border-amber-500/50 bg-amber-500/[0.07]'
+        : isNew ? 'border-brand-500/50 bg-brand-500/[0.06]' : 'border-slate-800';
     return `
-        <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between gap-3">
+        <div data-appointment-card data-id="${escAttr(a.id)}" class="bg-slate-900 border ${cardStyle} p-4 rounded-2xl flex items-center justify-between gap-3 transition-colors">
             <div class="min-w-0 flex-1">
-                <h4 class="font-bold text-sm text-slate-100 truncate">${esc(a.customerName)}</h4>
+                <div class="flex items-center gap-1.5 min-w-0">
+                    <h4 class="font-bold text-sm text-slate-100 truncate">${esc(a.customerName)}</h4>
+                    ${isNew ? '<span class="shrink-0 rounded-md border border-brand-400/30 bg-brand-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-brand-300">NEW</span>' : ''}
+                    ${isInProgress ? '<span class="shrink-0 rounded-md border border-amber-400/30 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-300">IN PROGRESS</span>' : ''}
+                </div>
                 <p class="text-xs text-slate-400 mt-0.5 truncate">${esc(a.serviceName)}</p>
                 <p class="text-[11px] text-brand-400 font-medium mt-1 flex items-center gap-1"><i data-lucide="user" class="w-3 h-3 shrink-0"></i><span class="truncate">${esc(a.staffName)}</span></p>
                 ${a.amount ? `<p class="text-[11px] text-emerald-400 font-semibold mt-1">${formatCurrency(a.amount)}${a.paid ? ' <span class="text-emerald-500/60">• Paid</span>' : ' <span class="text-amber-400/60">• Unpaid</span>'}</p>` : ''}
@@ -122,7 +172,7 @@ export function renderAppointmentListBody(rows, totalCount) {
     if (!rows || rows.length === 0) {
         return emptyState(totalCount > 0 ? 'No appointments match the current filters.' : 'No appointments found.');
     }
-    return `<div class="space-y-2.5">${rows.map((a) => appointmentCard(a)).join('')}</div>`;
+    return `<div class="space-y-2.5">${sortAppointmentsByCreation(rows).map((a) => appointmentCard(a)).join('')}</div>`;
 }
 
 /** A <select> wired directly for the appointment-filter change handler. */
@@ -185,7 +235,7 @@ export function filterFooter(count) {
 export function renderAppointments(state) {
     const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
     const filters = { ...DEFAULT_APPOINTMENT_FILTERS, ...(state.appointmentFilters || {}) };
-    const filtered = filterAppointments(appointments, { ...filters, query: searchQuery });
+    const filtered = sortAppointmentsByCreation(filterAppointments(appointments, { ...filters, query: searchQuery }));
 
     return `
         <div class="space-y-4">

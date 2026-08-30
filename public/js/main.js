@@ -40,6 +40,8 @@ import renderAppointments, {
     renderAppointmentListBody,
     filterFooter,
     activeFilterCount,
+    markAppointmentAsNew,
+    clearNewAppointment,
 } from './ui/views/appointments.js';
 import renderCustomers, { renderCustomerCard } from './ui/views/customers.js';
 import renderServices from './ui/views/services.js';
@@ -873,7 +875,8 @@ const actions = {
                 await runReferralSettlement(merged);
             }
         } else {
-            await appointmentsRepository.addAppointment(payload);
+            const appointment = await appointmentsRepository.addAppointment(payload);
+            markAppointmentAsNew(appointment?.id);
             showNotification('Appointment booked successfully!');
         }
         closeModal();
@@ -1203,6 +1206,12 @@ function attachDelegation() {
     if (!appEl) return;
 
     appEl.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-appointment-card]');
+        if (card && clearNewAppointment(card.dataset.id)) {
+            // Render once to remove the transient marker. It is never stored,
+            // so reopening the app cannot mark an older booking as new.
+            store.setState({});
+        }
         const el = event.target.closest('[data-action]');
         if (!el) return;
         if (el.tagName === 'SELECT') return;

@@ -103,7 +103,7 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
         if (isDemoMode()) {
             // makeId adds a random suffix: two records created inside the same
             // millisecond must never share an id (the store dedupes by id).
-            const record = { id: makeId(collectionName.slice(0, 3)), ...row };
+            const record = { id: makeId(collectionName.slice(0, 3)), ...row, createdAt: row.createdAt || new Date().toISOString() };
             setData([...data(), record]);
             return record;
         }
