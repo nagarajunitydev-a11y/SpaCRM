@@ -115,7 +115,10 @@ export function validateForm(formKey, data, ctx = {}) {
 
     if (formKey === 'submit-appointment') {
         check(errors, 'customerName', v('customerName'), [required('Client name is required.')]);
-        check(errors, 'serviceName', v('serviceName'), [required('Select a service.')]);
+        let selectedServices = [];
+        try { selectedServices = JSON.parse(v('selectedServices') || '[]'); } catch { selectedServices = []; }
+        const hasSelectedService = Array.isArray(selectedServices) && selectedServices.some((name) => String(name || '').trim());
+        if (!hasSelectedService) check(errors, 'serviceName', v('serviceName'), [required('Select a service.')]);
         check(errors, 'staffName', v('staffName'), [required('Select a staff member.')]);
 
         const date = v('date');

@@ -66,6 +66,18 @@ function editingRecord(state, type) {
     return (key && (state[key] || []).find((r) => r.id === id)) || null;
 }
 
+function appointmentServiceNames(record) {
+    let selected = record?.selectedServices;
+    if (typeof selected === 'string') {
+        try { selected = JSON.parse(selected); } catch { selected = []; }
+    }
+    if (!Array.isArray(selected) || selected.length === 0) {
+        selected = record?.services || record?.serviceNames || (record?.serviceName ? [record.serviceName] : []);
+    }
+    return [...new Set((selected || []).map((service) => typeof service === 'string' ? service : service?.name)
+        .map((name) => String(name || '').trim()).filter(Boolean))];
+}
+
 function renderForm(state, type) {
     const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const staff = scopedBySalon(state.staffList, state.currentSalonId);
@@ -144,6 +156,9 @@ function renderForm(state, type) {
         const rec = editingRecord(state, 'appointment');
         const draft = getDraft('appointment') || {};
         const pre = rec ? { ...rec, ...draft } : draft;
+        const selectedServiceNames = appointmentServiceNames(pre);
+        const selectedServices = selectedServiceNames.map((name) => services.find((service) => service.name === name)).filter(Boolean);
+        const subtotal = selectedServices.reduce((sum, service) => sum + (Number(service.price) || 0), 0);
         const statusOptions = [
             { value: 'Confirmed', label: 'Confirmed' },
             { value: 'In Progress', label: 'In Progress' },
@@ -154,7 +169,16 @@ function renderForm(state, type) {
             <form data-action="submit-appointment" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${renderCustomerPicker(pre)}
+                <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(selectedServiceNames))}">
                 ${formField('Select Service', selectControl('serviceName', services.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName }))}
+                <button type="button" data-action="add-appointment-service" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-[0.98] touch-manipulation">Add selected service</button>
+                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2">
+                    <div class="flex items-center justify-between"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Services</p><span class="text-[10px] text-slate-500">${selectedServices.length}</span></div>
+                    ${selectedServices.length === 0 ? '<p class="text-[11px] text-slate-500">Add one or more services to this appointment.</p>' : selectedServices.map((service) => `<div class="flex items-center justify-between gap-2 text-xs"><div class="min-w-0"><p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p><p class="text-[10px] text-slate-500">${esc(service.duration || '—')} â€¢ ${esc(formatCurrency(service.price))}</p></div><button type="button" data-action="remove-appointment-service" data-name="${escAttr(service.name)}" class="w-7 h-7 shrink-0 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>`).join('')}
+                    <div class="border-t border-slate-800 pt-2 flex items-center justify-between"><span class="text-[11px] font-semibold text-slate-300">Subtotal</span><span class="text-sm font-extrabold text-brand-300">${esc(formatCurrency(subtotal))}</span></div>
+                    <div class="flex items-center justify-between text-[10px] text-slate-500"><span>Discount / credit</span><span>Applied at payment</span></div>
+                    <div class="flex items-center justify-between text-[11px] font-bold text-slate-200"><span>Final total</span><span>${esc(formatCurrency(subtotal))}</span></div>
+                </div>
                 ${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}
                 <div class="grid grid-cols-2 gap-3">
                     <div>${formField('Date', dateTimeInput('date', 'date', '', { value: pre?.date }))}</div>

@@ -9,6 +9,24 @@ import { statCard, quickAction, badge, emptyState, sectionHeader } from '../comp
 import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 import { computeEstimatedRevenue } from '../../core/revenue.js';
 
+function createdAtValue(value) {
+    if (typeof value?.toDate === 'function') return value.toDate().getTime();
+    if (value && typeof value === 'object' && Number.isFinite(value.seconds)) return value.seconds * 1000;
+    const time = value instanceof Date ? value.getTime() : Date.parse(String(value || ''));
+    return Number.isFinite(time) ? time : null;
+}
+
+function newestFirst(rows) {
+    return (rows || []).map((row, index) => ({ row, index, createdAt: createdAtValue(row.createdAt) }))
+        .sort((a, b) => {
+            if (a.createdAt !== null && b.createdAt !== null && a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+            if (a.createdAt !== null && b.createdAt === null) return -1;
+            if (a.createdAt === null && b.createdAt !== null) return 1;
+            return a.index - b.index;
+        })
+        .map(({ row }) => row);
+}
+
 /** Local YYYY-MM-DD string (no timezone shift). */
 function localDateStr(d) {
     const y = d.getFullYear();
@@ -90,7 +108,7 @@ export function renderDashboard(state) {
     const allAppointments = scopedBySalon(state.appointmentsList, state.currentSalonId);
     const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const activeTab = state.dashboardTab || 'today';
-    const filtered = filterByPeriod(allAppointments, activeTab);
+    const filtered = newestFirst(filterByPeriod(allAppointments, activeTab));
     const { total: totalRevenue } = computeEstimatedRevenue(filtered, services);
 
     return `

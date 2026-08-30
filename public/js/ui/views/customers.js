@@ -8,8 +8,27 @@ import { sectionHeader, actionButton, emptyState, iconAction } from '../componen
 import { scopedBySalon, formatCurrency } from '../../core/utils.js';
 import { num, round2 } from '../../core/referral.js';
 
+function createdAtValue(value) {
+    if (typeof value?.toDate === 'function') return value.toDate().getTime();
+    if (value && typeof value === 'object' && Number.isFinite(value.seconds)) return value.seconds * 1000;
+    const time = value instanceof Date ? value.getTime() : Date.parse(String(value || ''));
+    return Number.isFinite(time) ? time : null;
+}
+
+/** Newest clients first; legacy rows without a valid timestamp remain stable. */
+export function sortCustomersByCreation(rows) {
+    return (rows || []).map((customer, index) => ({ customer, index, createdAt: createdAtValue(customer.createdAt) }))
+        .sort((a, b) => {
+            if (a.createdAt !== null && b.createdAt !== null && a.createdAt !== b.createdAt) return b.createdAt - a.createdAt;
+            if (a.createdAt !== null && b.createdAt === null) return -1;
+            if (a.createdAt === null && b.createdAt !== null) return 1;
+            return a.index - b.index;
+        })
+        .map(({ customer }) => customer);
+}
+
 export function renderCustomers(state) {
-    const customers = scopedBySalon(state.customersList, state.currentSalonId);
+    const customers = sortCustomersByCreation(scopedBySalon(state.customersList, state.currentSalonId));
 
     return `
         <div class="space-y-4">

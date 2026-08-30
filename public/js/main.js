@@ -43,7 +43,7 @@ import renderAppointments, {
     markAppointmentAsNew,
     clearNewAppointment,
 } from './ui/views/appointments.js';
-import renderCustomers, { renderCustomerCard } from './ui/views/customers.js';
+import renderCustomers, { renderCustomerCard, sortCustomersByCreation } from './ui/views/customers.js';
 import renderServices from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
@@ -744,6 +744,7 @@ const actions = {
                 || (c.email || '').toLowerCase().includes(q),
             );
         }
+        customers = sortCustomersByCreation(customers);
         const clearBtn = appEl.querySelector('[data-action="clear-customer-search"]');
         if (clearBtn) clearBtn.classList.toggle('hidden', !query);
         const container = appEl.querySelector('[data-customer-list]');
@@ -855,10 +856,20 @@ const actions = {
     async 'submit-appointment'(form, event, data) {
         const id = data.id;
         const customer = await resolveAppointmentCustomer(data);
+        let selectedServiceNames = [];
+        try { selectedServiceNames = JSON.parse(data.selectedServices || '[]'); } catch { selectedServiceNames = []; }
+        selectedServiceNames = [...new Set([...selectedServiceNames, data.serviceName]
+            .map((name) => String(name || '').trim()).filter(Boolean))];
+        const catalog = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId);
+        const selectedServices = selectedServiceNames.map((name) => {
+            const service = catalog.find((row) => row.name === name);
+            return service ? { name: service.name, price: Number(service.price) || 0, duration: service.duration || '' } : null;
+        }).filter(Boolean);
         const payload = {
             customerId: customer.id || '',
             customerName: customer.name,
-            serviceName: data.serviceName,
+            serviceName: selectedServices[0]?.name || data.serviceName,
+            services: selectedServices,
             staffName: data.staffName,
             date: data.date,
             time: data.time,
@@ -880,6 +891,33 @@ const actions = {
             showNotification('Appointment booked successfully!');
         }
         closeModal();
+    },
+
+    async 'add-appointment-service'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const picker = form?.querySelector('[name="serviceName"]');
+        const selected = form?.querySelector('[name="selectedServices"]');
+        if (!form || !picker || !selected || !picker.value) return;
+        let names = [];
+        try { names = JSON.parse(selected.value || '[]'); } catch { names = []; }
+        selected.value = JSON.stringify([...new Set([...names, picker.value])]);
+        picker.value = '';
+        saveDraft('appointment', readFormData(form));
+        store.setState({});
+    },
+
+    async 'remove-appointment-service'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const selected = form?.querySelector('[name="selectedServices"]');
+        if (!form || !selected) return;
+        let names = [];
+        try { names = JSON.parse(selected.value || '[]'); } catch { names = []; }
+        names = names.filter((name) => name !== el.dataset.name);
+        selected.value = JSON.stringify(names);
+        const picker = form.querySelector('[name="serviceName"]');
+        if (picker) picker.value = '';
+        saveDraft('appointment', readFormData(form));
+        store.setState({});
     },
 
     async 'update-appointment-status'(el) {
