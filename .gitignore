@@ -25,3 +25,11 @@ Thumbs.db
 # Misc
 *.tmp
 .vercel
+
+# Android wrapper local build state and signing material
+twa/.gradle/
+twa/.gradle-user/
+twa/build/
+twa/app/build/
+twa/local.properties
+twa/keys/

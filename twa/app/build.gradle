@@ -18,8 +18,6 @@ plugins {
     id 'com.android.application'
 }
 
-apply plugin: 'com.google.gms.google-services'
-
 def twaManifest = [
     applicationId: 'com.luxeglow.crm',
     name: 'Qvrix Luxe - Salon & Spa CRM',
@@ -32,6 +30,17 @@ android {
 
     buildFeatures {
         resValues true
+        buildConfig true
+    }
+
+    // The URL is public configuration, not a credential. CI/release builds
+    // set SPACRM_PRODUCTION_URL (or -PspacrmProductionUrl); source code never
+    // embeds it in the Activity and no hosted SPA files are packaged here.
+    def productionUrl = (project.findProperty('spacrmProductionUrl')
+        ?: System.getenv('SPACRM_PRODUCTION_URL')
+        ?: 'https://spacrm-ishari.vercel.app/').toString().trim()
+    if (!(productionUrl ==~ /^https:\/\/.+/)) {
+        throw new GradleException('SPACRM production URL must use HTTPS.')
     }
 
     defaultConfig {
@@ -43,6 +52,7 @@ android {
 
         resValue "string", "appName", twaManifest.name
         resValue "string", "launcherName", twaManifest.launcherName
+        buildConfigField "String", "SPACRM_PRODUCTION_URL", "\"${productionUrl}\""
     }
     signingConfigs {
         release {
@@ -74,10 +84,4 @@ repositories {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
-
-    // Import the Firebase BoM
-    implementation platform('com.google.firebase:firebase-bom:34.17.0')
-
-    // Firebase products used by the app
-    implementation 'com.google.firebase:firebase-analytics'
 }
