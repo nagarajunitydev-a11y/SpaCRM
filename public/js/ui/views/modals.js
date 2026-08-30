@@ -10,8 +10,8 @@ import { esc, escAttr } from '../../core/sanitize.js';
 import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '../components.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
-import { scopedBySalon } from '../../core/utils.js';
-import { sanitizeSettings } from '../../core/referral.js';
+import { scopedBySalon, formatCurrency } from '../../core/utils.js';
+import { sanitizeSettings, round2, num } from '../../core/referral.js';
 import renderPaymentForm from './payment.js';
 import renderCustomerProfile from './customerProfile.js';
 import renderBookingLinkModal from './bookingLink.js';
@@ -25,6 +25,7 @@ const TITLES = {
     rewards: 'Client Rewards',
     payment: 'Collect Payment',
     'customer-profile': 'Client Profile',
+    'referral-redemption': 'Redeem Referral Balance',
     'booking-link': 'Booking Link',
     'confirm-delete': 'Confirm Deletion',
 };
@@ -85,6 +86,10 @@ function renderForm(state, type) {
         return renderCustomerProfile(state);
     }
 
+    if (type === 'referral-redemption') {
+        return renderReferralRedemptionPicker(state);
+    }
+
     if (type === 'booking-link') {
         return renderBookingLinkModal(state);
     }
@@ -104,7 +109,7 @@ function renderForm(state, type) {
                         'Enter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.',
                     )
                     : ''}
-                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client (100 Bonus Pts)'}</button>
+                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client'}</button>
             </form>
         `;
     }
@@ -171,6 +176,38 @@ function renderForm(state, type) {
             ${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}
             <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Provision Branch'}</button>
         </form>
+    `;
+}
+
+/** Select an invoice for the profile customer's existing referral-wallet flow. */
+function renderReferralRedemptionPicker(state) {
+    const customerId = state.modalRecord?.customerId;
+    const customer = (state.customersList || []).find((row) => row.id === customerId);
+    const balance = round2(Math.max(0, num(customer?.walletBalance)));
+    const appointments = scopedBySalon(state.appointmentsList, state.currentSalonId)
+        .filter((appointment) => appointment.customerId === customerId && appointment.paid !== true && appointment.status !== 'Cancelled');
+
+    if (!customer || balance <= 0) {
+        return '<p class="text-xs text-slate-400">No referral balance is available for this client.</p>';
+    }
+
+    return `
+        <div class="space-y-3.5">
+            <div class="bg-brand-500/10 border border-brand-500/25 rounded-2xl p-3.5">
+                <p class="text-xs font-bold text-brand-200">${esc(customer.name)}</p>
+                <p class="text-[11px] text-slate-400 mt-0.5">Available referral balance: ${esc(formatCurrency(balance))}</p>
+            </div>
+            <p class="text-[11px] text-slate-400">Choose an unpaid appointment. The existing invoice payment flow will validate and apply the eligible amount.</p>
+            ${appointments.length === 0
+                ? '<p class="text-xs text-slate-500 text-center py-5">No unpaid appointments are available for this client.</p>'
+                : `<div class="space-y-2">${appointments.map((appointment) => `
+                    <button type="button" data-action="redeem-referral-balance-on-appointment" data-customer-id="${escAttr(customerId)}" data-appointment-id="${escAttr(appointment.id)}"
+                        class="w-full text-left bg-slate-950/60 border border-slate-800 hover:border-brand-500/40 rounded-2xl p-3 transition touch-manipulation active:scale-[0.98]">
+                        <p class="text-xs font-bold text-slate-100">${esc(appointment.serviceName || 'Appointment')}</p>
+                        <p class="text-[10px] text-slate-400 mt-0.5">${esc(appointment.date || '')} ${esc(appointment.time || '')}</p>
+                    </button>
+                `).join('')}</div>`}
+        </div>
     `;
 }
 

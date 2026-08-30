@@ -17,6 +17,7 @@ import {
     remainingReward,
     round2,
     num,
+    sanitizeSettings,
 } from '../../core/referral.js';
 import { WALLET_TX_LABELS } from '../../core/wallet.js';
 
@@ -73,6 +74,7 @@ export function renderCustomerProfile(state) {
         .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
     const balance = round2(Math.max(0, num(customer.walletBalance)));
+    const canRedeem = balance > 0 && sanitizeSettings(state.referralSettings).enabled;
     const code = customer.referralCode || '';
     const referredBy = customer.referredByCode
         ? `<p class="text-[10px] text-slate-500 mt-2">Referred with code <span class="font-mono text-slate-400">${esc(customer.referredByCode)}</span></p>`
@@ -112,15 +114,16 @@ export function renderCustomerProfile(state) {
                 ${statTile('Total referrals', stats.total)}
                 ${statTile('Successful', stats.successful, 'text-emerald-400')}
                 ${statTile('Pending', stats.pending, 'text-amber-400')}
-                ${statTile('Loyalty points', num(customer.rewardPoints), 'text-indigo-400')}
+                ${statTile('Referral balance', formatCurrency(balance), 'text-brand-400')}
                 ${statTile('Rewards earned', formatCurrency(stats.rewardsEarned), 'text-emerald-400')}
                 ${statTile('Rewards redeemed', formatCurrency(stats.rewardsRedeemed), 'text-slate-300')}
             </div>
 
-            <div class="bg-gradient-to-br from-brand-600/20 to-slate-900/60 border border-brand-500/25 rounded-2xl p-4 text-center">
-                <p class="text-[10px] font-bold text-brand-300 uppercase tracking-widest">Available referral balance</p>
-                <p class="text-2xl font-extrabold text-white mt-1">${esc(formatCurrency(balance))}</p>
-            </div>
+            <button type="button" data-action="redeem-referral-balance" data-id="${escAttr(customer.id)}" ${canRedeem ? '' : 'disabled'}
+                class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/25 transition active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
+                Redeem Referral Balance
+            </button>
+            ${canRedeem ? '<p class="-mt-2 text-center text-[10px] text-slate-500">Apply this balance to one of this client\'s unpaid appointments.</p>' : '<p class="-mt-2 text-center text-[10px] text-slate-500">A referral balance is required before it can be redeemed.</p>'}
 
             <div class="space-y-2">
                 <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Referral history</p>

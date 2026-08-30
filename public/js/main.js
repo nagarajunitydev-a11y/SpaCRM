@@ -1014,6 +1014,47 @@ const actions = {
         }
     },
 
+    async 'redeem-referral-balance'(el) {
+        const state = store.getState();
+        const customerId = el.dataset.id;
+        // The action is only valid from this customer's open profile; never
+        // trust a DOM id to select a different client's wallet.
+        if (state.modalType !== 'customer-profile' || state.modalRecord?.id !== customerId) {
+            showNotification('Open the client profile to redeem its referral balance.', 'error');
+            return;
+        }
+        const customer = customersRepository.getCustomer(customerId);
+        if (!customer || referralService.walletBalanceOf(customer) <= 0) {
+            showNotification('No referral balance is available for this client.', 'error');
+            return;
+        }
+        if (!sanitizeSettings(state.referralSettings).enabled) {
+            showNotification('The referral programme is currently disabled.', 'error');
+            return;
+        }
+        openModal('referral-redemption', { customerId });
+    },
+
+    async 'redeem-referral-balance-on-appointment'(el) {
+        const state = store.getState();
+        const { customerId, appointmentId } = el.dataset;
+        if (state.modalType !== 'referral-redemption' || state.modalRecord?.customerId !== customerId) {
+            showNotification('Invalid referral redemption request.', 'error');
+            return;
+        }
+        const customer = customersRepository.getCustomer(customerId);
+        const appointment = findAppointment(appointmentId);
+        if (!customer || referralService.walletBalanceOf(customer) <= 0
+            || !appointment || appointment.customerId !== customer.id
+            || appointment.paid === true || appointment.status === 'Cancelled') {
+            showNotification('This referral balance cannot be redeemed against that appointment.', 'error');
+            return;
+        }
+        // Payment remains the sole place that redeems referral funds: it
+        // applies the configured cap and runs referralService.redeem atomically.
+        openModal('payment', { ...appointment, returnToCustomerProfileId: customer.id });
+    },
+
     async 'wallet-use-max'(el) {
         const form = el.closest('form');
         const input = form && form.querySelector('[name="walletRedeem"]');
@@ -1092,6 +1133,7 @@ const actions = {
     },
 
     async 'collect-payment'(form, event, data) {
+        const returnToCustomerProfileId = store.getState().modalRecord?.returnToCustomerProfileId || '';
         const appointment = findAppointment(data.id);
         if (!appointment) throw new Error('Appointment not found.');
         if (appointment.paid === true) throw new Error('This invoice has already been settled.');
@@ -1154,7 +1196,18 @@ const actions = {
         if (settlementResult && settlementResult.credited) {
             await new Promise((resolve) => setTimeout(resolve, 150));
         }
-        closeModal();
+        if (returnToCustomerProfileId && requested > 0) {
+            // Give the already-active realtime listeners a moment to publish
+            // the wallet debit and referral allocation before reopening it.
+            await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        if (returnToCustomerProfileId) {
+            // The wallet/customer/referral listeners update this profile as
+            // the atomic redemption is committed, including its ledger row.
+            openModal('customer-profile', { id: returnToCustomerProfileId });
+        } else {
+            closeModal();
+        }
     },
 
     async 'refund-invoice'(el) {
