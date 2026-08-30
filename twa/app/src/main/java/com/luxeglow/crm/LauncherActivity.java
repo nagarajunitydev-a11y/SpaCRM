@@ -61,7 +61,10 @@ public class LauncherActivity extends Activity {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT, backCallback);
         }
-        if (savedInstanceState == null) loadHome(); else webView.restoreState(savedInstanceState);
+        // A saved WebView history can contain a previous deployment. Always
+        // request the hosted entry point; Firebase and app sessions persist in
+        // cookies/DOM storage and are not cleared by this refresh.
+        loadHome();
         hideSystemUI();
     }
 
@@ -99,7 +102,9 @@ public class LauncherActivity extends Activity {
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true);
-        settings.setCacheMode(WebSettings.LOAD_DEFAULT); settings.setAllowFileAccess(false); settings.setAllowContentAccess(true);
+        // The CRM is hosted. Bypass WebView's HTTP cache while retaining DOM
+        // storage, cookies, IndexedDB and the service worker's offline cache.
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE); settings.setAllowFileAccess(false); settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setLoadWithOverviewMode(true); settings.setUseWideViewPort(true); settings.setSupportMultipleWindows(false);
         CookieManager cookies = CookieManager.getInstance(); cookies.setAcceptCookie(true); cookies.setAcceptThirdPartyCookies(webView, true);

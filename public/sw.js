@@ -1,13 +1,14 @@
 /**
  * sw.js
  * Service worker: app-shell caching for offline / flaky-network support.
- * Strategy: cache-first for static assets, network-first with cache fallback
- * for the navigation request. Everything else (Firebase CDN, Google Fonts)
+ * Strategy: network-first with cache fallback for the app shell. This ensures
+ * a deployed HTML/JS/CSS version is used immediately while still allowing a
+ * previously loaded shell to open offline. Everything else (Firebase CDN, Google Fonts)
  * is allowed through the network only, so auth and Firestore are never served
  * stale from an unexpected origin.
  */
 
-const CACHE_NAME = 'qvrix-luxe-v4';
+const CACHE_NAME = 'qvrix-luxe-v5';
 const APP_SHELL = [
     '/',
     '/index.html',
@@ -112,7 +113,7 @@ self.addEventListener('fetch', (event) => {
     // Navigation requests: network-first, fall back to cached index.html.
     if (request.mode === 'navigate') {
         event.respondWith(
-            fetch(request)
+            fetch(request, { cache: 'no-store' })
                 .then((response) => {
                     const copy = response.clone();
                     caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy));
@@ -125,19 +126,19 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // Static assets: cache-first with background refresh.
+    // Static assets must be network-first. A cache-first strategy can combine
+    // a newly deployed index.html with an older ES module graph in Android
+    // WebView (and in a regular browser) before its background refresh wins.
+    // The Cache Storage copy is used only when the network is unavailable.
     event.respondWith(
-        caches.match(request).then((cached) => {
-            const network = fetch(request)
-                .then((response) => {
-                    if (response && response.ok) {
-                        const copy = response.clone();
-                        caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-                    }
-                    return response;
-                })
-                .catch(() => cached);
-            return cached || network;
-        }),
+        fetch(request, { cache: 'no-store' })
+            .then((response) => {
+                if (response && response.ok) {
+                    const copy = response.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+                }
+                return response;
+            })
+            .catch(() => caches.match(request)),
     );
 });

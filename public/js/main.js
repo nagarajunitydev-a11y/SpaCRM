@@ -1385,9 +1385,22 @@ function attachDelegation() {
 
 function registerServiceWorker() {
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js').catch((err) => {
-            console.warn('Service worker registration failed:', err);
+        let controllerChanged = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            // skipWaiting()/clients.claim() makes a newly deployed worker take
+            // control immediately. Reload once so its fresh app shell and
+            // modules are used together. Firebase and app sessions remain in
+            // their existing browser storage; no user data is cleared.
+            if (!controllerChanged) {
+                controllerChanged = true;
+                window.location.reload();
+            }
         });
+        navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' })
+            .then((registration) => registration.update())
+            .catch((err) => {
+                console.warn('Service worker registration failed:', err);
+            });
     }
 }
 
