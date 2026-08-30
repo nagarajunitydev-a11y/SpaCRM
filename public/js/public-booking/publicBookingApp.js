@@ -128,13 +128,22 @@ async function refreshSlots() {
     store.setState({ slotsLoading: true, availableSlots: [] });
 
     try {
-        const services = state.settings.publicServices || [];
-        const staffList = state.settings.publicStaff || [];
+        // Fetch the public configuration for every availability calculation.
+        // This keeps an already-open booking page in step with working-hours
+        // changes without caching an obsolete weekly schedule in the client.
+        const settings = await bookingService.fetchBookingSettings(state.salonId);
+        if (requestId !== slotRequestId) return;
+        if (!settings || settings.enabled !== true) {
+            store.setState({ slotsLoading: false, availableSlots: [], time: '' });
+            return;
+        }
+        const services = settings.publicServices || [];
+        const staffList = settings.publicStaff || [];
         const durationMinutes = totalDurationMinutes(state.selectedServices, services);
 
         const slots = await bookingService.fetchAvailableSlots({
             salonId: state.salonId,
-            settings: state.settings,
+            settings,
             date: state.date,
             durationMinutes,
             staffName: state.staffChoice,
@@ -142,7 +151,12 @@ async function refreshSlots() {
         });
 
         if (requestId !== slotRequestId) return; // a newer request superseded this one
-        store.setState({ slotsLoading: false, availableSlots: slots, time: slots.some((s) => s.time === state.time) ? state.time : '' });
+        store.setState({
+            settings,
+            slotsLoading: false,
+            availableSlots: slots,
+            time: slots.some((s) => s.time === state.time) ? state.time : '',
+        });
     } catch (err) {
         if (requestId !== slotRequestId) return;
         console.warn('[booking] Could not load slots:', err);

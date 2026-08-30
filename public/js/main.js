@@ -1268,6 +1268,10 @@ function attachDelegation() {
         const el = event.target.closest('[data-action]');
         if (!el) return;
         if (el.tagName === 'SELECT') return;
+        // Checkbox state is committed by the browser's default click action.
+        // Handle the working-hours toggle from `change` below so preventing
+        // this delegated click can never revert the checked state.
+        if (el.dataset.action === 'toggle-day-closed') return;
         if (el.tagName === 'FORM') return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
@@ -1280,7 +1284,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || (el.dataset.action !== 'salon' && el.dataset.action !== 'appointment-filter')) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));

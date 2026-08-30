@@ -27,7 +27,7 @@ import { getDocument, getCollection, runAtomic, newDocId } from './db.js';
 import { seed as customerSeed } from './customersRepository.js';
 import { seed as serviceSeedList } from './servicesRepository.js';
 import { seed as staffSeedList } from './staffRepository.js';
-import { sanitizeBookingSettings, toPublicServices, toPublicStaff, DEFAULT_BOOKING_SETTINGS } from '../core/bookingConfig.js';
+import { sanitizeBookingSettings, toPublicServices, toPublicStaff, DEFAULT_BOOKING_SETTINGS, localDateStr } from '../core/bookingConfig.js';
 import {
     normalizeCode,
     isValidCodeFormat,
@@ -188,7 +188,10 @@ export async function fetchAvailableSlots({ salonId, settings, date, durationMin
     // single 5-minute tick — reusing hasConflict's overlap math for free.
     const asAppointments = locks.map((l) => ({ staffName: l.staffName, date: l.date, time: l.time, durationMinutes: 5, status: 'Confirmed' }));
 
-    const today = now.toISOString().slice(0, 10);
+    // Dates selected by the native picker are local calendar dates. Compare
+    // against the same local representation so the min-notice rule does not
+    // accidentally treat today as tomorrow/yesterday around UTC midnight.
+    const today = localDateStr(now);
     const isToday = date === today;
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
