@@ -13,6 +13,7 @@ import { createStore } from '../core/store.js';
 import { sanitizeDOM, esc } from '../core/sanitize.js';
 import { refreshIcons } from '../ui/icons.js';
 import { isValidIndianPhone, isBlank, EMAIL_RE } from '../core/validate.js';
+import { sanitizePhoneInputLive } from '../core/utils.js';
 import { isValidCodeFormat, normalizeCode } from '../core/referral.js';
 import { isBookableDate, localDateStr } from '../core/bookingConfig.js';
 import { totalDurationMinutes } from '../core/scheduling.js';
@@ -331,6 +332,12 @@ function attachDelegation() {
         if (!el) return;
         const handler = actions['pick-date'];
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
+    });
+
+    // Digits-only, 10-digit cap on the mobile number field, enforced as the
+    // visitor types (not just at submit).
+    appEl.addEventListener('input', (event) => {
+        sanitizePhoneInputLive(event.target);
     });
 }
 

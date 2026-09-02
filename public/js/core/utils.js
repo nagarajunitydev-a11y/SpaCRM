@@ -54,6 +54,27 @@ export function basePath() {
 }
 
 /**
+ * Live-sanitize a phone-number `<input>` as the user types: strips every
+ * non-digit character and truncates to `maxLength` digits, preserving the
+ * cursor position. Used on every `type="tel"` field in the app so a phone
+ * number can never be typed with letters/symbols or beyond the digit cap —
+ * the same 10-digit rule `core/validate.js` enforces again before any save.
+ * No-ops (and returns false) for anything that isn't a phone input.
+ */
+export function sanitizePhoneInputLive(el, maxLength = 10) {
+    if (!el || el.tagName !== 'INPUT' || el.type !== 'tel') return false;
+    const original = el.value;
+    const selStart = el.selectionStart ?? original.length;
+    const digitsBeforeCursor = original.slice(0, selStart).replace(/\D/g, '').length;
+    const digitsOnly = original.replace(/\D/g, '').slice(0, maxLength);
+    if (digitsOnly === original) return false;
+    el.value = digitsOnly;
+    const newPos = Math.min(digitsBeforeCursor, digitsOnly.length);
+    try { el.setSelectionRange(newPos, newPos); } catch (e) { /* some input states don't support selection */ }
+    return true;
+}
+
+/**
  * Keep only records that belong to the active salon. Records without a
  * `salonId` (legacy) pass through; anything explicitly tagged to another salon
  * is dropped. This is a render-layer defence-in-depth on top of the scoped
@@ -74,4 +95,5 @@ export default {
     basePath,
     scopedBySalon,
     todayStr,
+    sanitizePhoneInputLive,
 };

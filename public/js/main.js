@@ -30,7 +30,7 @@ import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
-import { debounce, scopedBySalon, formatCurrency } from './core/utils.js';
+import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive } from './core/utils.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments, {
@@ -1481,6 +1481,9 @@ function attachDelegation() {
     });
 
     appEl.addEventListener('input', (event) => {
+        // Digits-only, 10-digit cap on every phone field, enforced as the
+        // user types (not just at submit).
+        sanitizePhoneInputLive(event.target);
         const picker = event.target.closest('[data-action="customer-search"]');
         if (picker) {
             const handler = actions['customer-search'];
