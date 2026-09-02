@@ -26,7 +26,7 @@ import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
 import { validateForm, toIndianE164 } from './core/validate.js';
 import { sanitizeDOM, esc, escAttr } from './core/sanitize.js';
-import { refreshIcons } from './ui/icons.js';
+import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
@@ -60,6 +60,10 @@ import { renderBookingLinkModal, bookingLinkFor } from './ui/views/bookingLink.j
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
+import { customerDiscountFor, discountLabel } from './core/discount.js';
+import * as attendanceRepository from './services/attendanceRepository.js';
+import { PREDEFINED_SERVICES } from './core/predefinedServices.js';
+import { isAndroidTwa } from './core/platform.js';
 
 const appEl = document.getElementById('app');
 
@@ -74,6 +78,7 @@ function seedDemoData() {
         servicesList: [...servicesRepository.seed],
         staffList: [...staffRepository.seed],
         appointmentsList: [...appointmentsRepository.seed],
+        attendanceList: [],
         transactionsList: [...rewardTransactionsRepository.seed],
         transactionsLoaded: true,
         transactionsError: null,
@@ -117,6 +122,7 @@ function resolveSalonScope() {
     servicesRepository.setSalon(target);
     staffRepository.setSalon(target);
     appointmentsRepository.setSalon(target);
+    attendanceRepository.setSalon(target);
     rewardTransactionsRepository.resubscribeTransactions();
     referralsRepository.setSalon(target);
     referralCodesRepository.setSalon(target);
@@ -295,6 +301,7 @@ function findRecord(type, id) {
         service: () => (store.getState().servicesList || []).find((r) => r.id === id),
         staff: () => (store.getState().staffList || []).find((r) => r.id === id),
         appointment: () => (store.getState().appointmentsList || []).find((r) => r.id === id),
+        attendance: () => (store.getState().attendanceList || []).find((r) => r.id === id),
     };
     const get = lists[type];
     return get ? get() || null : null;
@@ -311,6 +318,7 @@ function deleteRecord(target) {
         service: () => servicesRepository.deleteService(target.id),
         staff: () => staffRepository.deleteStaff(target.id),
         appointment: () => appointmentsRepository.deleteAppointment(target.id),
+        attendance: () => attendanceRepository.deleteAttendance(target.id),
     };
     return deleters[target.type] || null;
 }
@@ -508,13 +516,16 @@ function updatePaymentSummary(form) {
     const settings = sanitizeSettings(state.referralSettings);
     const invoiceAmount = round2(num(data.invoiceAmount));
     const walletBalance = referralService.walletBalanceOf(customer);
-    const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount, settings }) : 0;
+    const discount = customerDiscountFor(customer, invoiceAmount);
+    const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings }) : 0;
 
     container.innerHTML = renderPaymentSummary({
         invoiceAmount,
         walletRedeem: round2(num(data.walletRedeem)),
         walletBalance,
         cap,
+        discount,
+        discountText: discountLabel(customer),
     });
     sanitizeDOM(container);
 
@@ -569,6 +580,67 @@ const actions = {
         switchTab(tab);
     },
 
+    async 'staff-tab'(el) {
+        store.setState({ staffTab: el.dataset.staffTab === 'attendance' ? 'attendance' : 'roster' });
+    },
+
+    async 'attendance-date'(el) {
+        store.setState({ attendanceDate: el.value || null });
+    },
+
+    async 'attendance-month'(el) {
+        store.setState({ attendanceHistoryMonth: el.value || null });
+    },
+
+    async 'attendance-staff-filter'(el) {
+        store.setState({ attendanceHistoryStaffId: el.value || 'all' });
+    },
+
+    async 'mark-attendance-status'(el) {
+        const { staffId, staffName, recordId } = el.dataset;
+        const date = store.getState().attendanceDate || new Date().toISOString().slice(0, 10);
+        const status = el.value;
+
+        if (!status) {
+            if (recordId) await attendanceRepository.deleteAttendance(recordId);
+            return;
+        }
+        try {
+            if (recordId) {
+                await attendanceRepository.updateAttendance(recordId, { status });
+            } else {
+                await attendanceRepository.markAttendance({ staffId, staffName, date, status });
+            }
+            showNotification(`${staffName} marked ${status} for ${date}.`);
+        } catch (err) {
+            showNotification(err.message || 'Could not save attendance.', 'error');
+        }
+    },
+
+    async 'submit-attendance'(form, event, data) {
+        const id = data.id;
+        const payload = {
+            status: data.status,
+            checkIn: data.checkIn || '',
+            checkOut: data.checkOut || '',
+            notes: data.notes || '',
+        };
+        if (id) {
+            await attendanceRepository.updateAttendance(id, payload);
+            showNotification('Attendance updated!');
+        } else {
+            const staffMember = (store.getState().staffList || []).find((s) => s.id === data.staffId);
+            await attendanceRepository.markAttendance({
+                staffId: data.staffId,
+                staffName: staffMember?.name || '',
+                date: data.date,
+                ...payload,
+            });
+            showNotification('Attendance recorded!');
+        }
+        closeModal();
+    },
+
     async 'modal'(el) {
         openModal(el.dataset.modal);
     },
@@ -615,13 +687,23 @@ const actions = {
                 .catch((err) => console.warn('[referral] Could not retire referral code:', err));
         }
         await deleter();
-        const noun = { customer: 'Client', service: 'Service', staff: 'Staff member', appointment: 'Appointment' }[deleteTarget.type] || 'Record';
+        const noun = { customer: 'Client', service: 'Service', staff: 'Staff member', appointment: 'Appointment', attendance: 'Attendance record' }[deleteTarget.type] || 'Record';
         showNotification(`${noun} deleted.`);
         closeModal();
     },
 
     async 'toggle-form-mode'(el) {
         store.setState({ authFormMode: el.dataset.mode === 'signin' ? 'signin' : 'signup' });
+    },
+
+    async 'toggle-password-visibility'(el) {
+        const input = el.closest('[data-password-wrapper]')?.querySelector('input');
+        if (!input) return;
+        const showing = input.type === 'text';
+        input.type = showing ? 'password' : 'text';
+        el.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        el.innerHTML = icon(showing ? 'eye' : 'eye-off', 'w-4 h-4');
+        refreshIcons(el);
     },
 
     async 'salon'(el) {
@@ -780,7 +862,14 @@ const actions = {
 
     async 'submit-customer'(form, event, data) {
         const id = data.id;
-        const payload = { name: data.name, phone: toIndianE164(data.phone), email: data.email };
+        const payload = {
+            name: data.name,
+            phone: toIndianE164(data.phone),
+            email: data.email,
+            dob: data.dob || '',
+            discountType: data.discountType || '',
+            discountValue: data.discountType ? (parseFloat(data.discountValue) || 0) : 0,
+        };
 
         if (id) {
             await customersRepository.updateCustomer(id, payload);
@@ -827,6 +916,7 @@ const actions = {
         const id = data.id;
         const payload = {
             name: data.name,
+            category: data.category || '',
             price: parseFloat(data.price) || 0,
             duration: data.duration,
         };
@@ -834,10 +924,42 @@ const actions = {
             await servicesRepository.updateService(id, payload);
             showNotification('Service updated!');
         } else {
-            await servicesRepository.addService(payload);
+            await servicesRepository.addService({ ...payload, active: true });
             showNotification('Service catalog updated!');
         }
         closeModal();
+    },
+
+    async 'submit-service-catalogue'(form, event, data) {
+        const existingNames = new Set(scopedBySalon(store.getState().servicesList, store.getState().currentSalonId)
+            .map((s) => (s.name || '').trim().toLowerCase()));
+        const toImport = PREDEFINED_SERVICES.filter((svc, index) =>
+            data[`import_${index}`] === 'on' && !existingNames.has(svc.name.trim().toLowerCase()));
+
+        if (toImport.length === 0) {
+            showNotification('No services selected.', 'error');
+            return;
+        }
+        for (const svc of toImport) {
+            await servicesRepository.addService({
+                name: svc.name,
+                category: svc.category,
+                duration: svc.duration,
+                price: svc.price,
+                active: true,
+            });
+        }
+        showNotification(`${toImport.length} service${toImport.length === 1 ? '' : 's'} imported from the catalogue.`);
+        closeModal();
+    },
+
+    async 'toggle-service-active'(el) {
+        const id = el.dataset.id;
+        const service = (store.getState().servicesList || []).find((s) => s.id === id);
+        if (!service) return;
+        const nextActive = service.active === false;
+        await servicesRepository.updateService(id, { active: nextActive });
+        showNotification(nextActive ? 'Service enabled.' : 'Service disabled.');
     },
 
     async 'submit-staff'(form, event, data) {
@@ -1181,6 +1303,7 @@ const actions = {
         const requested = round2(num(data.walletRedeem));
         const customer = customersRepository.getCustomer(appointment.customerId);
         const balance = referralService.walletBalanceOf(customer);
+        const discount = customerDiscountFor(customer, invoiceAmount);
 
         // The wallet leg runs first because it is the part that must be atomic.
         // If it fails nothing is billed and the error surfaces to the user.
@@ -1190,12 +1313,12 @@ const actions = {
             redemption = await referralService.redeem({
                 customer,
                 appointment,
-                invoiceAmount,
+                invoiceAmount: round2(invoiceAmount - discount),
                 requestedAmount: requested,
             });
         }
 
-        const split = splitPayment({ invoiceAmount, walletRedeemed: redemption.redeemed });
+        const split = splitPayment({ invoiceAmount, walletRedeemed: redemption.redeemed, discount });
         const patch = {
             invoiceNo: invoiceNoFor(appointment.id),
             invoiceAmount: split.invoiceAmount,
@@ -1203,6 +1326,9 @@ const actions = {
             // service amount; once billing has happened the settled invoice
             // total is the authoritative figure for that appointment.
             amount: split.invoiceAmount,
+            discountType: customer?.discountType || '',
+            discountValue: num(customer?.discountValue),
+            discountApplied: split.discount,
             walletRedeemed: split.walletRedeemed,
             walletBalanceBefore: redemption.balanceBefore,
             walletBalanceAfter: redemption.balanceAfter,
@@ -1306,6 +1432,9 @@ function attachDelegation() {
         const el = event.target.closest('[data-action]');
         if (!el) return;
         if (el.tagName === 'SELECT') return;
+        // Date/month pickers commit via `change`; preventDefault() on their
+        // click (below) would block the native picker from opening.
+        if (el.tagName === 'INPUT' && (el.type === 'date' || el.type === 'month')) return;
         // Checkbox state is committed by the browser's default click action.
         // Handle the working-hours toggle from `change` below so preventing
         // this delegated click can never revert the checked state.
@@ -1322,7 +1451,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed'].includes(el.dataset.action)) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'mark-attendance-status'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
@@ -1384,6 +1513,13 @@ function attachDelegation() {
 /* ------------------------------------------------------------------ */
 
 function registerServiceWorker() {
+    // The native wrapper always fetches the hosted application live. Keeping a
+    // second PWA app-shell cache inside Android System WebView can leave that
+    // container behind a Vercel deployment even when Chrome is current.
+    // This does not affect browser/PWA users, Firebase persistence, IndexedDB,
+    // local storage, or cookies.
+    if (isAndroidTwa()) return;
+
     if ('serviceWorker' in navigator) {
         let controllerChanged = false;
         navigator.serviceWorker.addEventListener('controllerchange', () => {

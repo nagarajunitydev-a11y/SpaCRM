@@ -8,6 +8,8 @@
 
 import { esc, escAttr } from '../../core/sanitize.js';
 import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '../components.js';
+import { ATTENDANCE_STATUSES } from '../../core/validate.js';
+import { PREDEFINED_SERVICES } from '../../core/predefinedServices.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
 import { scopedBySalon, formatCurrency } from '../../core/utils.js';
@@ -28,6 +30,8 @@ const TITLES = {
     'referral-redemption': 'Redeem Referral Balance',
     'booking-link': 'Booking Link',
     'confirm-delete': 'Confirm Deletion',
+    'service-catalogue': 'Import From Catalogue',
+    attendance: 'Mark Attendance',
 };
 
 const EDIT_TITLES = {
@@ -36,6 +40,7 @@ const EDIT_TITLES = {
     staff: 'Edit Staff Details',
     appointment: 'Edit Appointment',
     salon: 'Edit Salon',
+    attendance: 'Edit Attendance',
 };
 
 export function renderModalSheet(state) {
@@ -62,7 +67,7 @@ export function renderModalSheet(state) {
 function editingRecord(state, type) {
     const id = state.modalRecord && state.modalRecord.id;
     if (!id) return null;
-    const key = { customer: 'customersList', service: 'servicesList', staff: 'staffList', appointment: 'appointmentsList' }[type];
+    const key = { customer: 'customersList', service: 'servicesList', staff: 'staffList', appointment: 'appointmentsList', attendance: 'attendanceList' }[type];
     return (key && (state[key] || []).find((r) => r.id === id)) || null;
 }
 
@@ -108,12 +113,14 @@ function renderForm(state, type) {
 
     if (type === 'customer') {
         const rec = editingRecord(state, 'customer');
+        const discountType = rec?.discountType || '';
         return `
             <form data-action="submit-customer" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}
                 ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 ${formField('Email', textInput('email', 'olivia@example.com', { type: 'email', autocomplete: 'email', value: rec?.email }))}
+                ${formField('Date of Birth (optional)', dateTimeInput('dob', 'date', '', { value: rec?.dob, required: false }))}
                 ${!rec && sanitizeSettings(state.referralSettings).enabled
                     ? formField(
                         'Referral Code (optional)',
@@ -121,6 +128,14 @@ function renderForm(state, type) {
                         'Enter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.',
                     )
                     : ''}
+                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-3">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Client Discount (optional)</p>
+                    ${formField('Discount Type', selectControl('discountType', [
+                        { value: 'percentage', label: 'Percentage (%)' },
+                        { value: 'fixed', label: 'Fixed amount (₹)' },
+                    ], 'No discount', { required: false, value: discountType }))}
+                    ${formField('Discount Value', textInput('discountValue', '10', { type: 'number', required: false, className: 'input-number', value: rec?.discountValue }), 'Applied automatically at checkout, capped so it never exceeds the invoice amount.')}
+                </div>
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client'}</button>
             </form>
         `;
@@ -132,11 +147,20 @@ function renderForm(state, type) {
             <form data-action="submit-service" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${formField('Service Title', textInput('name', 'Keratin Treatment', { value: rec?.name }))}
+                ${formField('Category (optional)', textInput('category', 'Hair, Skin, Nails…', { required: false, value: rec?.category }))}
                 ${formField('Price (₹)', textInput('price', '140', { type: 'number', className: 'input-number', value: rec?.price }))}
                 ${formField('Duration', textInput('duration', '90m', { value: rec?.duration }))}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Add Service'}</button>
             </form>
         `;
+    }
+
+    if (type === 'service-catalogue') {
+        return renderServiceCatalogueModal(state);
+    }
+
+    if (type === 'attendance') {
+        return renderAttendanceForm(state);
     }
 
     if (type === 'staff') {
@@ -159,6 +183,9 @@ function renderForm(state, type) {
         const selectedServiceNames = appointmentServiceNames(pre);
         const selectedServices = selectedServiceNames.map((name) => services.find((service) => service.name === name)).filter(Boolean);
         const subtotal = selectedServices.reduce((sum, service) => sum + (Number(service.price) || 0), 0);
+        // Disabled services can still appear on an existing booking (looked up
+        // above from the full catalog) but are never offered for new picks.
+        const pickableServices = services.filter((s) => s.active !== false);
         const statusOptions = [
             { value: 'Confirmed', label: 'Confirmed' },
             { value: 'In Progress', label: 'In Progress' },
@@ -170,7 +197,7 @@ function renderForm(state, type) {
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 ${renderCustomerPicker(pre)}
                 <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(selectedServiceNames))}">
-                ${formField('Select Service', selectControl('serviceName', services.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName }))}
+                ${formField('Select Service', selectControl('serviceName', pickableServices.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName }))}
                 <button type="button" data-action="add-appointment-service" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-[0.98] touch-manipulation">Add selected service</button>
                 <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2">
                     <div class="flex items-center justify-between"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Services</p><span class="text-[10px] text-slate-500">${selectedServices.length}</span></div>
@@ -294,7 +321,7 @@ export function renderCustomerSuggestions(matches, query, opts = {}) {
 
 function renderDeleteConfirm(state) {
     const t = state.deleteTarget || {};
-    const noun = { customer: 'client', service: 'service', staff: 'staff member', appointment: 'appointment', salon: 'salon' }[t.type] || 'record';
+    const noun = { customer: 'client', service: 'service', staff: 'staff member', appointment: 'appointment', salon: 'salon', attendance: 'attendance record' }[t.type] || 'record';
     return `
         <div class="text-center space-y-4">
             <div class="w-14 h-14 mx-auto rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center" aria-hidden="true">
@@ -309,6 +336,78 @@ function renderDeleteConfirm(state) {
                 <button data-action="confirm-delete" class="flex-1 py-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-600/30 transition active:scale-95 touch-manipulation">Delete</button>
             </div>
         </div>
+    `;
+}
+
+/**
+ * Predefined service catalogue: a checklist the owner selectively imports
+ * from. Existing services are never touched — this only ever adds new rows,
+ * and an entry already present in the salon's catalog (by name) is skipped.
+ */
+function renderServiceCatalogueModal(state) {
+    const existingNames = new Set(scopedBySalon(state.servicesList, state.currentSalonId).map((s) => (s.name || '').trim().toLowerCase()));
+
+    return `
+        <form data-action="submit-service-catalogue" class="space-y-3.5" novalidate>
+            <p class="text-[11px] text-slate-400">Pick services to add to your catalog. Your existing services are never changed.</p>
+            <div class="space-y-2 max-h-[50vh] overflow-y-auto no-scrollbar pr-0.5">
+                ${PREDEFINED_SERVICES.map((svc, index) => {
+                    const already = existingNames.has(svc.name.trim().toLowerCase());
+                    return `
+                        <label class="flex items-center gap-3 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 ${already ? 'opacity-50' : ''}">
+                            <input type="checkbox" name="import_${index}" ${already ? 'disabled' : ''} class="w-4 h-4 accent-brand-600 shrink-0">
+                            <div class="min-w-0 flex-1">
+                                <p class="text-xs font-bold text-slate-100 truncate">${esc(svc.name)}</p>
+                                <p class="text-[10px] text-slate-400 mt-0.5">${esc(svc.category)} • ${esc(svc.duration)} • ${esc(formatCurrency(svc.price))}${already ? ' • already in your catalog' : ''}</p>
+                            </div>
+                        </label>
+                    `;
+                }).join('')}
+            </div>
+            <button type="submit" class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation">Import Selected</button>
+        </form>
+    `;
+}
+
+/**
+ * Full attendance record form: staff, date, status and check-in/out times.
+ * The staff member and date are fixed once a record exists (they form its
+ * document id) — editing only ever changes status/times/notes.
+ */
+function renderAttendanceForm(state) {
+    const rec = editingRecord(state, 'attendance');
+    const staff = scopedBySalon(state.staffList, state.currentSalonId);
+    const preselect = state.modalRecord || {};
+    const staffId = rec?.staffId || preselect.staffId || '';
+    const date = rec?.date || preselect.date || '';
+    const staffName = staff.find((s) => s.id === staffId)?.name || rec?.staffName || '';
+
+    const staffAndDateFields = rec
+        ? `
+            <input type="hidden" name="staffId" value="${escAttr(staffId)}">
+            <input type="hidden" name="date" value="${escAttr(date)}">
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5">
+                <p class="text-xs font-bold text-slate-100">${esc(staffName)}</p>
+                <p class="text-[11px] text-slate-400 mt-0.5">${esc(date)}</p>
+            </div>
+        `
+        : `
+            ${formField('Staff Member', selectControl('staffId', staff.map((s) => ({ value: s.id, label: s.name })), 'Choose a staff member', { value: staffId }))}
+            ${formField('Date', dateTimeInput('date', 'date', '', { value: date }))}
+        `;
+
+    return `
+        <form data-action="submit-attendance" class="space-y-3.5" novalidate>
+            ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
+            ${staffAndDateFields}
+            ${formField('Status', selectControl('status', ATTENDANCE_STATUSES.map((s) => ({ value: s, label: s })), 'Select status', { value: rec?.status || 'Present' }))}
+            <div class="grid grid-cols-2 gap-3">
+                <div>${formField('Check-in (optional)', dateTimeInput('checkIn', 'time', '', { value: rec?.checkIn, required: false }))}</div>
+                <div>${formField('Check-out (optional)', dateTimeInput('checkOut', 'time', '', { value: rec?.checkOut, required: false }))}</div>
+            </div>
+            ${formField('Notes (optional)', textInput('notes', 'Late due to traffic…', { required: false, value: rec?.notes }))}
+            <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Attendance'}</button>
+        </form>
     `;
 }
 

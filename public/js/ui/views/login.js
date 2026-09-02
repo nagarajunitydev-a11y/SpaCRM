@@ -11,7 +11,7 @@
  *  - A "Create Account" button is placed directly below the Sign In button.
  */
 
-import { formField, textInput } from '../components.js';
+import { formField, textInput, passwordInput } from '../components.js';
 import { isAndroidTwa } from '../../core/platform.js';
 
 export function renderLogin(state) {
@@ -47,7 +47,7 @@ export function renderLogin(state) {
                         ? formField('Salon Name', textInput('salonName', 'Luxe Glow Downtown', { required: true }))
                         : ''}
                     ${formField('Email Address', textInput('email', 'owner@luxeglow.com', { type: 'email', autocomplete: 'email' }))}
-                    ${formField('Password', textInput('password', '••••••••', { type: 'password', autocomplete: isSignup ? 'new-password' : 'current-password' }))}
+                    ${formField('Password', passwordInput('password', '••••••••', { autocomplete: isSignup ? 'new-password' : 'current-password' }))}
                     <button type="submit" disabled class="w-full py-4 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">
                         ${isSignup ? 'Create Account &amp; Login' : 'Sign In'}
                     </button>

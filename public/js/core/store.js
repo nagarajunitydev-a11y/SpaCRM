@@ -64,6 +64,13 @@ export const store = createStore({
     appointmentsList: [],
     appointmentFilters: { status: 'all', staffName: 'all', serviceName: 'all', paymentStatus: 'all' },
 
+    // ---- Staff attendance ----
+    attendanceList: [],
+    staffTab: 'roster', // 'roster' | 'attendance'
+    attendanceDate: null, // null = today (see ui/views/attendance.js)
+    attendanceHistoryMonth: null, // null = current month
+    attendanceHistoryStaffId: 'all',
+
     // ---- Referral programme ----
     referralsList: [],
     referralsLoaded: false,

@@ -197,6 +197,26 @@ export function textInput(name, placeholder, opts = {}) {
 }
 
 /**
+ * Password input with a show/hide eye toggle. Purely a client-side DOM
+ * affordance — the field still submits as a normal `password`-family input
+ * named `name`, so existing auth/validation handling is unaffected.
+ */
+export function passwordInput(name, placeholder, opts = {}) {
+    const { required = true, className = '', autocomplete = '' } = opts;
+    return `
+        <div class="relative" data-password-wrapper>
+            <input type="password" name="${escAttr(name)}" ${required ? 'required' : ''} placeholder="${escAttr(placeholder)}"
+                ${autocomplete ? `autocomplete="${escAttr(autocomplete)}"` : ''}
+                class="w-full bg-slate-950 border border-slate-800 pl-4 pr-11 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 ${escAttr(className)}">
+            <button type="button" data-action="toggle-password-visibility" aria-label="Show password"
+                class="absolute inset-y-0 right-0 flex items-center px-3.5 text-slate-500 hover:text-slate-300 transition touch-manipulation">
+                <i data-lucide="eye" class="w-4 h-4"></i>
+            </button>
+        </div>
+    `;
+}
+
+/**
  * Indian phone input: a fixed +91 country-code prefix beside a 10-digit
  * national-number field. The placeholder is a reference/example only — it is
  * never submitted, and records only ever store what the user actually types.
@@ -229,11 +249,11 @@ export function selectControl(name, options, placeholder, opts = {}) {
 
 /** Date/time input control. */
 export function dateTimeInput(name, type = 'date', placeholder = '', opts = {}) {
-    const { value = '' } = opts;
+    const { value = '', required = true } = opts;
     const val = value !== null && value !== undefined ? escAttr(String(value)) : '';
     const ph = placeholder ? `placeholder="${escAttr(placeholder)}"` : '';
     return `
-        <input type="${escAttr(type)}" name="${escAttr(name)}" required ${ph} ${val ? `value="${val}"` : ''} class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
+        <input type="${escAttr(type)}" name="${escAttr(name)}" ${required ? 'required' : ''} ${ph} ${val ? `value="${val}"` : ''} class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
     `;
 }
 
@@ -268,6 +288,7 @@ export default {
     networkBanner,
     formField,
     textInput,
+    passwordInput,
     phoneInput,
     selectControl,
     dateTimeInput,

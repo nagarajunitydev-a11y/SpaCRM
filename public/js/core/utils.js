@@ -29,6 +29,14 @@ export function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
 }
 
+/** Today's date as a local YYYY-MM-DD string. */
+export function todayStr() {
+    const d = new Date();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 /** Debounce a function. */
 export function debounce(fn, wait = 150) {
     let timer = null;
@@ -65,4 +73,5 @@ export default {
     debounce,
     basePath,
     scopedBySalon,
+    todayStr,
 };

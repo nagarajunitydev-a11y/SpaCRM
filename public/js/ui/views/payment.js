@@ -15,6 +15,7 @@ import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 import { serviceAmountFor } from '../../core/revenue.js';
 import { sanitizeSettings, maxRedeemable, round2, num } from '../../core/referral.js';
 import { splitPayment, invoiceNoFor } from '../../core/wallet.js';
+import { customerDiscountFor, discountLabel } from '../../core/discount.js';
 
 export const PAYMENT_METHODS = [
     { value: 'cash', label: 'Cash' },
@@ -30,9 +31,9 @@ export function defaultInvoiceAmount(appointment, services) {
     return round2(serviceAmountFor(appointment, services));
 }
 
-/** The live wallet / due breakdown shown under the inputs. */
-export function renderPaymentSummary({ invoiceAmount, walletRedeem, walletBalance, cap }) {
-    const split = splitPayment({ invoiceAmount, walletRedeemed: walletRedeem });
+/** The live discount / wallet / due breakdown shown under the inputs. */
+export function renderPaymentSummary({ invoiceAmount, walletRedeem, walletBalance, cap, discount = 0, discountText = '' }) {
+    const split = splitPayment({ invoiceAmount, walletRedeemed: walletRedeem, discount });
     const row = (label, value, cls = 'text-slate-200') => `
         <div class="flex items-center justify-between">
             <span class="text-[11px] text-slate-400">${esc(label)}</span>
@@ -42,6 +43,7 @@ export function renderPaymentSummary({ invoiceAmount, walletRedeem, walletBalanc
 
     return `
         ${row('Invoice total', formatCurrency(split.invoiceAmount))}
+        ${split.discount > 0 ? row(`Client discount${discountText ? ` (${discountText})` : ''}`, `- ${formatCurrency(split.discount)}`, 'text-amber-400') : ''}
         ${row('Referral wallet', `- ${formatCurrency(split.walletRedeemed)}`, 'text-brand-400')}
         <div class="h-px bg-slate-800 my-1"></div>
         ${row('Amount due', formatCurrency(split.amountDue), split.amountDue > 0 ? 'text-emerald-400' : 'text-slate-400')}
@@ -55,6 +57,7 @@ function renderSettledInvoice(appointment) {
     const split = splitPayment({
         invoiceAmount: appointment.invoiceAmount,
         walletRedeemed: appointment.walletRedeemed,
+        discount: appointment.discountApplied,
     });
     const methodLabel = (PAYMENT_METHODS.find((m) => m.value === appointment.paymentMethod) || {}).label
         || appointment.paymentMethod
@@ -80,6 +83,7 @@ function renderSettledInvoice(appointment) {
             <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
                 ${line('Client', appointment.customerName || '—')}
                 ${line('Invoice total', formatCurrency(split.invoiceAmount))}
+                ${split.discount > 0 ? line('Client discount', `- ${formatCurrency(split.discount)}`, 'text-amber-400') : ''}
                 ${line('Paid from wallet', formatCurrency(split.walletRedeemed), 'text-brand-400')}
                 ${line('Paid by ' + methodLabel, formatCurrency(split.amountDue), 'text-emerald-400')}
                 ${appointment.walletBalanceBefore !== undefined ? line('Wallet before', formatCurrency(appointment.walletBalanceBefore), 'text-slate-300') : ''}
@@ -113,8 +117,10 @@ export function renderPaymentForm(state) {
     const settings = sanitizeSettings(state.referralSettings);
     const invoiceAmount = defaultInvoiceAmount(appointment, services);
     const walletBalance = round2(Math.max(0, num(customer && customer.walletBalance)));
+    const discount = customerDiscountFor(customer, invoiceAmount);
+    const discountText = discountLabel(customer);
     const cap = settings.enabled
-        ? maxRedeemable({ walletBalance, invoiceAmount, settings })
+        ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings })
         : 0;
 
     const walletBlock = cap > 0
@@ -162,7 +168,7 @@ export function renderPaymentForm(state) {
             ${formField('Reference (optional)', textInput('paymentReference', 'UPI ref / last 4 digits', { required: false, value: '' }))}
 
             <div data-payment-summary class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
-                ${renderPaymentSummary({ invoiceAmount, walletRedeem: 0, walletBalance, cap })}
+                ${renderPaymentSummary({ invoiceAmount, walletRedeem: 0, walletBalance, cap, discount, discountText })}
             </div>
 
             <button type="submit" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">Collect Payment</button>

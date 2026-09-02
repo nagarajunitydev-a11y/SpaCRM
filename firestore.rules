@@ -79,7 +79,19 @@ service cloud.firestore {
             || (data.walletBalance is number && data.walletBalance >= 0))
         && isOptionalOrNull(data.get('referralCode', null), 16)
         && isOptionalOrNull(data.get('referredBy', null), 128)
-        && isOptionalOrNull(data.get('referredByCode', null), 16);
+        && isOptionalOrNull(data.get('referredByCode', null), 16)
+        // Date of birth: a plain YYYY-MM-DD string, never required. An empty
+        // string (no DOB entered) is explicitly allowed alongside a full date.
+        && (data.get('dob', null) == null
+            || data.dob == ''
+            || (data.dob is string && data.dob.size() == 10))
+        // Per-client discount: optional type + non-negative value; a
+        // percentage discount can never exceed 100.
+        && (data.get('discountType', null) == null
+            || data.discountType == '' || data.discountType == 'percentage' || data.discountType == 'fixed')
+        && (data.get('discountValue', null) == null
+            || (data.discountValue is number && data.discountValue >= 0
+                && (data.get('discountType', '') != 'percentage' || data.discountValue <= 100)));
     }
 
     // A customer created by an anonymous public-booking visitor must start
@@ -202,13 +214,30 @@ service cloud.firestore {
     function isValidService(data) {
       return isNonEmptyString(data.name, 120)
         && data.price is number && data.price >= 0
-        && isNonEmptyString(data.duration, 20);
+        && isNonEmptyString(data.duration, 20)
+        && isOptionalOrNull(data.get('category', null), 60)
+        && (data.get('active', null) == null || data.active is bool);
     }
 
     function isValidStaff(data) {
       return isNonEmptyString(data.name, 120)
         && isNonEmptyString(data.role, 120)
         && isNonEmptyString(data.phone, 40);
+    }
+
+    function isValidAttendanceStatus(status) {
+      return status == 'Present' || status == 'Absent' || status == 'Late'
+        || status == 'Half Day' || status == 'Leave';
+    }
+
+    function isValidAttendance(data) {
+      return isNonEmptyString(data.staffId, 128)
+        && isNonEmptyString(data.staffName, 120)
+        && data.date is string && data.date.size() == 10
+        && isValidAttendanceStatus(data.status)
+        && isOptionalOrNull(data.get('checkIn', null), 5)
+        && isOptionalOrNull(data.get('checkOut', null), 5)
+        && isOptionalOrNull(data.get('notes', null), 300);
     }
 
     function isValidSalon(data) {
@@ -268,6 +297,14 @@ service cloud.firestore {
       match /staff/{docId} {
         allow read: if canAccessSalon(salonId);
         allow create, update: if canAccessSalon(salonId) && isValidStaff(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      // Attendance. Document id is deterministic (`{staffId}_{date}`), so the
+      // database key itself prevents a second record for the same staff
+      // member on the same day — a duplicate `create` fails outright.
+      match /attendance/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidAttendance(request.resource.data);
         allow delete: if canAccessSalon(salonId);
       }
       match /appointments/{docId} {
@@ -394,6 +431,9 @@ service cloud.firestore {
       allow read: if isAdmin();
     }
     match /{path=**}/staff/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/attendance/{docId} {
       allow read: if isAdmin();
     }
     match /{path=**}/referrals/{docId} {

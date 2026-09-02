@@ -20,6 +20,16 @@ import {
     sanitizeSettings,
 } from '../../core/referral.js';
 import { WALLET_TX_LABELS } from '../../core/wallet.js';
+import { discountLabel } from '../../core/discount.js';
+
+/** "1990-05-14" -> "14 May 1990" for display. */
+function formatDob(dob) {
+    if (!dob || dob.length !== 10) return '';
+    const [y, m, d] = dob.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 function statTile(label, value, cls = 'text-white') {
     return `
@@ -101,11 +111,16 @@ export function renderCustomerProfile(state) {
             </div>
         `;
 
+    const dobDisplay = formatDob(customer.dob);
+    const discountText = discountLabel(customer);
+
     return `
         <div class="space-y-4">
             <div class="text-center">
                 <p class="text-sm font-extrabold text-slate-100">${esc(customer.name)}</p>
                 <p class="text-[11px] text-slate-400 mt-0.5">${esc(customer.phone || 'No phone on file')}</p>
+                ${dobDisplay ? `<p class="text-[10px] text-slate-500 mt-0.5 flex items-center justify-center gap-1"><i data-lucide="cake" class="w-3 h-3"></i><span>${esc(dobDisplay)}</span></p>` : ''}
+                ${discountText ? `<p class="text-[10px] text-amber-400 font-semibold mt-1">${esc(discountText)}${customer.discountType === 'fixed' ? ` — ₹${esc(customer.discountValue)}` : ''}</p>` : ''}
             </div>
 
             ${codeBlock}

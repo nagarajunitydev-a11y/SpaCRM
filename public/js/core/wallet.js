@@ -126,16 +126,24 @@ export function invoiceNoFor(appointmentId) {
     return appointmentId ? `INV-${String(appointmentId).toUpperCase()}` : '';
 }
 
-/** Split of an invoice between wallet money and the cash/UPI/card leg. */
-export function splitPayment({ invoiceAmount, walletRedeemed }) {
+/**
+ * Split of an invoice between a client discount, wallet money and the
+ * cash/UPI/card leg. The discount is applied first (it reduces what the
+ * wallet can be redeemed against), so `amountDue` is never negative even
+ * when a discount and a full wallet redemption are combined.
+ */
+export function splitPayment({ invoiceAmount, walletRedeemed, discount = 0 }) {
     const invoice = Math.max(0, round2(invoiceAmount));
-    const wallet = Math.max(0, Math.min(invoice, round2(walletRedeemed)));
+    const appliedDiscount = Math.max(0, Math.min(invoice, round2(discount)));
+    const afterDiscount = round2(invoice - appliedDiscount);
+    const wallet = Math.max(0, Math.min(afterDiscount, round2(walletRedeemed)));
     return {
         invoiceAmount: invoice,
+        discount: appliedDiscount,
         walletRedeemed: wallet,
-        amountDue: round2(invoice - wallet),
-        isSplit: wallet > 0 && round2(invoice - wallet) > 0,
-        isFullyWallet: wallet > 0 && round2(invoice - wallet) === 0,
+        amountDue: round2(afterDiscount - wallet),
+        isSplit: wallet > 0 && round2(afterDiscount - wallet) > 0,
+        isFullyWallet: wallet > 0 && round2(afterDiscount - wallet) === 0,
     };
 }
 

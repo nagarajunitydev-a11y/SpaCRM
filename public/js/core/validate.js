@@ -10,6 +10,7 @@
  */
 
 import { isValidCodeFormat, normalizeCode, REWARD_TYPES, REWARD_TRIGGERS, num, round2 } from './referral.js';
+import { todayStr } from './utils.js';
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -17,6 +18,9 @@ export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Default country dial code (India). */
 export const IN_DIAL_CODE = '91';
+
+/** Valid staff attendance statuses. */
+export const ATTENDANCE_STATUSES = ['Present', 'Absent', 'Late', 'Half Day', 'Leave'];
 
 /**
  * Reduce any phone input to its national digits. Non-digit characters are
@@ -59,13 +63,6 @@ export function isValidDate(value) {
     return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
-function todayStr() {
-    const d = new Date();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${mm}-${dd}`;
-}
-
 function nowHM() {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -88,6 +85,14 @@ const numberMax = (max, msg) => (v) => {
 };
 /** Optional referral code: blank is fine, anything present must be well-formed. */
 const referralCode = (msg) => (v) => (isBlank(v) ? null : isValidCodeFormat(v) ? null : msg);
+/** A date that must not fall after today (used for date of birth). */
+const dateNotFuture = (msg) => (v) => (isBlank(v) || !isValidDate(v) ? null : String(v) > todayStr() ? msg : null);
+/** A birth year within a plausible human lifespan. */
+const plausibleBirthYear = (msg) => (v) => {
+    if (isBlank(v) || !isValidDate(v)) return null;
+    const year = Number(String(v).slice(0, 4));
+    return year >= new Date().getFullYear() - 120 ? null : msg;
+};
 
 /** Runs every validator for a field, stopping at the first failure. */
 function check(errors, field, value, validators) {
@@ -155,6 +160,20 @@ export function validateForm(formKey, data, ctx = {}) {
         // Whether it actually resolves to another client (and is not a
         // self-referral) is decided by referralService.validateReferralCode.
         check(errors, 'referralCode', v('referralCode'), [referralCode('Enter a valid 8-character referral code.')]);
+        check(errors, 'dob', v('dob'), [
+            dateValid('Enter a valid date.'),
+            dateNotFuture('Date of birth cannot be in the future.'),
+            plausibleBirthYear('Enter a valid date of birth.'),
+        ]);
+        const discountType = v('discountType');
+        if (!isBlank(discountType) && discountType !== 'percentage' && discountType !== 'fixed') {
+            errors.discountType = 'Select a valid discount type.';
+        }
+        if (!isBlank(discountType)) {
+            const valueRules = [required('Enter a discount value.'), numberMin(0, 'Discount value must be zero or more.')];
+            if (discountType === 'percentage') valueRules.push(numberMax(100, 'A percentage discount cannot exceed 100%.'));
+            check(errors, 'discountValue', v('discountValue'), valueRules);
+        }
         return errors;
     }
 
@@ -222,6 +241,17 @@ export function validateForm(formKey, data, ctx = {}) {
         check(errors, 'name', v('name'), [required('Staff name is required.')]);
         check(errors, 'role', v('role'), [required('Role / specialization is required.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
+        return errors;
+    }
+
+    if (formKey === 'submit-attendance') {
+        check(errors, 'staffId', v('staffId'), [required('Select a staff member.')]);
+        check(errors, 'date', v('date'), [required('Date is required.'), dateValid('Enter a valid date.')]);
+        if (!ATTENDANCE_STATUSES.includes(v('status'))) {
+            errors.status = 'Select a valid status.';
+        }
+        check(errors, 'checkIn', v('checkIn'), [timeValid('Enter a valid check-in time.')]);
+        check(errors, 'checkOut', v('checkOut'), [timeValid('Enter a valid check-out time.')]);
         return errors;
     }
 
