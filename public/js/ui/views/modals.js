@@ -113,7 +113,6 @@ function renderForm(state, type) {
 
     if (type === 'customer') {
         const rec = editingRecord(state, 'customer');
-        const discountType = rec?.discountType || '';
         return `
             <form data-action="submit-customer" class="space-y-3.5" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
@@ -128,14 +127,6 @@ function renderForm(state, type) {
                         'Enter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.',
                     )
                     : ''}
-                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-3">
-                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Client Discount (optional)</p>
-                    ${formField('Discount Type', selectControl('discountType', [
-                        { value: 'percentage', label: 'Percentage (%)' },
-                        { value: 'fixed', label: 'Fixed amount (₹)' },
-                    ], 'No discount', { required: false, value: discountType }))}
-                    ${formField('Discount Value', textInput('discountValue', '10', { type: 'number', required: false, className: 'input-number', value: rec?.discountValue }), 'Applied automatically at checkout, capped so it never exceeds the invoice amount.')}
-                </div>
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client'}</button>
             </form>
         `;

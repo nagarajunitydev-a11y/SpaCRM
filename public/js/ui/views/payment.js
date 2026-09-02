@@ -15,13 +15,18 @@ import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 import { serviceAmountFor } from '../../core/revenue.js';
 import { sanitizeSettings, maxRedeemable, round2, num } from '../../core/referral.js';
 import { splitPayment, invoiceNoFor } from '../../core/wallet.js';
-import { customerDiscountFor, discountLabel } from '../../core/discount.js';
+import { DISCOUNT_TYPES, discountAmountFor, discountLabel } from '../../core/discount.js';
 
 export const PAYMENT_METHODS = [
     { value: 'cash', label: 'Cash' },
     { value: 'upi', label: 'UPI' },
     { value: 'card', label: 'Card' },
     { value: 'other', label: 'Other' },
+];
+
+const DISCOUNT_TYPE_OPTIONS = [
+    { value: DISCOUNT_TYPES.PERCENTAGE, label: 'Percentage (%)' },
+    { value: DISCOUNT_TYPES.FIXED, label: 'Fixed Amount (₹)' },
 ];
 
 /** Default invoice total for an appointment: recorded invoice, else catalog. */
@@ -117,8 +122,11 @@ export function renderPaymentForm(state) {
     const settings = sanitizeSettings(state.referralSettings);
     const invoiceAmount = defaultInvoiceAmount(appointment, services);
     const walletBalance = round2(Math.max(0, num(customer && customer.walletBalance)));
-    const discount = customerDiscountFor(customer, invoiceAmount);
-    const discountText = discountLabel(customer);
+    const canEditDiscount = state.userRole === 'salon_owner';
+    const discountType = customer?.discountType || '';
+    const discountValue = customer?.discountValue || '';
+    const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
+    const discountText = discountLabel({ type: discountType, value: discountValue });
     const cap = settings.enabled
         ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings })
         : 0;
@@ -166,6 +174,20 @@ export function renderPaymentForm(state) {
 
             ${formField('Payment Method', selectControl('paymentMethod', PAYMENT_METHODS, 'Choose a method', { required: false, value: appointment.paymentMethod || '' }))}
             ${formField('Reference (optional)', textInput('paymentReference', 'UPI ref / last 4 digits', { required: false, value: '' }))}
+
+            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-3">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                    <i data-lucide="badge-percent" class="w-3.5 h-3.5 shrink-0"></i><span>Customer Discount</span>
+                </p>
+                ${canEditDiscount
+                    ? `
+                        ${formField('Discount Type', selectControl('discountType', DISCOUNT_TYPE_OPTIONS, 'No discount', { required: false, value: discountType }))}
+                        ${formField('Discount Value', textInput('discountValue', '10', { type: 'number', required: false, className: 'input-number', value: discountValue }), 'Applied to this bill and saved for this client\'s future invoices. Capped so it can never exceed the bill amount.')}
+                    `
+                    : `<p class="text-[11px] text-slate-400">${esc(discountText || 'No discount configured for this client.')}</p>
+                       <input type="hidden" name="discountType" value="${escAttr(discountType)}">
+                       <input type="hidden" name="discountValue" value="${escAttr(discountValue)}">`}
+            </div>
 
             <div data-payment-summary class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
                 ${renderPaymentSummary({ invoiceAmount, walletRedeem: 0, walletBalance, cap, discount, discountText })}

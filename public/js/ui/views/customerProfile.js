@@ -112,7 +112,7 @@ export function renderCustomerProfile(state) {
         `;
 
     const dobDisplay = formatDob(customer.dob);
-    const discountText = discountLabel(customer);
+    const discountText = discountLabel({ type: customer.discountType, value: customer.discountValue });
 
     return `
         <div class="space-y-4">

@@ -60,7 +60,7 @@ import { renderBookingLinkModal, bookingLinkFor } from './ui/views/bookingLink.j
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
-import { customerDiscountFor, discountLabel } from './core/discount.js';
+import { discountAmountFor, discountLabel } from './core/discount.js';
 import * as attendanceRepository from './services/attendanceRepository.js';
 import { PREDEFINED_SERVICES } from './core/predefinedServices.js';
 import { isAndroidTwa } from './core/platform.js';
@@ -516,7 +516,11 @@ function updatePaymentSummary(form) {
     const settings = sanitizeSettings(state.referralSettings);
     const invoiceAmount = round2(num(data.invoiceAmount));
     const walletBalance = referralService.walletBalanceOf(customer);
-    const discount = customerDiscountFor(customer, invoiceAmount);
+    // The owner can edit the discount fields inline in this same form, so the
+    // live preview always reads their current (possibly unsaved) values —
+    // not the customer's last-saved discount.
+    const discountConfig = { type: data.discountType || '', value: data.discountValue };
+    const discount = discountAmountFor(discountConfig, invoiceAmount);
     const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings }) : 0;
 
     container.innerHTML = renderPaymentSummary({
@@ -525,7 +529,7 @@ function updatePaymentSummary(form) {
         walletBalance,
         cap,
         discount,
-        discountText: discountLabel(customer),
+        discountText: discountLabel(discountConfig),
     });
     sanitizeDOM(container);
 
@@ -862,13 +866,13 @@ const actions = {
 
     async 'submit-customer'(form, event, data) {
         const id = data.id;
+        // Discount is configured from the Payment window (see 'collect-payment'
+        // below), not this form — editing a client here never touches it.
         const payload = {
             name: data.name,
             phone: toIndianE164(data.phone),
             email: data.email,
             dob: data.dob || '',
-            discountType: data.discountType || '',
-            discountValue: data.discountType ? (parseFloat(data.discountValue) || 0) : 0,
         };
 
         if (id) {
@@ -1303,7 +1307,15 @@ const actions = {
         const requested = round2(num(data.walletRedeem));
         const customer = customersRepository.getCustomer(appointment.customerId);
         const balance = referralService.walletBalanceOf(customer);
-        const discount = customerDiscountFor(customer, invoiceAmount);
+
+        // The discount is configured right here in the Payment window (owner-only
+        // fields; see payment.js) rather than on the client record's own form —
+        // whatever is in the form is this bill's discount, clamped so it can
+        // never exceed the invoice amount.
+        const isOwner = store.getState().userRole === 'salon_owner';
+        const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+        const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
+        const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
 
         // The wallet leg runs first because it is the part that must be atomic.
         // If it fails nothing is billed and the error surfaces to the user.
@@ -1318,6 +1330,15 @@ const actions = {
             });
         }
 
+        // Persist the (possibly edited) discount back onto the client record so
+        // it carries forward to their future invoices, same as before it moved
+        // into this screen — only the entry point changed.
+        if (customer && ((customer.discountType || '') !== discountType || num(customer.discountValue) !== discountValue)) {
+            await customersRepository.updateCustomer(customer.id, { discountType, discountValue }).catch((err) => {
+                console.warn('[discount] Could not save client discount:', err);
+            });
+        }
+
         const split = splitPayment({ invoiceAmount, walletRedeemed: redemption.redeemed, discount });
         const patch = {
             invoiceNo: invoiceNoFor(appointment.id),
@@ -1326,15 +1347,17 @@ const actions = {
             // service amount; once billing has happened the settled invoice
             // total is the authoritative figure for that appointment.
             amount: split.invoiceAmount,
-            discountType: customer?.discountType || '',
-            discountValue: num(customer?.discountValue),
+            discountType,
+            discountValue,
             discountApplied: split.discount,
             walletRedeemed: split.walletRedeemed,
             walletBalanceBefore: redemption.balanceBefore,
             walletBalanceAfter: redemption.balanceAfter,
             amountDue: split.amountDue,
             paid: true,
-            paymentMethod: split.amountDue > 0 ? (data.paymentMethod || 'cash') : 'wallet',
+            paymentMethod: split.amountDue > 0
+                ? (data.paymentMethod || 'cash')
+                : (split.walletRedeemed > 0 ? 'wallet' : 'discount'),
             paymentReference: data.paymentReference || '',
             paidAt: new Date().toISOString(),
             refunded: false,

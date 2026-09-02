@@ -11,6 +11,7 @@
 
 import { isValidCodeFormat, normalizeCode, REWARD_TYPES, REWARD_TRIGGERS, num, round2 } from './referral.js';
 import { todayStr } from './utils.js';
+import { discountAmountFor } from './discount.js';
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -165,15 +166,6 @@ export function validateForm(formKey, data, ctx = {}) {
             dateNotFuture('Date of birth cannot be in the future.'),
             plausibleBirthYear('Enter a valid date of birth.'),
         ]);
-        const discountType = v('discountType');
-        if (!isBlank(discountType) && discountType !== 'percentage' && discountType !== 'fixed') {
-            errors.discountType = 'Select a valid discount type.';
-        }
-        if (!isBlank(discountType)) {
-            const valueRules = [required('Enter a discount value.'), numberMin(0, 'Discount value must be zero or more.')];
-            if (discountType === 'percentage') valueRules.push(numberMax(100, 'A percentage discount cannot exceed 100%.'));
-            check(errors, 'discountValue', v('discountValue'), valueRules);
-        }
         return errors;
     }
 
@@ -184,14 +176,27 @@ export function validateForm(formKey, data, ctx = {}) {
         ]);
         check(errors, 'walletRedeem', v('walletRedeem'), [numberMin(0, 'Redemption must be zero or more.')]);
 
+        const discountType = v('discountType');
+        if (!isBlank(discountType) && discountType !== 'percentage' && discountType !== 'fixed') {
+            errors.discountType = 'Select a valid discount type.';
+        }
+        if (!isBlank(discountType)) {
+            const discountRules = [numberMin(0, 'Discount value must be zero or more.')];
+            if (discountType === 'percentage') discountRules.push(numberMax(100, 'A percentage discount cannot exceed 100%.'));
+            check(errors, 'discountValue', v('discountValue'), discountRules);
+        }
+
         const invoice = round2(num(v('invoiceAmount')));
         const redeem = round2(num(v('walletRedeem')));
-        if (!errors.walletRedeem && redeem > invoice) {
+        const discount = errors.discountType || errors.discountValue
+            ? 0
+            : discountAmountFor({ type: discountType, value: v('discountValue') }, invoice);
+        if (!errors.walletRedeem && redeem > round2(invoice - discount)) {
             errors.walletRedeem = 'Redemption cannot exceed the invoice amount.';
         }
-        // A cash/UPI/card leg is only required when the wallet does not cover
-        // the whole invoice (a fully wallet-paid invoice needs no method).
-        if (!errors.walletRedeem && round2(invoice - redeem) > 0) {
+        // A cash/UPI/card leg is only required when the discount + wallet don't
+        // already cover the whole invoice (a fully covered invoice needs no method).
+        if (!errors.walletRedeem && round2(invoice - discount - redeem) > 0) {
             check(errors, 'paymentMethod', v('paymentMethod'), [required('Select a payment method.')]);
         }
         return errors;
