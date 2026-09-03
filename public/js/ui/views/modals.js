@@ -10,6 +10,7 @@ import { esc, escAttr } from '../../core/sanitize.js';
 import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '../components.js';
 import { ATTENDANCE_STATUSES } from '../../core/validate.js';
 import { PREDEFINED_SERVICES } from '../../core/predefinedServices.js';
+import { TUTORIAL_ORDER, TUTORIALS } from '../../core/tutorialContent.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
 import { scopedBySalon, formatCurrency } from '../../core/utils.js';
@@ -32,6 +33,7 @@ const TITLES = {
     'confirm-delete': 'Confirm Deletion',
     'service-catalogue': 'Import From Catalogue',
     attendance: 'Mark Attendance',
+    'help-menu': 'Help & Guided Tours',
 };
 
 const EDIT_TITLES = {
@@ -86,6 +88,10 @@ function appointmentServiceNames(record) {
 function renderForm(state, type) {
     const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const staff = scopedBySalon(state.staffList, state.currentSalonId);
+
+    if (type === 'help-menu') {
+        return renderHelpMenu();
+    }
 
     if (type === 'rewards') {
         return renderRewardsModal(state);
@@ -306,6 +312,35 @@ export function renderCustomerSuggestions(matches, query, opts = {}) {
             ${list}
             ${list && addNew ? '<div class="h-px bg-slate-800 my-1"></div>' : ''}
             ${addNew}
+        </div>
+    `;
+}
+
+const TOUR_ICONS = { staff: 'users', services: 'sparkles', customers: 'user-round', appointments: 'calendar' };
+
+/** Help menu: replay the full Initial Setup Guide, or just one section's tour. */
+function renderHelpMenu() {
+    return `
+        <div class="space-y-4">
+            <button type="button" data-action="replay-tutorial" data-tour="all"
+                class="w-full flex items-center gap-3 bg-brand-600/15 border border-brand-500/30 px-4 py-3.5 rounded-2xl text-left transition active:scale-[0.98] touch-manipulation">
+                <span class="w-10 h-10 rounded-xl bg-brand-600 text-white flex items-center justify-center shrink-0"><i data-lucide="sparkles" class="w-5 h-5"></i></span>
+                <span class="min-w-0">
+                    <span class="block text-xs font-bold text-brand-200">Restart Full Setup Guide</span>
+                    <span class="block text-[10px] text-slate-400 mt-0.5">Staff → Services → Clients → Booking, step by step</span>
+                </span>
+            </button>
+
+            <div class="space-y-2">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Or replay just one section</p>
+                ${TUTORIAL_ORDER.map((id) => `
+                    <button type="button" data-action="replay-tutorial" data-tour="${escAttr(id)}"
+                        class="w-full flex items-center gap-3 bg-slate-950/60 border border-slate-800 hover:border-brand-500/40 px-4 py-3 rounded-2xl text-left transition active:scale-[0.98] touch-manipulation">
+                        <span class="w-9 h-9 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center shrink-0"><i data-lucide="${escAttr(TOUR_ICONS[id] || 'info')}" class="w-4 h-4"></i></span>
+                        <span class="text-xs font-semibold text-slate-100">${esc(TUTORIALS[id].label)}</span>
+                    </button>
+                `).join('')}
+            </div>
         </div>
     `;
 }

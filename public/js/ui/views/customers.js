@@ -4,7 +4,7 @@
  */
 
 import { esc } from '../../core/sanitize.js';
-import { sectionHeader, actionButton, emptyState, iconAction } from '../components.js';
+import { sectionHeader, actionButton, emptyState, iconAction, infoIcon } from '../components.js';
 import { scopedBySalon, formatCurrency } from '../../core/utils.js';
 import { num, round2 } from '../../core/referral.js';
 
@@ -35,10 +35,13 @@ export function renderCustomers(state) {
             ${sectionHeader(
                 'Clients',
                 '',
-                actionButton('Add Client', { action: 'modal', data: { modal: 'customer' }, iconName: 'user-plus' }),
+                `<div class="flex items-center gap-2">
+                    ${infoIcon('customers', 'About Clients')}
+                    ${actionButton('Add Client', { action: 'modal', data: { modal: 'customer', tutorial: 'customers-add-button' }, iconName: 'user-plus' })}
+                </div>`,
             )}
 
-            <div class="relative">
+            <div class="relative" data-tutorial="customers-search">
                 <input type="text" data-action="customer-search-list" placeholder="Search clients by name, phone, email…"
                     value=""
                     class="w-full bg-slate-900 border border-slate-800 pl-9 pr-9 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
@@ -49,7 +52,7 @@ export function renderCustomers(state) {
                 </button>
             </div>
 
-            <div data-customer-list>
+            <div data-customer-list data-tutorial="customers-list">
                 ${customers.length === 0
                     ? emptyState('No clients registered.')
                     : `

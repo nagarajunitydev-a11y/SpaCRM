@@ -195,6 +195,15 @@ async function main() {
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
     await fill('form[data-action="email-auth"]', { salonName: 'Referral Test Salon', email: 'owner@ref.test', password: 'secret123' });
     await submit('form[data-action="email-auth"]');
+    // A first-time owner's Initial Setup Guide can auto-navigate off the
+    // dashboard within milliseconds of landing on it, so waiting on
+    // dashboard-only text here would be racy — either signal means
+    // sign-in succeeded.
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
+    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
+        await click('[data-tutorial-action="skip"]');
+        await click('[data-action="tab"][data-tab="dashboard"]');
+    }
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
     assert(true, 'owner dashboard reached');
 

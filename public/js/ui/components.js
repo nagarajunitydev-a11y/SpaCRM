@@ -55,6 +55,11 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             </div>
             <div class="flex items-center space-x-2 shrink-0">
                 ${salonSelector}
+                ${isOwner ? `
+                <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation">
+                    <i data-lucide="circle-help" class="w-4 h-4"></i>
+                </button>
+                ` : ''}
                 <button data-action="logout" aria-label="Logout" title="Logout" class="w-9 h-9 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 flex items-center justify-center transition active:scale-95 touch-manipulation">
                     <i data-lucide="log-out" class="w-4 h-4"></i>
                 </button>
@@ -135,6 +140,16 @@ export function actionButton(label, { action, data = {}, kind = 'primary', iconN
     return `
         <button data-action="${escAttr(action)}" ${dataAttrs} class="${escAttr(cls)} flex items-center space-x-1.5 active:scale-95 touch-manipulation ${escAttr(className)}">
             ${iconHtml}${iconHtml ? '<span>' + esc(label) + '</span>' : esc(label)}
+        </button>
+    `;
+}
+
+/** Small ⓘ icon button opening a short "what/why/how" explanation of a section. */
+export function infoIcon(sectionId, label = 'About this section') {
+    return `
+        <button type="button" data-action="section-info" data-section="${escAttr(sectionId)}" aria-label="${escAttr(label)}" title="${escAttr(label)}"
+            class="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation shrink-0">
+            <i data-lucide="info" class="w-3.5 h-3.5"></i>
         </button>
     `;
 }
@@ -283,6 +298,7 @@ export default {
     quickAction,
     actionButton,
     sectionHeader,
+    infoIcon,
     emptyState,
     badge,
     networkBanner,

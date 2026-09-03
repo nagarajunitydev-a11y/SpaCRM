@@ -170,6 +170,15 @@ async function main() {
     console.log('\n[2] Email sign-in (demo mode) -> dashboard');
     await fillForm({ salonName: 'Luxe Glow Test', email: 'owner@test.com', password: 'secret123' });
     await submitForm('form[data-action="email-auth"]');
+    // A first-time owner's Initial Setup Guide (core/tutorialContent.js) can
+    // auto-navigate off the dashboard within milliseconds of landing on it,
+    // so waiting on dashboard-only text here would be racy — either signal
+    // means sign-in succeeded.
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
+    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
+        await click('[data-tutorial-action="skip"]');
+        await click('[data-action="tab"][data-tab="dashboard"]');
+    }
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
     assert(await evaluate(`document.body.innerText.includes('Bookings')`), 'dashboard stat cards');
     assert(await evaluate(`document.querySelector('[data-action="modal"]') !== null`), 'quick action buttons');

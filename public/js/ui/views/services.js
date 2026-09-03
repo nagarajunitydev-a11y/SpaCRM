@@ -4,7 +4,7 @@
  */
 
 import { esc } from '../../core/sanitize.js';
-import { sectionHeader, actionButton, emptyState, iconAction, badge } from '../components.js';
+import { sectionHeader, actionButton, emptyState, iconAction, badge, infoIcon } from '../components.js';
 import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 
 export function renderServices(state) {
@@ -15,14 +15,18 @@ export function renderServices(state) {
             ${sectionHeader(
                 'Services & Pricing',
                 'Treatments and salon packages',
-                actionButton('Add Service', { action: 'modal', data: { modal: 'service' }, iconName: 'plus' }),
+                `<div class="flex items-center gap-2">
+                    ${infoIcon('services', 'About Services')}
+                    ${actionButton('Add Service', { action: 'modal', data: { modal: 'service', tutorial: 'services-add-button' }, iconName: 'plus' })}
+                </div>`,
             )}
 
-            <button data-action="modal" data-modal="service-catalogue"
+            <button data-action="modal" data-modal="service-catalogue" data-tutorial="services-catalogue-button"
                 class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-xl transition active:scale-[0.98] touch-manipulation flex items-center justify-center gap-1.5">
                 <i data-lucide="book-open" class="w-3.5 h-3.5"></i><span>Import From Catalogue</span>
             </button>
 
+            <div data-tutorial="services-list">
             ${services.length === 0
                 ? emptyState('No services in the catalog yet.')
                 : `
@@ -50,6 +54,7 @@ export function renderServices(state) {
                         }).join('')}
                     </div>
                 `}
+            </div>
         </div>
     `;
 }

@@ -8,7 +8,7 @@
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
-import { sectionHeader, actionButton, badge, emptyState, iconAction } from '../components.js';
+import { sectionHeader, actionButton, badge, emptyState, iconAction, infoIcon } from '../components.js';
 import { icon } from '../icons.js';
 import { formatCurrency, scopedBySalon } from '../../core/utils.js';
 
@@ -242,10 +242,13 @@ export function renderAppointments(state) {
             ${sectionHeader(
                 'Appointments',
                 'Manage client schedules & timings',
-                actionButton('Book', { action: 'modal', data: { modal: 'appointment' }, iconName: 'plus' }),
+                `<div class="flex items-center gap-2">
+                    ${infoIcon('appointments', 'About Booking Appointments')}
+                    ${actionButton('Book', { action: 'modal', data: { modal: 'appointment', tutorial: 'appointments-book-button' }, iconName: 'plus' })}
+                </div>`,
             )}
 
-            ${appointments.length > 0 ? filterBar(state, filters, searchQuery) : ''}
+            ${appointments.length > 0 ? `<div data-tutorial="appointments-filters">${filterBar(state, filters, searchQuery)}</div>` : ''}
 
             ${appointments.length > 0 ? `
                 <div class="flex items-center justify-between">
@@ -254,7 +257,7 @@ export function renderAppointments(state) {
                 </div>
             ` : ''}
 
-            <div data-appointment-list>${renderAppointmentListBody(filtered, appointments.length)}</div>
+            <div data-appointment-list data-tutorial="appointments-list">${renderAppointmentListBody(filtered, appointments.length)}</div>
         </div>
     `;
 }

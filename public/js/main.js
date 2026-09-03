@@ -64,6 +64,9 @@ import { discountAmountFor, discountLabel } from './core/discount.js';
 import * as attendanceRepository from './services/attendanceRepository.js';
 import { PREDEFINED_SERVICES } from './core/predefinedServices.js';
 import { installExitGuard } from './core/exitGuard.js';
+import { TUTORIAL_ORDER } from './core/tutorialContent.js';
+import { hasSeenSetupGuide, markSetupGuideSeen } from './core/tutorialProgress.js';
+import { startTour, dismissTour, isTourActive, showSectionInfo } from './ui/tutorialOverlay.js';
 import { isAndroidTwa } from './core/platform.js';
 
 const appEl = document.getElementById('app');
@@ -155,6 +158,41 @@ function maybeRunReferralMaintenance() {
 
 function syncSalonScope() {
     resolveSalonScope();
+}
+
+/**
+ * Start (or restart) a guided tour session. If the Staff tour is included,
+ * the roster sub-tab is selected first — the tour's steps target the Team
+ * roster, not Attendance, so a returning owner replaying it from wherever
+ * they last left the Staff screen still lands on the right elements.
+ */
+function startTutorialSession(tourIds) {
+    if (tourIds.includes('staff')) store.setState({ staffTab: 'roster' });
+    startTour(tourIds, { onNavigateTab: switchTab });
+}
+
+/**
+ * Offer the Initial Setup Guide once per browser, right after a brand-new
+ * owner finishes their first salon setup (see resolveSalonScope: `needsSalon`
+ * just became false). Guarded so this session can only ever offer it once,
+ * on top of core/tutorialProgress.js's own persistent "already seen" flag.
+ */
+let hasOfferedSetupTutorialThisSession = false;
+
+function maybeOfferSetupTutorial() {
+    if (hasOfferedSetupTutorialThisSession || hasSeenSetupGuide()) return;
+    const state = store.getState();
+    if (state.userRole !== 'salon_owner' || state.needsSalon || !state.salonsLoaded) return;
+    if ((state.salonsList || []).length === 0) return;
+
+    hasOfferedSetupTutorialThisSession = true;
+    markSetupGuideSeen();
+    // Short and fixed, not the arbitrary 500ms this used to be: long enough
+    // for the fresh dashboard to actually paint, short enough that it can't
+    // realistically race a real user who has already tapped elsewhere by
+    // the time it fires — the tour forces its own tab on start, so firing
+    // late would otherwise yank an already-navigating user back to Staff.
+    setTimeout(() => startTutorialSession([...TUTORIAL_ORDER]), 200);
 }
 
 /**
@@ -648,6 +686,20 @@ const actions = {
 
     async 'modal'(el) {
         openModal(el.dataset.modal);
+    },
+
+    async 'open-help-menu'() {
+        openModal('help-menu');
+    },
+
+    async 'replay-tutorial'(el) {
+        closeModal();
+        const tour = el.dataset.tour;
+        startTutorialSession(tour === 'all' ? [...TUTORIAL_ORDER] : [tour]);
+    },
+
+    async 'section-info'(el) {
+        showSectionInfo(el.dataset.section);
     },
 
     async 'close-modal'() {
@@ -1630,14 +1682,22 @@ async function bootstrap() {
     store.subscribe(() => resolveSalonScope());
     store.subscribe(() => maybeRunReferralMaintenance());
     store.subscribe(() => maybeSyncPublicCatalog());
+    store.subscribe(() => maybeOfferSetupTutorial());
 
     attachDelegation();
     renderApp();
     resolveSalonScope();
     registerServiceWorker();
     installExitGuard({
-        hasOpenModal: () => store.getState().isModalOpen,
-        closeModal,
+        hasOpenModal: () => store.getState().isModalOpen || isTourActive(),
+        closeModal: () => {
+            if (isTourActive()) dismissTour();
+            else closeModal();
+        },
+    });
+    window.addEventListener('spacrm:replay-tutorial', (event) => {
+        const tourId = event.detail?.tourId;
+        if (tourId) startTutorialSession([tourId]);
     });
 }
 

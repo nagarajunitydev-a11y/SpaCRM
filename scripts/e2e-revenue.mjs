@@ -142,6 +142,15 @@ async function main() {
         return true;
     })()`);
     await evaluate(`document.querySelector('form[data-action="email-auth"]').requestSubmit()`);
+    // A first-time owner's Initial Setup Guide can auto-navigate off the
+    // dashboard within milliseconds of landing on it, so waiting on
+    // dashboard-only text here would be racy — either signal means
+    // sign-in succeeded.
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
+    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
+        await click('[data-tutorial-action="skip"]');
+        await click('[data-action="tab"][data-tab="dashboard"]');
+    }
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
 
     console.log('\n[1] Empty period shows ₹0 — no fabricated fallback');
