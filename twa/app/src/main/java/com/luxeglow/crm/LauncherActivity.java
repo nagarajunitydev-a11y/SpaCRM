@@ -6,6 +6,7 @@ import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
@@ -22,6 +23,7 @@ import android.view.WindowManager;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -40,6 +42,8 @@ import android.widget.TextView;
 /** Thin HTTPS-only container for hosted SPACRM. No web CRM assets are bundled. */
 public class LauncherActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 41;
+    private static final String CACHE_MIGRATION_PREFERENCES = "spacrm_wrapper";
+    private static final String CACHE_MIGRATION_KEY = "web_cache_migration_v1";
     private WebView webView;
     private ProgressBar progress;
     private LinearLayout errorPanel;
@@ -52,7 +56,7 @@ public class LauncherActivity extends Activity {
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        homeUri = Uri.parse(BuildConfig.SPACRM_PRODUCTION_URL);
+        homeUri = withAndroidPlatform(Uri.parse(BuildConfig.SPACRM_PRODUCTION_URL));
         if (!isAllowedUrl(homeUri)) throw new IllegalStateException("SPACRM_PRODUCTION_URL must be HTTPS.");
         configureWindow();
         createContent();
@@ -112,7 +116,10 @@ public class LauncherActivity extends Activity {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return blockUntrustedNavigation(request.getUrl()); }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return blockUntrustedNavigation(Uri.parse(url)); }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) { progress.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE); }
-            @Override public void onPageFinished(WebView view, String url) { progress.setVisibility(View.GONE); }
+            @Override public void onPageFinished(WebView view, String url) {
+                progress.setVisibility(View.GONE);
+                removeLegacyPwaCacheOnce();
+            }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) { if (request.isForMainFrame()) showError("Check your internet connection and try again."); }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) { if (request.isForMainFrame() && response.getStatusCode() >= 400) showError("The SPACRM service is temporarily unavailable."); }
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, android.net.http.SslError error) { handler.cancel(); showError("A secure connection to SPACRM could not be established."); }
@@ -129,6 +136,20 @@ public class LauncherActivity extends Activity {
             }
         });
         webView.setDownloadListener((url, userAgent, disposition, mimeType, length) -> download(url, userAgent, disposition, mimeType));
+        // Bridge for the web app's own Back-button exit-confirmation flow
+        // (core/exitGuard.js): JS cannot close a native Activity on its own,
+        // so "Exit" in the confirmation dialog calls this after the user has
+        // explicitly agreed to leave. The WebView is locked to a single
+        // trusted HTTPS origin (see isAllowedUrl), so exposing this is safe.
+        webView.addJavascriptInterface(new ExitBridge(), "AndroidNative");
+    }
+
+    /** Lets trusted, same-origin JS ask the Activity to close after the user confirms Exit. */
+    private final class ExitBridge {
+        @JavascriptInterface
+        public void exitApp() {
+            runOnUiThread(LauncherActivity.this::finish);
+        }
     }
 
     private boolean blockUntrustedNavigation(Uri uri) {
@@ -144,6 +165,32 @@ public class LauncherActivity extends Activity {
 
     private boolean isSecureUrl(Uri uri) {
         return uri != null && "https".equalsIgnoreCase(uri.getScheme()) && uri.getHost() != null;
+    }
+
+    private Uri withAndroidPlatform(Uri configuredUrl) {
+        if (configuredUrl == null || "android".equals(configuredUrl.getQueryParameter("platform"))) return configuredUrl;
+        return configuredUrl.buildUpon().appendQueryParameter("platform", "android").build();
+    }
+
+    /**
+     * Removes legacy PWA shell caches once when an existing app is updated to
+     * this wrapper. It deliberately does not clear cookies, local/session
+     * storage, IndexedDB, Firebase auth, or any CRM data.
+     */
+    private void removeLegacyPwaCacheOnce() {
+        SharedPreferences preferences = getSharedPreferences(CACHE_MIGRATION_PREFERENCES, MODE_PRIVATE);
+        if (preferences.getBoolean(CACHE_MIGRATION_KEY, false)) return;
+        preferences.edit().putBoolean(CACHE_MIGRATION_KEY, true).apply();
+        webView.clearCache(true); // WebView HTTP/resource cache only.
+        webView.evaluateJavascript(
+                "(async()=>{try{if('serviceWorker' in navigator){"
+                        + "const registrations=await navigator.serviceWorker.getRegistrations();"
+                        + "await Promise.all(registrations.map((registration)=>registration.unregister()));}}"
+                        + "catch(e){console.warn('SPACRM service worker migration failed',e);}"
+                        + "try{if('caches' in window){const keys=await caches.keys();await Promise.all(keys.map((key)=>caches.delete(key)));}}"
+                        + "catch(e){console.warn('SPACRM cache migration failed',e);}"
+                        + "finally{window.location.reload();}})()",
+                null);
     }
 
     private boolean isOnline() {

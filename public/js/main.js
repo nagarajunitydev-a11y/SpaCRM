@@ -63,6 +63,7 @@ import { serviceAmountFor } from './core/revenue.js';
 import { discountAmountFor, discountLabel } from './core/discount.js';
 import * as attendanceRepository from './services/attendanceRepository.js';
 import { PREDEFINED_SERVICES } from './core/predefinedServices.js';
+import { installExitGuard } from './core/exitGuard.js';
 import { isAndroidTwa } from './core/platform.js';
 
 const appEl = document.getElementById('app');
@@ -1634,6 +1635,10 @@ async function bootstrap() {
     renderApp();
     resolveSalonScope();
     registerServiceWorker();
+    installExitGuard({
+        hasOpenModal: () => store.getState().isModalOpen,
+        closeModal,
+    });
 }
 
 bootstrap();

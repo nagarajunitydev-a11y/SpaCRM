@@ -14,6 +14,7 @@ import { sanitizeDOM, esc } from '../core/sanitize.js';
 import { refreshIcons } from '../ui/icons.js';
 import { isValidIndianPhone, isBlank, EMAIL_RE } from '../core/validate.js';
 import { sanitizePhoneInputLive } from '../core/utils.js';
+import { installExitGuard } from '../core/exitGuard.js';
 import { isValidCodeFormat, normalizeCode } from '../core/referral.js';
 import { isBookableDate, localDateStr } from '../core/bookingConfig.js';
 import { totalDurationMinutes } from '../core/scheduling.js';
@@ -349,6 +350,7 @@ async function bootstrap() {
     store.subscribe(render);
     attachDelegation();
     render();
+    installExitGuard();
 
     const salonId = resolveSalonId();
     if (!salonId) {
