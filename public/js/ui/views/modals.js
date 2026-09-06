@@ -144,7 +144,6 @@ function renderForm(state, type) {
         return `
             <form data-action="submit-service" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-                <div class="lg:col-span-2">${renderServicePicker(rec)}</div>
                 <div class="lg:col-span-2">${formField('Service Title', textInput('name', 'Keratin Treatment', { value: rec?.name }))}</div>
                 ${formField('Category (optional)', textInput('category', 'Hair, Skin, Nails…', { required: false, value: rec?.category }))}
                 <div></div>
@@ -319,55 +318,6 @@ export function renderCustomerSuggestions(matches, query, opts = {}) {
             ${list}
             ${list && addNew ? '<div class="h-px bg-slate-800 my-1"></div>' : ''}
             ${addNew}
-        </div>
-    `;
-}
-
-/**
- * Search picker used at the top of the Add/Edit Service form. It searches the
- * salon's service catalog by name or category and lets the owner pick a
- * treatment/salon package, filling the existing name/category/price/duration
- * fields below. Purely a convenience — every field stays manually editable
- * and the single-service workflow (one title, one price, one duration) is
- * unchanged.
- */
-function renderServicePicker(rec) {
-    return `
-        <div>
-            <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Search Service</label>
-            <div class="relative">
-                <input type="text" autocomplete="off" value="${escAttr(rec?.name || '')}"
-                    placeholder="Search service name or category…"
-                    data-action="service-search"
-                    class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 pr-9">
-                <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-            </div>
-            <div data-service-suggestions class="mt-2"></div>
-            <p class="mt-1 text-[10px] text-slate-500">Search your catalog by service name or category — picking a result fills in the details below.</p>
-        </div>
-    `;
-}
-
-export function renderServiceSuggestions(matches, query) {
-    const q = (query || '').trim();
-    if (q.length === 0) return '';
-    if (!matches || matches.length === 0) {
-        return `<p class="text-[11px] text-slate-500 bg-slate-950/60 border border-slate-800/60 rounded-xl px-4 py-3 text-center">No services matched "${esc(q)}".</p>`;
-    }
-    return `
-        <div class="space-y-1.5">
-            ${matches.slice(0, 8).map((s) => `
-                <button type="button" data-action="pick-service"
-                    data-name="${escAttr(s.name)}" data-category="${escAttr(s.category)}"
-                    data-duration="${escAttr(s.duration)}" data-price="${escAttr(s.price)}"
-                    class="w-full flex items-start justify-between gap-3 bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-left transition active:scale-[0.98] touch-manipulation">
-                    <span class="min-w-0">
-                        <span class="block text-xs font-semibold text-slate-100 truncate">${esc(s.name)}</span>
-                        <span class="block text-[10px] text-slate-400 mt-0.5 truncate">${esc(s.category || 'Uncategorized')}${s.duration ? esc(' • ' + s.duration) : ''}${s.source === 'catalogue' ? esc(' • Catalogue') : ''}</span>
-                    </span>
-                    <span class="text-xs font-extrabold text-brand-400 shrink-0">${esc(formatCurrency(s.price))}</span>
-                </button>
-            `).join('')}
         </div>
     `;
 }

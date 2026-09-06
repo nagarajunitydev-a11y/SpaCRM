@@ -44,11 +44,11 @@ import renderAppointments, {
     clearNewAppointment,
 } from './ui/views/appointments.js';
 import renderCustomers, { renderCustomerCard, sortCustomersByCreation } from './ui/views/customers.js';
-import renderServices from './ui/views/services.js';
+import renderServices, { renderServiceListBody } from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
 import renderSalonSetup from './ui/views/salonSetup.js';
-import renderModalSheet, { renderCustomerSuggestions, renderServiceSuggestions } from './ui/views/modals.js';
+import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
 import renderReferrals, {
     setReferralSearch,
     referralRows,
@@ -614,49 +614,6 @@ function updateCustomerSuggestions(el) {
     refreshIcons(container);
 }
 
-function updateServiceSuggestions(el) {
-    const form = el.closest('form');
-    const container = form && form.querySelector('[data-service-suggestions]');
-    if (!container) return;
-
-    const value = (el.value || '').trim();
-    if (value.length === 0) {
-        container.innerHTML = '';
-        return;
-    }
-
-    const state = store.getState();
-    const q = value.toLowerCase();
-
-    // Salon's own catalog first, then the standard reference catalogue (an
-    // entry already present in the salon's catalog wins and is not duplicated).
-    const seen = new Set();
-    const matches = [];
-    const collect = (source) => (s) => {
-        const name = (s.name || '').trim();
-        const key = name.toLowerCase();
-        if (!name || seen.has(key)) return;
-        seen.add(key);
-        matches.push({
-            name,
-            category: (s.category || '').trim(),
-            duration: (s.duration || '').trim(),
-            price: Number(s.price) || 0,
-            source,
-        });
-    };
-    scopedBySalon(state.servicesList, state.currentSalonId).forEach(collect('catalog'));
-    PREDEFINED_SERVICES.forEach(collect('catalogue'));
-
-    const filtered = matches.filter((s) =>
-        s.name.toLowerCase().includes(q)
-        || (s.category || '').toLowerCase().includes(q),
-    );
-
-    container.innerHTML = renderServiceSuggestions(filtered, value);
-    refreshIcons(container);
-}
-
 const actions = {
     async 'role'(el) {
         const role = el.dataset.role;
@@ -863,29 +820,6 @@ const actions = {
         syncAllFormButtons(liveForm);
     },
 
-    async 'service-search'(el) {
-        updateServiceSuggestions(el);
-    },
-
-    async 'pick-service'(el) {
-        const form = el.closest('form[data-action="submit-service"]');
-        if (!form) return;
-        const set = (name, value) => {
-            const input = form.querySelector(`[name="${name}"]`);
-            if (input) input.value = value;
-        };
-        const pickedName = el.dataset.name || '';
-        set('name', pickedName);
-        set('category', el.dataset.category || '');
-        set('price', el.dataset.price || '');
-        set('duration', el.dataset.duration || '');
-        const search = form.querySelector('[data-action="service-search"]');
-        if (search) search.value = pickedName;
-        const container = form.querySelector('[data-service-suggestions]');
-        if (container) container.innerHTML = '';
-        syncAllFormButtons(form);
-    },
-
     async 'logout'() {
         await authService.signOut();
         syncSalonScope();
@@ -972,6 +906,39 @@ const actions = {
             input.focus();
         }
         actions['customer-search-list'](input);
+    },
+
+    async 'service-search-list'(el) {
+        // Patch the list in place instead of writing to the store: a re-render
+        // would move focus out of the input mid-typing.
+        const query = (el.value || '').trim();
+        const state = store.getState();
+        let services = scopedBySalon(state.servicesList, state.currentSalonId);
+        const q = query.toLowerCase();
+        if (q) {
+            services = services.filter((s) =>
+                (s.name || '').toLowerCase().includes(q)
+                || (s.category || '').toLowerCase().includes(q),
+            );
+        }
+        const clearBtn = appEl.querySelector('[data-action="clear-service-search"]');
+        if (clearBtn) clearBtn.classList.toggle('hidden', !query);
+        const container = appEl.querySelector('[data-service-list]');
+        if (!container) return;
+        container.innerHTML = services.length === 0
+            ? emptyState(q ? `No services found for "${esc(query)}"` : 'No services in the catalog yet.')
+            : renderServiceListBody(services);
+        sanitizeDOM(container);
+        refreshIcons(container);
+    },
+
+    async 'clear-service-search'() {
+        const input = appEl.querySelector('[data-action="service-search-list"]');
+        if (input) {
+            input.value = '';
+            input.focus();
+        }
+        actions['service-search-list'](input);
     },
 
     async 'dashboard-tab'(el) {
@@ -1566,6 +1533,11 @@ const debouncedAppointmentSearch = debounce((el) => {
     Promise.resolve(handler(el)).catch((err) => console.warn(err));
 }, 200);
 
+const debouncedServiceSearch = debounce((el) => {
+    const handler = actions['service-search-list'];
+    Promise.resolve(handler(el)).catch((err) => console.warn(err));
+}, 200);
+
 function attachDelegation() {
     if (!appEl) return;
 
@@ -1613,14 +1585,13 @@ function attachDelegation() {
             const handler = actions['customer-search'];
             Promise.resolve(handler(picker, event)).catch((err) => console.warn(err));
         }
-        const serviceSearch = event.target.closest('[data-action="service-search"]');
-        if (serviceSearch) {
-            const handler = actions['service-search'];
-            Promise.resolve(handler(serviceSearch, event)).catch((err) => console.warn(err));
-        }
         const listSearch = event.target.closest('[data-action="customer-search-list"]');
         if (listSearch) {
             debouncedClientSearch(listSearch);
+        }
+        const serviceListSearch = event.target.closest('[data-action="service-search-list"]');
+        if (serviceListSearch) {
+            debouncedServiceSearch(serviceListSearch);
         }
         const referralSearch = event.target.closest('[data-action="referral-search"]');
         if (referralSearch) {
