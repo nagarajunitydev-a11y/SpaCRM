@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { killChromeTree } from './e2e-helpers.mjs';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5500/';
 const CHROME = process.env.CHROME_BIN
@@ -25,6 +26,7 @@ let msgId = 0;
 const pending = new Map();
 const events = [];
 const errors = [];
+let chromeProc = null;
 
 function send(method, params = {}) {
     const id = ++msgId;
@@ -130,7 +132,7 @@ const J = (str) => JSON.stringify(str);
 
 async function main() {
     console.log(`Launching headless Chrome (${CHROME})…`);
-    const chrome = spawn(CHROME, [
+    chromeProc = spawn(CHROME, [
         '--headless=new',
         '--disable-gpu',
         '--no-first-run',
@@ -168,17 +170,9 @@ async function main() {
     assert(await evaluate(`document.querySelector('[data-action="toggle-form-mode"]') !== null`), 'sign-in/sign-up toggle present');
 
     console.log('\n[2] Email sign-in (demo mode) -> dashboard');
+    await evaluate(`localStorage.setItem('spacrm_tutorial_progress_v1', JSON.stringify({ completedTours: {}, setupGuideSeen: true })); true`);
     await fillForm({ salonName: 'Luxe Glow Test', email: 'owner@test.com', password: 'secret123' });
     await submitForm('form[data-action="email-auth"]');
-    // A first-time owner's Initial Setup Guide (core/tutorialContent.js) can
-    // auto-navigate off the dashboard within milliseconds of landing on it,
-    // so waiting on dashboard-only text here would be racy — either signal
-    // means sign-in succeeded.
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
-    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
-        await click('[data-tutorial-action="skip"]');
-        await click('[data-action="tab"][data-tab="dashboard"]');
-    }
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
     assert(await evaluate(`document.body.innerText.includes('Bookings')`), 'dashboard stat cards');
     assert(await evaluate(`document.querySelector('[data-action="modal"]') !== null`), 'quick action buttons');
@@ -228,21 +222,33 @@ async function main() {
         const stf = f.querySelector('[name="staffName"]');
         svc.selectedIndex = 1;
         stf.selectedIndex = 1;
-        f.querySelector('[name="date"]').value = '2030-08-20';
-        f.querySelector('[name="time"]').value = '14:30';
         return svc.value && stf.value;
     })()`);
     await submitForm('form[data-action="submit-appointment"]');
     await new Promise((r) => setTimeout(r, 200));
     assert(await evaluate(`document.body.innerText.includes('Jessica Alba')`), 'appointment booked');
 
-    console.log('\n[5b] Appointment validation');
+    console.log('\n[5b] Appointment validation & auto date/time');
     await click(`[data-action="tab"][data-tab="appointments"]`);
     await new Promise((r) => setTimeout(r, 150));
     await click(`[data-action="modal"][data-modal="appointment"]`);
     await waitFor(`document.querySelector('form[data-action="submit-appointment"]') !== null`);
     // Remove any lingering success toast from the earlier booking step.
     await evaluate(`document.getElementById('toast-notification')?.remove()`);
+
+    // Date & time are never picked any more: the form carries hidden inputs
+    // auto-stamped with the salon's current date/time and no visible pickers.
+    const stampOk = await evaluate(`(async () => {
+        const { currentSalonDateTime } = await import('/js/core/utils.js');
+        const now = currentSalonDateTime({ timezone: 'Asia/Kolkata' });
+        const f = document.querySelector('form[data-action="submit-appointment"]');
+        const date = f.querySelector('[name="date"]');
+        const time = f.querySelector('[name="time"]');
+        return date && time
+            && date.value === now.date && time.value === now.time
+            && f.querySelectorAll('input[type="date"], input[type="time"]').length === 0;
+    })()`);
+    assert(stampOk, 'appointment form auto-stamps salon date/time (no pickers)');
 
     // Fresh empty form -> Save button is disabled (cannot be saved).
     assert(await evaluate(`document.querySelector('form[data-action="submit-appointment"] button[type="submit"]').disabled === true`), 'submit disabled when form empty');
@@ -251,38 +257,17 @@ async function main() {
     await submitForm('form[data-action="submit-appointment"]');
     await new Promise((r) => setTimeout(r, 250));
     const errCount = await evaluate(`document.querySelectorAll('.field-error').length`);
-    assert(errCount >= 5, `inline errors shown for all required fields (${errCount})`);
+    assert(errCount >= 3, `inline errors shown for all missing fields (${errCount})`);
     assert(await evaluate(`document.body.innerText.includes('Client name is required.')`), 'client name error message');
     assert(await evaluate(`document.body.innerText.includes('Select a service.')`), 'service error message');
-    assert(await evaluate(`document.body.innerText.includes('Date is required.')`), 'date error message');
-    assert(await evaluate(`document.body.innerText.includes('Time is required.')`), 'time error message');
+    assert(await evaluate(`document.body.innerText.includes('Select a staff member.')`), 'staff error message');
     assert(await evaluate(`document.querySelector('form[data-action="submit-appointment"]') !== null`), 'save blocked (modal stays open)');
     assert(await evaluate(`!document.body.innerText.includes('Appointment booked successfully')`), 'no success toast on invalid save');
-
-    // Invalid calendar date + invalid time format rejected.
-    await evaluate(`(() => {
-        const f = document.querySelector('form[data-action="submit-appointment"]');
-        f.querySelector('[name="customerName"]').value = 'Valid Name';
-        f.querySelector('[name="serviceName"]').selectedIndex = 1;
-        f.querySelector('[name="staffName"]').selectedIndex = 1;
-        f.querySelector('[name="date"]').value = '2030-13-45';
-        f.querySelector('[name="time"]').value = '25:99';
-        return true;
-    })()`);
-    await submitForm('form[data-action="submit-appointment"]');
-    await new Promise((r) => setTimeout(r, 250));
-    // The browser sanitizes invalid date/time input values to '', so the fields
-    // surface as required errors. Full format validation is unit-tested in
-    // unit-validate.mjs; here we assert the save is blocked either way.
-    assert(await evaluate(`document.querySelectorAll('.field-error').length >= 2`), 'invalid date/time rejected inline');
-    assert(await evaluate(`!document.body.innerText.includes('Appointment booked successfully')`), 'no save on invalid date/time');
 
     // Whitespace-only name -> treated as missing.
     await evaluate(`(() => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
         f.querySelector('[name="customerName"]').value = '   ';
-        f.querySelector('[name="date"]').value = '2030-08-20';
-        f.querySelector('[name="time"]').value = '14:30';
         return true;
     })()`);
     await submitForm('form[data-action="submit-appointment"]');
@@ -290,35 +275,20 @@ async function main() {
     assert(await evaluate(`document.body.innerText.includes('Client name is required.')`), 'whitespace-only name rejected');
     assert(await evaluate(`!document.body.innerText.includes('Appointment booked successfully')`), 'no save on whitespace name');
 
-    // Past date rejected.
-    await evaluate(`(() => {
-        const f = document.querySelector('form[data-action="submit-appointment"]');
-        f.querySelector('[name="customerName"]').value = 'Valid Name';
-        f.querySelector('[name="date"]').value = '2020-01-01';
-        f.querySelector('[name="time"]').value = '14:30';
-        return true;
-    })()`);
-    await submitForm('form[data-action="submit-appointment"]');
-    await new Promise((r) => setTimeout(r, 250));
-    assert(await evaluate(`document.body.innerText.includes('Date must be today or later.')`), 'past date rejected');
-
-    // Fully valid appointment saves with existing confirmation.
+    // Fully valid appointment saves with its auto-stamped (today) date/time.
     await evaluate(`(() => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
         f.querySelector('[name="customerName"]').value = 'Validation Test Client';
-        f.querySelector('[name="date"]').value = '2030-08-20';
-        f.querySelector('[name="time"]').value = '14:30';
+        f.querySelector('[name="serviceName"]').selectedIndex = 1;
+        f.querySelector('[name="staffName"]').selectedIndex = 1;
         // Simulate typing so the live validator enables the button.
-        ['customerName', 'date', 'time'].forEach((n) => {
-            const el = f.querySelector('[name="' + n + '"]');
-            el.dispatchEvent(new Event('input', { bubbles: true }));
-        });
+        f.querySelector('[name="customerName"]').dispatchEvent(new Event('input', { bubbles: true }));
         return true;
     })()`);
     assert(await evaluate(`document.querySelector('form[data-action="submit-appointment"] button[type="submit"]').disabled === false`), 'submit enabled when form valid');
     await submitForm('form[data-action="submit-appointment"]');
     await waitFor(`document.body.innerText.includes('Validation Test Client')`);
-    assert(true, 'valid appointment saved');
+    assert(true, 'valid appointment saved (auto date/time)');
 
     console.log('\n[7] Logout + Super Admin');
     await click('[data-action="logout"]');
@@ -392,7 +362,9 @@ async function main() {
     // Auth screen: sign-in toggle
     await click('[data-action="logout"]');
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
-    await click('[data-action="toggle-form-mode"]');
+    await click('[data-action="toggle-form-mode"]'); // -> signup, salon name appears
+    await new Promise((r) => setTimeout(r, 200));
+    await click('[data-action="toggle-form-mode"]'); // -> back to signin
     await new Promise((r) => setTimeout(r, 200));
     assert(await evaluate(`document.querySelector('form[data-action="email-auth"] [name="salonName"]') === null`), 'sign-in toggle hides salon name field');
     await click('[data-action="toggle-form-mode"]'); // back to signup
@@ -424,7 +396,7 @@ async function main() {
 
     console.log(`\n===== RESULT: ${pass} passed, ${fail} failed =====`);
     if (ws) ws.close();
-    chrome.kill('SIGKILL');
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(fail === 0 ? 0 : 1);
 }
@@ -441,7 +413,8 @@ function cleanup() {
 
 main().catch((err) => {
     console.error('\nSMOKE TEST ERROR:', err.message);
-    if (ws) ws.close();
+    if (ws) try { ws.close(); } catch (e) { /* ignore */ }
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(2);
 });

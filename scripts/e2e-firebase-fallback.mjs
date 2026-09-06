@@ -9,20 +9,24 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { killChromeTree } from './e2e-helpers.mjs';
 
 const PORT = 9338;
 const userData = mkdtempSync(join(tmpdir(), 'luxe-fb-'));
-
-const chrome = spawn(
-    process.env.CHROME_BIN || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
-    ['--headless=new', '--disable-gpu', '--remote-debugging-port=' + PORT, `--user-data-dir=${userData}`, 'about:blank'],
-    { stdio: 'ignore' },
-);
 
 let ws;
 const pending = new Map();
 const errors = [];
 let msgId = 0;
+let chromeProc = null;
+
+function spawnChrome() {
+    chromeProc = spawn(
+        process.env.CHROME_BIN || 'C:/Program Files/Google/Chrome/Application/chrome.exe',
+        ['--headless=new', '--disable-gpu', '--remote-debugging-port=' + PORT, `--user-data-dir=${userData}`, 'about:blank'],
+        { stdio: 'ignore' },
+    );
+}
 
 function send(method, params = {}) {
     const id = ++msgId;
@@ -50,6 +54,7 @@ function cleanup() {
 }
 
 async function main() {
+    spawnChrome();
     // Wait for CDP.
     let list = null;
     for (let i = 0; i < 40; i++) {
@@ -109,7 +114,7 @@ async function main() {
     const ok = loginShown && shell && fatal.length === 0;
     console.log(ok ? '\nFALLBACK TEST RESULT: PASS' : '\nFALLBACK TEST RESULT: FAIL');
     try { ws.close(); } catch (e) { /* ignore */ }
-    chrome.kill('SIGKILL');
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(ok ? 0 : 1);
 }
@@ -117,6 +122,7 @@ async function main() {
 main().catch((err) => {
     console.error('FALLBACK TEST ERROR:', err.message);
     if (ws) try { ws.close(); } catch (e) { /* ignore */ }
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(2);
 });

@@ -129,13 +129,20 @@ export function validateForm(formKey, data, ctx = {}) {
 
         const date = v('date');
         check(errors, 'date', date, [required('Date is required.'), dateValid('Enter a valid date.')]);
-        if (!errors.date && String(date) < todayStr()) {
+        // "Today" and "now" follow the salon's configured clock when the
+        // caller supplies it (see core/utils.currentSalonDateTime) — the
+        // booking modal auto-stamps the salon's current date/time, so a salon
+        // in a different timezone than the device must never be judged against
+        // the device's local today.
+        const refDate = ctx && ctx.nowDateTime ? ctx.nowDateTime.date : todayStr();
+        if (!errors.date && String(date) < refDate) {
             errors.date = 'Date must be today or later.';
         }
 
         const time = v('time');
         check(errors, 'time', time, [required('Time is required.'), timeValid('Enter a valid time (e.g. 14:30).')]);
-        if (!errors.time && String(date) === todayStr() && String(time) < nowHM()) {
+        const refTime = ctx && ctx.nowDateTime ? ctx.nowDateTime.time : nowHM();
+        if (!errors.time && String(date) === refDate && String(time) < refTime) {
             errors.time = 'This time has already passed today.';
         }
 
@@ -199,6 +206,29 @@ export function validateForm(formKey, data, ctx = {}) {
         if (!errors.walletRedeem && round2(invoice - discount - redeem) > 0) {
             check(errors, 'paymentMethod', v('paymentMethod'), [required('Select a payment method.')]);
         }
+        return errors;
+    }
+
+    if (formKey === 'submit-quick-billing') {
+        check(errors, 'customerName', v('customerName'), [required('Client name is required.')]);
+        let selectedServices = [];
+        try { selectedServices = JSON.parse(v('selectedServices') || '[]'); } catch { selectedServices = []; }
+        const hasService = Array.isArray(selectedServices) && selectedServices.some((name) => String(name || '').trim());
+        if (!hasService) errors.selectedServices = 'Select at least one service.';
+
+        check(errors, 'walletRedeem', v('walletRedeem'), [numberMin(0, 'Redemption must be zero or more.')]);
+
+        const discountType = v('discountType');
+        if (!isBlank(discountType) && discountType !== 'percentage' && discountType !== 'fixed') {
+            errors.discountType = 'Select a valid discount type.';
+        }
+        if (!isBlank(discountType)) {
+            const discountRules = [numberMin(0, 'Discount value must be zero or more.')];
+            if (discountType === 'percentage') discountRules.push(numberMax(100, 'A percentage discount cannot exceed 100%.'));
+            check(errors, 'discountValue', v('discountValue'), discountRules);
+        }
+
+        check(errors, 'paymentMethod', v('paymentMethod'), [required('Select a payment method.')]);
         return errors;
     }
 
@@ -266,6 +296,11 @@ export function validateForm(formKey, data, ctx = {}) {
         check(errors, 'email', salonEmail, [required('Owner email is required.'), email('Enter a valid email address.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'address', v('address'), [required('Location address is required.')]);
+        // Optional IANA timezone; when present it must look like one.
+        const timezone = v('timezone');
+        if (!isBlank(timezone) && !/^[A-Za-z_\-+]+\/[A-Za-z_\-+]+$/.test(String(timezone)) && String(timezone) !== 'UTC') {
+            errors.timezone = 'Select a valid timezone.';
+        }
         return errors;
     }
 

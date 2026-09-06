@@ -35,11 +35,14 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { killChromeTree } from './e2e-helpers.mjs';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5500/';
 const CHROME = process.env.CHROME_BIN || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
 const PORT = 9336;
 const userData = mkdtempSync(join(tmpdir(), 'luxe-book-'));
+
+let chromeProc = null;
 
 let browserWsUrl;
 const sessions = {}; // name -> { ws, msgId, pending, errors, sessionId }
@@ -182,7 +185,7 @@ function assert(cond, label) {
 
 async function main() {
     console.log(`Launching headless Chrome (${CHROME})…`);
-    const chrome = spawn(CHROME, [
+    chromeProc = spawn(CHROME, [
         '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
         '--remote-debugging-port=' + PORT, `--user-data-dir=${userData}`, 'about:blank',
     ], { stdio: 'ignore' });
@@ -208,6 +211,7 @@ async function main() {
     console.log('\n[1] Owner: sign in and open Booking Link panel');
     await navigate(owner, APP_URL);
     await waitFor(owner, `document.querySelector('form[data-action="email-auth"]') !== null`);
+    await evaluate(owner, `localStorage.setItem('spacrm_tutorial_progress_v1', JSON.stringify({ completedTours: {}, setupGuideSeen: true })); true`);
     await fill(owner, 'form[data-action="email-auth"]', { salonName: 'Booking Test Salon', email: 'owner@book.test', password: 'secret123' });
     await evaluate(owner, `document.querySelector('form[data-action="email-auth"]').requestSubmit()`);
     await waitFor(owner, `document.body.innerText.includes('Your Salon at a Glance')`);
@@ -594,7 +598,7 @@ async function main() {
     console.log(`\n===== PUBLIC BOOKING E2E: ${pass} passed, ${fail} failed =====`);
     if (failures.length) failures.forEach((f) => console.log('  failed: ' + f));
     browserWs.close();
-    chrome.kill('SIGKILL');
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(fail === 0 ? 0 : 1);
 }
@@ -608,6 +612,7 @@ function cleanup() {
 
 main().catch((err) => {
     console.error('\nPUBLIC BOOKING E2E ERROR:', err.message);
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(2);
 });

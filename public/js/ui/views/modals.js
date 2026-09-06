@@ -13,11 +13,12 @@ import { PREDEFINED_SERVICES } from '../../core/predefinedServices.js';
 import { TUTORIAL_ORDER, TUTORIALS } from '../../core/tutorialContent.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
 import { getDraft } from '../../core/draft.js';
-import { scopedBySalon, formatCurrency } from '../../core/utils.js';
+import { scopedBySalon, formatCurrency, currentSalonDateTime, TIMEZONE_OPTIONS } from '../../core/utils.js';
 import { sanitizeSettings, round2, num } from '../../core/referral.js';
 import renderPaymentForm from './payment.js';
 import renderCustomerProfile from './customerProfile.js';
 import renderBookingLinkModal from './bookingLink.js';
+import { renderQuickBillingForm, renderQuickBillingReceipt } from './quickBilling.js';
 
 const TITLES = {
     customer: 'Add New Client',
@@ -34,6 +35,8 @@ const TITLES = {
     'service-catalogue': 'Import From Catalogue',
     attendance: 'Mark Attendance',
     'help-menu': 'Help & Guided Tours',
+    'quick-billing': 'Quick Billing / Walk-in',
+    'quick-billing-receipt': 'Invoice / Receipt',
 };
 
 const EDIT_TITLES = {
@@ -117,6 +120,14 @@ function renderForm(state, type) {
         return renderBookingLinkModal(state);
     }
 
+    if (type === 'quick-billing') {
+        return renderQuickBillingForm(state, getDraft('quickBilling'));
+    }
+
+    if (type === 'quick-billing-receipt') {
+        return renderQuickBillingReceipt(state);
+    }
+
     if (type === 'customer') {
         const rec = editingRecord(state, 'customer');
         return `
@@ -180,6 +191,14 @@ function renderForm(state, type) {
         const rec = editingRecord(state, 'appointment');
         const draft = getDraft('appointment') || {};
         const pre = rec ? { ...rec, ...draft } : draft;
+        // Date & time are never picked any more: a booking is automatically
+        // stamped with the salon's CURRENT date/time (in the salon's configured
+        // timezone). Editing preserves the booking's original stamp.
+        const salon = (state.salonsList || []).find((s) => s.id === state.currentSalonId) || null;
+        const salonNow = currentSalonDateTime(salon);
+        const appointmentStamp = rec && (rec.date || rec.time)
+            ? { date: rec.date || salonNow.date, time: rec.time || salonNow.time, label: [rec.date, rec.time].filter(Boolean).join(' · ') || salonNow.label }
+            : salonNow;
         const selectedServiceNames = appointmentServiceNames(pre);
         const selectedServices = selectedServiceNames.map((name) => services.find((service) => service.name === name)).filter(Boolean);
         const subtotal = selectedServices.reduce((sum, service) => sum + (Number(service.price) || 0), 0);
@@ -209,9 +228,21 @@ function renderForm(state, type) {
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-200"><span>Final total</span><span>${esc(formatCurrency(subtotal))}</span></div>
                 </div>
                 <div class="lg:col-span-2">${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}</div>
-                <div class="grid grid-cols-2 gap-3 lg:grid-cols-2">
-                    <div>${formField('Date', dateTimeInput('date', 'date', '', { value: pre?.date }))}</div>
-                    <div>${formField('Time', dateTimeInput('time', 'time', '', { value: pre?.time }))}</div>
+                <div class="lg:col-span-2">
+                    <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl px-3.5 py-3">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date & Time</p>
+                                <p class="text-xs font-semibold text-slate-200 mt-1 flex items-center gap-1.5">
+                                    <i data-lucide="clock" class="w-3.5 h-3.5 text-brand-400 shrink-0"></i>
+                                    <span>${esc(appointmentStamp.label)}</span>
+                                </p>
+                            </div>
+                            <p class="text-[10px] text-slate-500 text-right">${rec ? 'Original booking time' : 'Auto = salon current date & time'}</p>
+                        </div>
+                    </div>
+                    <input type="hidden" name="date" value="${escAttr(appointmentStamp.date)}">
+                    <input type="hidden" name="time" value="${escAttr(appointmentStamp.time)}">
                 </div>
                 ${rec ? `<div class="lg:col-span-2">${formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' }))}</div>` : ''}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Confirm Booking'}</button>
@@ -228,6 +259,7 @@ function renderForm(state, type) {
             ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
             <div></div>
             <div class="lg:col-span-2">${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}</div>
+            <div class="lg:col-span-2">${formField('Timezone', selectControl('timezone', TIMEZONE_OPTIONS.map((t) => ({ value: t.value, label: t.label })), '', { value: rec?.timezone || 'Asia/Kolkata' }))}</div>
             <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Provision Branch'}</button>
         </form>
     `;

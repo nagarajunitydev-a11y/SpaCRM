@@ -20,6 +20,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { killChromeTree } from './e2e-helpers.mjs';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5500/';
 const CHROME = process.env.CHROME_BIN || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
@@ -30,6 +31,7 @@ let ws;
 let msgId = 0;
 const pending = new Map();
 const errors = [];
+let chromeProc = null;
 
 function send(method, params = {}) {
     const id = ++msgId;
@@ -168,7 +170,7 @@ const referralFor = (name) => `(s.referralsList.find((r) => r.referredName === $
 
 async function main() {
     console.log(`Launching headless Chrome (${CHROME})…`);
-    const chrome = spawn(CHROME, [
+    chromeProc = spawn(CHROME, [
         '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
         '--remote-debugging-port=' + PORT, `--user-data-dir=${userData}`, 'about:blank',
     ], { stdio: 'ignore' });
@@ -193,17 +195,9 @@ async function main() {
     /* ------------------------------------------------------------------ */
     console.log('\n[1] Sign in and reach the owner dashboard');
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
+    await evaluate(`localStorage.setItem('spacrm_tutorial_progress_v1', JSON.stringify({ completedTours: {}, setupGuideSeen: true })); true`);
     await fill('form[data-action="email-auth"]', { salonName: 'Referral Test Salon', email: 'owner@ref.test', password: 'secret123' });
     await submit('form[data-action="email-auth"]');
-    // A first-time owner's Initial Setup Guide can auto-navigate off the
-    // dashboard within milliseconds of landing on it, so waiting on
-    // dashboard-only text here would be racy — either signal means
-    // sign-in succeeded.
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
-    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
-        await click('[data-tutorial-action="skip"]');
-        await click('[data-action="tab"][data-tab="dashboard"]');
-    }
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
     assert(true, 'owner dashboard reached');
 
@@ -273,7 +267,7 @@ async function main() {
     await click(`[data-action="customer-profile"][data-id="${await fromStore(`${findCustomer('Rhea Kapoor')}.id`)}"]`);
     await waitFor(bodyHasExpr('Referral code'));
     assert(await bodyHas(referrerCode), 'profile shows the referral code');
-    assert(await bodyHas('Available referral balance'), 'profile shows the available balance');
+    assert(await bodyHas('Referral balance'), 'profile shows the available balance');
     assert(await bodyHas('Total referrals'), 'profile shows the referral counters');
     await click('[data-action="close-modal"]');
 
@@ -712,7 +706,7 @@ async function main() {
     console.log(`\n===== REFERRAL E2E: ${pass} passed, ${fail} failed =====`);
     if (failures.length) failures.forEach((f) => console.log('  failed: ' + f));
     if (ws) ws.close();
-    chrome.kill('SIGKILL');
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(fail === 0 ? 0 : 1);
 }
@@ -726,7 +720,8 @@ function cleanup() {
 
 main().catch((err) => {
     console.error('\nREFERRAL E2E ERROR:', err.message);
-    if (ws) ws.close();
+    if (ws) try { ws.close(); } catch (e) { /* ignore */ }
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(2);
 });

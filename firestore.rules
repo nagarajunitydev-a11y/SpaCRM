@@ -245,6 +245,7 @@ service cloud.firestore {
         && isOptionalString(data.get('ownerEmail', ''), 120)
         && isNonEmptyString(data.phone, 40)
         && isNonEmptyString(data.address, 240)
+        && isOptionalOrNull(data.get('timezone', null), 64)
         && isOptionalString(data.get('ownerId', ''), 128);
     }
 
@@ -307,10 +308,10 @@ service cloud.firestore {
         allow create, update: if canAccessSalon(salonId) && isValidAttendance(request.resource.data);
         allow delete: if canAccessSalon(salonId);
       }
-      match /appointments/{docId} {
-        // Public visitors can never read/update/delete any appointment — they
-        // can only create their OWN new Confirmed, unpaid booking. The CRM's
-        // own action handlers (status changes, billing, cancellation) still
+match /appointments/{docId} {
+        // Booking is authenticated unless public booking is enabled for the
+        // salon, which lets the /book page create without a session. Applies
+        // the same document guards as every other collection. Updates still
         // require an authenticated, salon-scoped session, exactly as before.
         allow read: if canAccessSalon(salonId);
         allow create: if (canAccessSalon(salonId) && isValidAppointment(request.resource.data))

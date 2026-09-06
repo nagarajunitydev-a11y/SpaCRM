@@ -14,6 +14,7 @@ import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { killChromeTree } from './e2e-helpers.mjs';
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5500/';
 const CHROME = process.env.CHROME_BIN || 'C:/Program Files/Google/Chrome/Application/chrome.exe';
@@ -23,6 +24,7 @@ const userData = mkdtempSync(join(tmpdir(), 'luxe-rev-'));
 let ws;
 let msgId = 0;
 const pending = new Map();
+let chromeProc = null;
 
 function send(method, params = {}) {
     const id = ++msgId;
@@ -70,26 +72,16 @@ const revenueExpr = `
 
 async function bookAppointment(customer, serviceIndex) {
     await click('[data-action="tab"][data-tab="appointments"]');
+    await waitFor(`document.querySelector('[data-action="modal"][data-modal="appointment"]') !== null`);
     await click('[data-action="modal"][data-modal="appointment"]');
     await waitFor(`document.querySelector('form[data-action="submit-appointment"]') !== null`);
     await evaluate(`(() => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
         f.querySelector('[name="customerName"]').value = ${JSON.stringify(customer)};
         f.querySelector('[name="customerName"]').dispatchEvent(new Event('input', { bubbles: true }));
-        // A slot one hour from now, clamped to later-today so it stays in the
-        // dashboard's "Today" period and passes the past-time validator.
-        const now = new Date();
-        let d = new Date(now.getTime() + 3600000);
-        let pad = (n) => String(n).padStart(2, '0');
-        let dateStr = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-        let timeStr = pad(d.getHours()) + ':' + pad(d.getMinutes());
-        if (dateStr !== now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate())) {
-            dateStr = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());
-            timeStr = '23:58';
-        }
-        f.querySelector('[name="date"]').value = dateStr;
-        f.querySelector('[name="time"]').value = timeStr;
-        ['customerName', 'date', 'time'].forEach((n) => f.querySelector('[name="' + n + '"]').dispatchEvent(new Event('input', { bubbles: true })));
+        // Date & time are no longer user-pickable: the booking is stamped
+        // automatically with today's salon time, so it stays in the
+        // dashboard's "Today" period by construction.
         f.querySelector('[name="serviceName"]').selectedIndex = ${serviceIndex};
         f.querySelector('[name="staffName"]').selectedIndex = 1;
         return true;
@@ -100,7 +92,7 @@ async function bookAppointment(customer, serviceIndex) {
 
 async function main() {
     console.log('Launching headless Chrome…');
-    const chrome = spawn(CHROME, [
+    chromeProc = spawn(CHROME, [
         '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
         '--remote-debugging-port=' + PORT, `--user-data-dir=${userData}`, 'about:blank',
     ], { stdio: 'ignore' });
@@ -133,6 +125,7 @@ async function main() {
 
     // Sign in (demo mode).
     await waitFor(`document.querySelector('form[data-action="email-auth"]') !== null`);
+    await evaluate(`localStorage.setItem('spacrm_tutorial_progress_v1', JSON.stringify({ completedTours: {}, setupGuideSeen: true })); true`);
     await evaluate(`(() => {
         const f = document.querySelector('form[data-action="email-auth"]');
         const set = (n, v) => { const el = f.querySelector('[name="' + n + '"]'); if (el) { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
@@ -146,12 +139,14 @@ async function main() {
     // dashboard within milliseconds of landing on it, so waiting on
     // dashboard-only text here would be racy — either signal means
     // sign-in succeeded.
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`);
+    // A cold Chrome start under full-suite load can take a while before the
+    // demo session renders; allow well past the default wait here.
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`, 20000);
     if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
         await click('[data-tutorial-action="skip"]');
         await click('[data-action="tab"][data-tab="dashboard"]');
     }
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`, 20000);
 
     console.log('\n[1] Empty period shows ₹0 — no fabricated fallback');
     assert(await evaluate(`${revenueExpr} === '₹0'`), `Est. Revenue is ₹0 with no bookings (got ${await evaluate(revenueExpr)})`);
@@ -237,7 +232,7 @@ async function main() {
 
     console.log(`\n===== REVENUE E2E RESULT: ${pass} passed, ${fail} failed =====`);
     if (ws) ws.close();
-    chrome.kill('SIGKILL');
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(fail === 0 ? 0 : 1);
 }
@@ -255,6 +250,7 @@ function cleanup() {
 main().catch((err) => {
     console.error('\nREVENUE E2E ERROR:', err.message);
     if (ws) try { ws.close(); } catch (e) { /* ignore */ }
+    killChromeTree(chromeProc && chromeProc.pid);
     cleanup();
     process.exit(2);
 });

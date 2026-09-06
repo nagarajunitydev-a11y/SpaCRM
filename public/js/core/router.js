@@ -27,11 +27,13 @@ export function openModal(modalType, record = null) {
     // Start every fresh modal from a clean slate (edit forms seed from the
     // record instead of a stale draft).
     clearDraft('appointment');
+    clearDraft('quickBilling');
     store.setState({ isModalOpen: true, modalType, modalRecord: record ? { ...record } : null });
 }
 
 export function closeModal() {
     clearDraft('appointment');
+    clearDraft('quickBilling');
     store.setState({ isModalOpen: false, modalType: null, rewards: null, modalRecord: null, deleteTarget: null });
 }
 

@@ -37,6 +37,56 @@ export function todayStr() {
     return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+/** Curated IANA timezones offered on the salon provisioning form. */
+export const TIMEZONE_OPTIONS = [
+    { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+    { value: 'Asia/Kolkata', label: 'India (Asia/Kolkata)' },
+    { value: 'Asia/Dubai', label: 'UAE (Asia/Dubai)' },
+    { value: 'Asia/Singapore', label: 'Singapore (Asia/Singapore)' },
+    { value: 'Asia/Tokyo', label: 'Japan (Asia/Tokyo)' },
+    { value: 'Australia/Sydney', label: 'Australia (Australia/Sydney)' },
+    { value: 'Europe/London', label: 'UK (Europe/London)' },
+    { value: 'Europe/Paris', label: 'Central Europe (Europe/Paris)' },
+    { value: 'America/New_York', label: 'US Eastern (America/New_York)' },
+    { value: 'America/Chicago', label: 'US Central (America/Chicago)' },
+    { value: 'America/Los_Angeles', label: 'US Pacific (America/Los_Angeles)' },
+];
+
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/**
+ * The salon's current wall-clock date/time. A salon configured with a
+ * `timezone` (IANA) is rendered in that timezone; otherwise the device's own
+ * local time is the salon time (legacy behaviour). Returns the record-shaped
+ * `{ date, time }` pair (YYYY-MM-DD / HH:mm) plus a human label and ISO stamp.
+ */
+export function currentSalonDateTime(salon, now = new Date()) {
+    const tz = salon && salon.timezone ? salon.timezone : '';
+
+    if (!tz) {
+        const date = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}`;
+        const time = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
+        return {
+            date,
+            time,
+            label: `${date} · ${time}`,
+            iso: now.toISOString(),
+        };
+    }
+
+    const fmtDate = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+    const fmtTime = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false });
+    const fmtLabel = new Intl.DateTimeFormat('en-IN', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' });
+    const fmtLabelTime = new Intl.DateTimeFormat('en-IN', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
+
+    const [year, month, day] = fmtDate.format(now).split('-');
+    // Some engines render midnight in en-GB as "24:xx" — normalise to "00:xx".
+    const time = fmtTime.format(now).replace(/^24:/, '00:');
+    const date = `${year}-${month}-${day}`;
+    const label = `${fmtLabel.format(now)}, ${fmtLabelTime.format(now)}`;
+    return { date, time, label, iso: now.toISOString() };
+}
+
 /** Debounce a function. */
 export function debounce(fn, wait = 150) {
     let timer = null;
@@ -95,5 +145,7 @@ export default {
     basePath,
     scopedBySalon,
     todayStr,
+    currentSalonDateTime,
+    TIMEZONE_OPTIONS,
     sanitizePhoneInputLive,
 };

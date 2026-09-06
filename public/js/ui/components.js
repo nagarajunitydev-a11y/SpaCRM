@@ -148,6 +148,13 @@ export function desktopSidebar(state) {
             </div>
 
             <div class="flex-1 p-3 space-y-1">
+                ${isOwner ? `
+                    <button data-action="modal" data-modal="quick-billing"
+                        class="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[13px] font-bold transition touch-manipulation active:scale-95 hover:bg-emerald-500/25 mb-1">
+                        <i data-lucide="zap" class="w-[18px] h-[18px] shrink-0"></i>
+                        <span>Quick Billing / Walk-in</span>
+                    </button>
+                ` : ''}
                 ${items.map((item) => {
                     const active = item.tab && item.tab === state.activeTab;
                     const cls = active

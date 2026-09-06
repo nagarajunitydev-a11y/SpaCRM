@@ -30,7 +30,8 @@ import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, desktopSidebar, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
-import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive } from './core/utils.js';
+import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive, currentSalonDateTime, todayStr } from './core/utils.js';
+import { shiftDate } from './core/attendance.js';
 import renderLogin from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments, {
@@ -57,6 +58,8 @@ import renderReferrals, {
 } from './ui/views/referrals.js';
 import { renderPaymentSummary, defaultInvoiceAmount } from './ui/views/payment.js';
 import { renderBookingLinkModal, bookingLinkFor } from './ui/views/bookingLink.js';
+import { renderQuickBillingServiceSuggestions, renderSelectedServices, renderWalletBlock } from './ui/views/quickBilling.js';
+import { ANY_STAFF } from './core/scheduling.js';
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
@@ -275,6 +278,7 @@ function buildShell(state) {
     }
 
     const showNav = !state.needsSalon;
+    const isOwner = state.userRole === 'salon_owner';
 
     return `
         ${networkBanner(state)}
@@ -283,6 +287,12 @@ function buildShell(state) {
             <div class="flex-1 flex flex-col min-w-0">
                 ${appHeader(state)}
                 <main class="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar">${viewHtml}</main>
+                ${isOwner && showNav ? `
+                    <button data-action="modal" data-modal="quick-billing" aria-label="Quick Billing" title="Quick Billing"
+                        class="fixed bottom-24 right-4 z-40 lg:hidden w-14 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-xl shadow-emerald-500/40 active:scale-95 transition touch-manipulation">
+                        <i data-lucide="zap" class="w-6 h-6"></i>
+                    </button>
+                ` : ''}
                 ${showNav ? bottomNav(state) : ''}
             </div>
         </div>
@@ -316,6 +326,13 @@ function renderApp() {
 
     syncAllFormButtons(appEl);
 
+    // A store change just rebuilt the shell (and any open modal) from scratch.
+    // Recompose the walk-in bill's live summary/wallet from its restored draft
+    // so the rendered totals match the seeded form; saveDraft is non-reactive,
+    // so this cannot re-trigger the render.
+    const qbForm = appEl.querySelector('form[data-action="submit-quick-billing"]');
+    if (qbForm) updateQuickBilling(qbForm);
+
     if (state.isModalOpen) {
         focusModal();
     }
@@ -337,6 +354,22 @@ function readFormData(form) {
         data[key] = typeof value === 'string' ? value.trim() : value;
     }
     return data;
+}
+
+/**
+ * Appointment date/time are automatic: the hidden `date`/`time` inputs carry
+ * the salon's current date/time, refreshed right before a NEW booking is
+ * validated so a form left open across a minute boundary can never be
+ * rejected by the "time has already passed" guard. Edits (a form carrying an
+ * `id`) always preserve the booking's original stamp.
+ */
+function stampAppointmentDateTime(form) {
+    if (!form || form.querySelector('[name="id"]')) return;
+    const now = currentSalonDateTime(currentSalon());
+    const date = form.querySelector('[name="date"]');
+    const time = form.querySelector('[name="time"]');
+    if (date) date.value = now.date;
+    if (time) time.value = now.time;
 }
 
 function findRecord(type, id) {
@@ -488,7 +521,12 @@ function renderFieldErrors(form, errors) {
 /* ------------------------------------------------------------------ */
 
 function formContext(form) {
-    return { signup: form.querySelector('[name="salonName"]') !== null };
+    return {
+        signup: form.querySelector('[name="salonName"]') !== null,
+        // Validation of appointment date/time always compares against the
+        // salon's current date/time (not the device's local clock).
+        nowDateTime: currentSalonDateTime(currentSalon()),
+    };
 }
 
 function syncFormValidity(form, changedName = null) {
@@ -536,6 +574,9 @@ function handleFormInput(event) {
     if (form.dataset.action === 'collect-payment') {
         updatePaymentSummary(form);
     }
+    if (form.dataset.action === 'submit-quick-billing') {
+        updateQuickBilling(form, event.target.name);
+    }
     if (form.dataset.action === 'submit-referral-settings' && event.target.name === 'rewardType') {
         const unit = form.querySelector('[data-reward-value-unit]');
         if (unit) unit.textContent = event.target.value === REWARD_TYPES.PERCENT ? '(%)' : '(\u20B9)';
@@ -579,6 +620,104 @@ function updatePaymentSummary(form) {
 
     const useMax = form.querySelector('[data-action="wallet-use-max"]');
     if (useMax) useMax.dataset.amount = String(cap);
+}
+
+/* ------------------------------------------------------------------ */
+/* Quick Billing / Walk-in helpers                                     */
+/* ------------------------------------------------------------------ */
+
+/** Service names currently on a walk-in bill (read from the hidden field). */
+function getSelectedServiceNames(form) {
+    const input = form && form.querySelector('[name="selectedServices"]');
+    if (!input) return [];
+    try {
+        const value = JSON.parse(input.value || '[]');
+        return [...new Set((Array.isArray(value) ? value : []).map((name) => String(name || '').trim()).filter(Boolean))];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Recompute the live quick-billing breakdown (selected list, wallet block,
+ * summary) in place, so typing never triggers a full re-render. The wallet
+ * input is left untouched while it is the focused field to keep focus.
+ */
+function updateQuickBilling(form, changedName = null) {
+    if (!form) return;
+    const state = store.getState();
+    const data = readFormData(form);
+    const catalog = scopedBySalon(state.servicesList, state.currentSalonId);
+    const names = getSelectedServiceNames(form);
+    const selectedServices = names.map((name) => catalog.find((s) => s.name === name)).filter(Boolean);
+    const invoiceAmount = round2(selectedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
+
+    const customer = customersRepository.getCustomer(data.customerId) || customersRepository.findCustomerByName(data.customerName);
+    const walletBalance = referralService.walletBalanceOf(customer);
+    const settings = sanitizeSettings(state.referralSettings);
+
+    const isOwner = state.userRole === 'salon_owner';
+    const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+    const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
+    const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
+    const discountText = discountLabel({ type: discountType, value: discountValue });
+    const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings }) : 0;
+    const walletRedeem = round2(num(data.walletRedeem));
+
+    const walletContainer = form.querySelector('[data-quickbilling-wallet]');
+    if (walletContainer && changedName !== 'walletRedeem') {
+        const current = walletContainer.querySelector('[name="walletRedeem"]');
+        const typed = current && current.type !== 'hidden' ? current.value : data.walletRedeem;
+        walletContainer.innerHTML = renderWalletBlock({ walletBalance, cap, settingsEnabled: settings.enabled });
+        const next = walletContainer.querySelector('[name="walletRedeem"]');
+        if (next && next.type !== 'hidden') next.value = String(typed || '');
+    }
+
+    const summaryContainer = form.querySelector('[data-quickbilling-summary]');
+    if (summaryContainer) {
+        summaryContainer.innerHTML = renderPaymentSummary({
+            invoiceAmount,
+            walletRedeem,
+            walletBalance,
+            cap,
+            discount,
+            discountText,
+        });
+    }
+
+    const selectedContainer = form.querySelector('[data-quickbilling-selected-services]');
+    if (selectedContainer) selectedContainer.innerHTML = renderSelectedServices(names, catalog);
+
+    sanitizeDOM(form);
+    refreshIcons(form);
+
+    // Snapshot the in-progress bill so a full app re-render (any store change)
+    // rebuilds this modal with the entered values intact instead of wiping them.
+    saveDraft('quickBilling', { ...data, selectedServices: JSON.stringify(names) });
+}
+
+/** Live service-search dropdown inside the quick-billing form. */
+function updateQuickBillingServiceSuggestions(el) {
+    const form = el.closest('form');
+    const container = form && form.querySelector('[data-quickbilling-service-suggestions]');
+    if (!container) return;
+
+    const value = (el.value || '').trim();
+    if (value.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const catalog = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId)
+        .filter((s) => s.active !== false);
+    const q = value.toLowerCase();
+    const matches = catalog
+        .filter((s) => (s.name || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q))
+        .slice(0, 8);
+
+    container.innerHTML = renderQuickBillingServiceSuggestions(matches, getSelectedServiceNames(form));
+    sanitizeDOM(container);
+    refreshIcons(container);
 }
 
 function updateCustomerSuggestions(el) {
@@ -636,33 +775,35 @@ const actions = {
         store.setState({ attendanceDate: el.value || null });
     },
 
+    async 'attendance-day-prev'() {
+        store.setState({ attendanceDate: shiftDate(store.getState().attendanceDate || todayStr(), -1) });
+    },
+
+    async 'attendance-day-next'() {
+        const today = todayStr();
+        const current = store.getState().attendanceDate || today;
+        if (current < today) store.setState({ attendanceDate: shiftDate(current, 1) });
+    },
+
+    async 'attendance-day-today'() {
+        store.setState({ attendanceDate: null });
+    },
+
+    /** Mark attendance for a staff member on the active daily date. */
+    async 'attendance-mark'(el) {
+        openModal('attendance', {
+            staffId: el.dataset.staffId,
+            staffName: el.dataset.staffName,
+            date: store.getState().attendanceDate || todayStr(),
+        });
+    },
+
     async 'attendance-month'(el) {
         store.setState({ attendanceHistoryMonth: el.value || null });
     },
 
     async 'attendance-staff-filter'(el) {
         store.setState({ attendanceHistoryStaffId: el.value || 'all' });
-    },
-
-    async 'mark-attendance-status'(el) {
-        const { staffId, staffName, recordId } = el.dataset;
-        const date = store.getState().attendanceDate || new Date().toISOString().slice(0, 10);
-        const status = el.value;
-
-        if (!status) {
-            if (recordId) await attendanceRepository.deleteAttendance(recordId);
-            return;
-        }
-        try {
-            if (recordId) {
-                await attendanceRepository.updateAttendance(recordId, { status });
-            } else {
-                await attendanceRepository.markAttendance({ staffId, staffName, date, status });
-            }
-            showNotification(`${staffName} marked ${status} for ${date}.`);
-        } catch (err) {
-            showNotification(err.message || 'Could not save attendance.', 'error');
-        }
     },
 
     async 'submit-attendance'(form, event, data) {
@@ -791,6 +932,7 @@ const actions = {
         if (container) container.innerHTML = '';
         saveDraft('appointment', readFormData(form));
         syncAllFormButtons(form);
+        if (form.dataset.action === 'submit-quick-billing') updateQuickBilling(form);
     },
 
     async 'quick-add-customer'(el) {
@@ -818,6 +960,7 @@ const actions = {
         if (container) container.innerHTML = '';
         saveDraft('appointment', { ...getDraft('appointment'), customerName: customer.name, customerId: customer.id || '' });
         syncAllFormButtons(liveForm);
+        if (liveForm.dataset.action === 'submit-quick-billing') updateQuickBilling(liveForm);
     },
 
     async 'logout'() {
@@ -1137,6 +1280,141 @@ const actions = {
         store.setState({});
     },
 
+    async 'quick-billing-service-search'(el) {
+        updateQuickBillingServiceSuggestions(el);
+    },
+
+    async 'quick-billing-add-service'(el) {
+        const form = el.closest('form[data-action="submit-quick-billing"]');
+        const name = (el.dataset.name || '').trim();
+        if (!form || !name) return;
+        const names = getSelectedServiceNames(form);
+        if (!names.includes(name)) names.push(name);
+        form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
+
+        const searchInput = form.querySelector('[data-action="quick-billing-service-search"]');
+        if (searchInput) searchInput.value = '';
+        const suggestions = form.querySelector('[data-quickbilling-service-suggestions]');
+        if (suggestions) suggestions.innerHTML = '';
+
+        updateQuickBilling(form);
+        syncFormValidity(form, 'selectedServices');
+    },
+
+    async 'quick-billing-remove-service'(el) {
+        const form = el.closest('form[data-action="submit-quick-billing"]');
+        const name = (el.dataset.name || '').trim();
+        if (!form) return;
+        const names = getSelectedServiceNames(form).filter((n) => n !== name);
+        form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
+        updateQuickBilling(form);
+        syncFormValidity(form, 'selectedServices');
+    },
+
+    async 'submit-quick-billing'(form, event, data) {
+        const state = store.getState();
+        const salonId = state.currentSalonId;
+        if (!salonId) throw new Error('No salon selected.');
+
+        const customer = await resolveAppointmentCustomer(data);
+
+        const names = getSelectedServiceNames(form);
+        const catalog = scopedBySalon(state.servicesList, salonId);
+        const selectedServices = names.map((name) => {
+            const service = catalog.find((row) => row.name === name);
+            return service ? { name: service.name, price: Number(service.price) || 0, duration: service.duration || '' } : null;
+        }).filter(Boolean);
+        if (selectedServices.length === 0) throw new Error('Select at least one service.');
+
+        const gross = round2(selectedServices.reduce((sum, svc) => sum + svc.price, 0));
+
+        // Owner edits the discount right here in this form; staff read the
+        // client's saved discount. Same rules as 'collect-payment'.
+        const isOwner = state.userRole === 'salon_owner';
+        const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+        const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
+        const discount = discountAmountFor({ type: discountType, value: discountValue }, gross);
+
+        if (customer && ((customer.discountType || '') !== discountType || num(customer.discountValue) !== discountValue)) {
+            await customersRepository.updateCustomer(customer.id, { discountType: discountType || '', discountValue: discountValue || '' }).catch((err) => {
+                console.warn('[discount] Could not save client discount:', err);
+            });
+        }
+
+        // Walk-in date/time are automatic (the salon's current time).
+        const salonNow = currentSalonDateTime(currentSalon());
+        const date = salonNow.date;
+        const time = salonNow.time;
+
+        const staffName = data.staffName || ANY_STAFF;
+        const appointment = await appointmentsRepository.addAppointment({
+            customerId: customer.id || '',
+            customerName: customer.name,
+            customerPhone: customer.phone || '',
+            serviceName: selectedServices[0].name,
+            services: selectedServices,
+            staffName,
+            date,
+            time,
+            status: 'Completed',
+            source: 'walkin',
+            amount: gross,
+            notes: 'Quick billing / walk-in',
+        }, { skipValidation: true });
+
+        // Wallet leg runs first because it must be atomic (see 'collect-payment').
+        const walletBalance = referralService.walletBalanceOf(customer);
+        const settings = sanitizeSettings(state.referralSettings);
+        const requested = round2(num(data.walletRedeem));
+        let redemption = { redeemed: 0, balanceBefore: walletBalance, balanceAfter: walletBalance };
+        if (requested > 0) {
+            if (!customer) throw new Error('A client record is required to redeem referral rewards.');
+            redemption = await referralService.redeem({
+                customer,
+                appointment,
+                invoiceAmount: round2(gross - discount),
+                requestedAmount: requested,
+            });
+        }
+
+        const split = splitPayment({ invoiceAmount: gross, walletRedeemed: redemption.redeemed, discount });
+        const patch = {
+            invoiceNo: invoiceNoFor(appointment.id),
+            invoiceAmount: split.invoiceAmount,
+            amount: split.invoiceAmount,
+            discountType,
+            discountValue,
+            discountApplied: split.discount,
+            walletRedeemed: split.walletRedeemed,
+            walletBalanceBefore: redemption.balanceBefore,
+            walletBalanceAfter: redemption.balanceAfter,
+            amountDue: split.amountDue,
+            paid: true,
+            paymentMethod: split.amountDue > 0
+                ? (data.paymentMethod || 'cash')
+                : (split.walletRedeemed > 0 ? 'wallet' : 'discount'),
+            paymentReference: data.paymentReference || '',
+            paidAt: new Date().toISOString(),
+            refunded: false,
+            status: 'Completed',
+        };
+
+        await appointmentsRepository.updateAppointment(appointment.id, patch);
+        showNotification(split.walletRedeemed > 0
+            ? `Walk-in billed: ${formatCurrency(split.walletRedeemed)} wallet + ${formatCurrency(split.amountDue)}.`
+            : `Walk-in billed: ${formatCurrency(split.amountDue)} received.`);
+
+        // Completed + paid satisfies the referral qualifying trigger.
+        const appointmentForSettlement = { ...appointment, ...patch };
+        const settlementResult = await runReferralSettlement(appointmentForSettlement);
+        if (settlementResult && settlementResult.credited) {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+
+        markAppointmentAsNew(appointment.id);
+        openModal('quick-billing-receipt', appointmentForSettlement);
+    },
+
     async 'update-appointment-status'(el) {
         const id = el.dataset.id;
         const status = el.dataset.status;
@@ -1149,7 +1427,9 @@ const actions = {
         const appointment = findAppointment(id);
         await appointmentsRepository.updateAppointment(id, { status });
         showNotification(`Appointment marked as ${status}!`);
-        if (appointment) await runReferralSettlement({ ...appointment, status });
+        if (appointment) {
+            await runReferralSettlement({ ...appointment, status });
+        }
     },
 
     /* ---------------- Appointment filters ---------------- */
@@ -1511,6 +1791,7 @@ const actions = {
             ownerEmail: data.email,
             phone: toIndianE164(data.phone),
             address: data.address,
+            timezone: data.timezone || 'Asia/Kolkata',
         });
         showNotification('New salon branch provisioned!');
         closeModal();
@@ -1570,7 +1851,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'mark-attendance-status'].includes(el.dataset.action)) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
@@ -1584,6 +1865,11 @@ function attachDelegation() {
         if (picker) {
             const handler = actions['customer-search'];
             Promise.resolve(handler(picker, event)).catch((err) => console.warn(err));
+        }
+        const quickBillingServiceSearch = event.target.closest('[data-action="quick-billing-service-search"]');
+        if (quickBillingServiceSearch) {
+            const handler = actions['quick-billing-service-search'];
+            Promise.resolve(handler(quickBillingServiceSearch, event)).catch((err) => console.warn(err));
         }
         const listSearch = event.target.closest('[data-action="customer-search-list"]');
         if (listSearch) {
@@ -1611,6 +1897,12 @@ function attachDelegation() {
         event.preventDefault();
         const handler = actions[form.dataset.action];
         if (!handler) return;
+
+        // Auto-stamp the appointment's date/time just before validation so
+        // the validated values are exactly the salon's current time.
+        if (form.dataset.action === 'submit-appointment') {
+            stampAppointmentDateTime(form);
+        }
 
         const data = readFormData(form);
         const ctx = { signup: form.querySelector('[name="salonName"]') !== null };
@@ -1653,7 +1945,12 @@ function registerServiceWorker() {
             // control immediately. Reload once so its fresh app shell and
             // modules are used together. Firebase and app sessions remain in
             // their existing browser storage; no user data is cleared.
-            if (!controllerChanged) {
+            // Never reload in demo mode: the offline preview keeps its whole
+            // session in memory, so a mid-session reload would discard a
+            // just-submitted sign-in or an in-progress walk-in bill for no
+            // benefit (the network-first SW strategy already serves freshly
+            // fetched modules). Signed-out visitors never trigger it either.
+            if (!controllerChanged && !isDemoMode() && store.getState().userRole !== 'guest') {
                 controllerChanged = true;
                 window.location.reload();
             }
