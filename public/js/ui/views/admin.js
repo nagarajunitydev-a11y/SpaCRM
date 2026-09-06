@@ -48,7 +48,7 @@ export function renderSuperAdmin(state) {
         if (!state.salonsLoaded) return loadingState();
         if (salons.length === 0) return emptyState('No salons have been provisioned yet.');
         return `
-            <div class="space-y-2.5">
+            <div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
                 ${salons.map((salon) => `
                     <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center justify-between gap-3">
                         <div class="min-w-0">

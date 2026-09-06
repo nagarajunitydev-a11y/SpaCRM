@@ -51,8 +51,8 @@ export function renderModalSheet(state) {
     const title = isEditing ? (EDIT_TITLES[type] || TITLES[type] || 'Details') : (TITLES[type] || 'Details');
 
     return `
-        <div class="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 flex flex-col justify-end" data-action="modal-backdrop">
-            <div class="bg-slate-900 border-t border-slate-800 rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto shadow-2xl no-scrollbar" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
+        <div class="absolute inset-0 bg-black/85 backdrop-blur-sm z-50 flex flex-col justify-end lg:items-center lg:justify-center lg:p-6" data-action="modal-backdrop">
+            <div class="bg-slate-900 border-t border-slate-800 rounded-t-3xl p-6 max-h-[85vh] overflow-y-auto shadow-2xl no-scrollbar lg:rounded-3xl lg:border lg:border-slate-800 lg:max-w-2xl lg:w-full lg:max-h-[85vh]" role="dialog" aria-modal="true" aria-label="${escAttr(title)}">
                 <div class="flex items-center justify-between mb-5">
                     <h3 class="font-bold text-base text-slate-100 capitalize">${esc(title)}</h3>
                     <button data-action="close-modal" aria-label="Close" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center hover:bg-slate-700 transition active:scale-95 touch-manipulation">
@@ -120,20 +120,21 @@ function renderForm(state, type) {
     if (type === 'customer') {
         const rec = editingRecord(state, 'customer');
         return `
-            <form data-action="submit-customer" class="space-y-3.5" novalidate>
+            <form data-action="submit-customer" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-                ${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}
+                <div class="lg:col-span-2">${formField('Full Name', textInput('name', 'Olivia Wilde', { value: rec?.name }))}</div>
                 ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
                 ${formField('Email', textInput('email', 'olivia@example.com', { type: 'email', autocomplete: 'email', value: rec?.email }))}
                 ${formField('Date of Birth (optional)', dateTimeInput('dob', 'date', '', { value: rec?.dob, required: false }))}
+                <div></div>
                 ${!rec && sanitizeSettings(state.referralSettings).enabled
-                    ? formField(
+                    ? `<div class="lg:col-span-2">${formField(
                         'Referral Code (optional)',
                         textInput('referralCode', 'e.g. PRIY4K7M', { required: false, className: 'uppercase tracking-widest font-mono' }),
                         'Enter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.',
-                    )
+                    )}</div>`
                     : ''}
-                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Save Client'}</button>
+                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Save Client'}</button>
             </form>
         `;
     }
@@ -141,13 +142,15 @@ function renderForm(state, type) {
     if (type === 'service') {
         const rec = editingRecord(state, 'service');
         return `
-            <form data-action="submit-service" class="space-y-3.5" novalidate>
+            <form data-action="submit-service" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-                ${formField('Service Title', textInput('name', 'Keratin Treatment', { value: rec?.name }))}
+                <div class="lg:col-span-2">${renderServicePicker(rec)}</div>
+                <div class="lg:col-span-2">${formField('Service Title', textInput('name', 'Keratin Treatment', { value: rec?.name }))}</div>
                 ${formField('Category (optional)', textInput('category', 'Hair, Skin, Nails…', { required: false, value: rec?.category }))}
+                <div></div>
                 ${formField('Price (₹)', textInput('price', '140', { type: 'number', className: 'input-number', value: rec?.price }))}
                 ${formField('Duration', textInput('duration', '90m', { value: rec?.duration }))}
-                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Add Service'}</button>
+                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Add Service'}</button>
             </form>
         `;
     }
@@ -163,12 +166,13 @@ function renderForm(state, type) {
     if (type === 'staff') {
         const rec = editingRecord(state, 'staff');
         return `
-            <form data-action="submit-staff" class="space-y-3.5" novalidate>
+            <form data-action="submit-staff" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-                ${formField('Staff Name', textInput('name', 'Chloe Grace', { value: rec?.name }))}
+                <div class="lg:col-span-2">${formField('Staff Name', textInput('name', 'Chloe Grace', { value: rec?.name }))}</div>
                 ${formField('Role / Specialization', textInput('role', 'Senior Hair Stylist', { value: rec?.role }))}
                 ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
-                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Register Staff'}</button>
+                <div></div>
+                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Register Staff'}</button>
             </form>
         `;
     }
@@ -190,39 +194,42 @@ function renderForm(state, type) {
             { value: 'Cancelled', label: 'Cancelled' },
         ];
         return `
-            <form data-action="submit-appointment" class="space-y-3.5" novalidate>
+            <form data-action="submit-appointment" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-                ${renderCustomerPicker(pre)}
+                <div class="lg:col-span-2">${renderCustomerPicker(pre)}</div>
                 <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(selectedServiceNames))}">
                 ${formField('Select Service', selectControl('serviceName', pickableServices.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName }))}
-                <button type="button" data-action="add-appointment-service" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-[0.98] touch-manipulation">Add selected service</button>
-                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2">
+                <div class="flex items-end">
+                    <button type="button" data-action="add-appointment-service" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-[0.98] touch-manipulation">Add selected service</button>
+                </div>
+                <div class="lg:col-span-2 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2">
                     <div class="flex items-center justify-between"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Services</p><span class="text-[10px] text-slate-500">${selectedServices.length}</span></div>
-                    ${selectedServices.length === 0 ? '<p class="text-[11px] text-slate-500">Add one or more services to this appointment.</p>' : selectedServices.map((service) => `<div class="flex items-center justify-between gap-2 text-xs"><div class="min-w-0"><p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p><p class="text-[10px] text-slate-500">${esc(service.duration || '—')} â€¢ ${esc(formatCurrency(service.price))}</p></div><button type="button" data-action="remove-appointment-service" data-name="${escAttr(service.name)}" class="w-7 h-7 shrink-0 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>`).join('')}
+                    ${selectedServices.length === 0 ? '<p class="text-[11px] text-slate-500">Add one or more services to this appointment.</p>' : selectedServices.map((service) => `<div class="flex items-center justify-between gap-2 text-xs"><div class="min-w-0"><p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p><p class="text-[10px] text-slate-500">${esc(service.duration || '—')} • ${esc(formatCurrency(service.price))}</p></div><button type="button" data-action="remove-appointment-service" data-name="${escAttr(service.name)}" class="w-7 h-7 shrink-0 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>`).join('')}
                     <div class="border-t border-slate-800 pt-2 flex items-center justify-between"><span class="text-[11px] font-semibold text-slate-300">Subtotal</span><span class="text-sm font-extrabold text-brand-300">${esc(formatCurrency(subtotal))}</span></div>
                     <div class="flex items-center justify-between text-[10px] text-slate-500"><span>Discount / credit</span><span>Applied at payment</span></div>
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-200"><span>Final total</span><span>${esc(formatCurrency(subtotal))}</span></div>
                 </div>
-                ${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}
-                <div class="grid grid-cols-2 gap-3">
+                <div class="lg:col-span-2">${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}</div>
+                <div class="grid grid-cols-2 gap-3 lg:grid-cols-2">
                     <div>${formField('Date', dateTimeInput('date', 'date', '', { value: pre?.date }))}</div>
                     <div>${formField('Time', dateTimeInput('time', 'time', '', { value: pre?.time }))}</div>
                 </div>
-                ${rec ? formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' })) : ''}
-                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Confirm Booking'}</button>
+                ${rec ? `<div class="lg:col-span-2">${formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' }))}</div>` : ''}
+                <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Confirm Booking'}</button>
             </form>
         `;
     }
 
     const rec = editingRecord(state, 'salon');
     return `
-        <form data-action="submit-salon" class="space-y-3.5" novalidate>
+        <form data-action="submit-salon" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
             ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-            ${formField('Salon Branch Name', textInput('name', 'Luxe Glow SoHo', { value: rec?.name }))}
+            <div class="lg:col-span-2">${formField('Salon Branch Name', textInput('name', 'Luxe Glow SoHo', { value: rec?.name }))}</div>
             ${formField('Owner Email', textInput('email', 'owner@sohostudio.com', { type: 'email', autocomplete: 'email', value: rec?.ownerEmail ?? rec?.email }))}
             ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
-            ${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}
-            <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">${rec ? 'Save Changes' : 'Provision Branch'}</button>
+            <div></div>
+            <div class="lg:col-span-2">${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}</div>
+            <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Provision Branch'}</button>
         </form>
     `;
 }
@@ -312,6 +319,55 @@ export function renderCustomerSuggestions(matches, query, opts = {}) {
             ${list}
             ${list && addNew ? '<div class="h-px bg-slate-800 my-1"></div>' : ''}
             ${addNew}
+        </div>
+    `;
+}
+
+/**
+ * Search picker used at the top of the Add/Edit Service form. It searches the
+ * salon's service catalog by name or category and lets the owner pick a
+ * treatment/salon package, filling the existing name/category/price/duration
+ * fields below. Purely a convenience — every field stays manually editable
+ * and the single-service workflow (one title, one price, one duration) is
+ * unchanged.
+ */
+function renderServicePicker(rec) {
+    return `
+        <div>
+            <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Search Service</label>
+            <div class="relative">
+                <input type="text" autocomplete="off" value="${escAttr(rec?.name || '')}"
+                    placeholder="Search service name or category…"
+                    data-action="service-search"
+                    class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 pr-9">
+                <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            </div>
+            <div data-service-suggestions class="mt-2"></div>
+            <p class="mt-1 text-[10px] text-slate-500">Search your catalog by service name or category — picking a result fills in the details below.</p>
+        </div>
+    `;
+}
+
+export function renderServiceSuggestions(matches, query) {
+    const q = (query || '').trim();
+    if (q.length === 0) return '';
+    if (!matches || matches.length === 0) {
+        return `<p class="text-[11px] text-slate-500 bg-slate-950/60 border border-slate-800/60 rounded-xl px-4 py-3 text-center">No services matched "${esc(q)}".</p>`;
+    }
+    return `
+        <div class="space-y-1.5">
+            ${matches.slice(0, 8).map((s) => `
+                <button type="button" data-action="pick-service"
+                    data-name="${escAttr(s.name)}" data-category="${escAttr(s.category)}"
+                    data-duration="${escAttr(s.duration)}" data-price="${escAttr(s.price)}"
+                    class="w-full flex items-start justify-between gap-3 bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-left transition active:scale-[0.98] touch-manipulation">
+                    <span class="min-w-0">
+                        <span class="block text-xs font-semibold text-slate-100 truncate">${esc(s.name)}</span>
+                        <span class="block text-[10px] text-slate-400 mt-0.5 truncate">${esc(s.category || 'Uncategorized')}${s.duration ? esc(' • ' + s.duration) : ''}${s.source === 'catalogue' ? esc(' • Catalogue') : ''}</span>
+                    </span>
+                    <span class="text-xs font-extrabold text-brand-400 shrink-0">${esc(formatCurrency(s.price))}</span>
+                </button>
+            `).join('')}
         </div>
     `;
 }

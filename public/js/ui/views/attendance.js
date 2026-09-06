@@ -90,7 +90,7 @@ export function renderAttendance(state) {
         .sort((a, b) => b.date.localeCompare(a.date) || (a.staffName || '').localeCompare(b.staffName || ''));
 
     return `
-        <div class="space-y-5">
+        <div class="space-y-5 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start lg:space-y-0">
             <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
                 <div class="flex items-center justify-between gap-3">
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Mark Attendance</p>
@@ -102,7 +102,7 @@ export function renderAttendance(state) {
                     : `<div class="space-y-2">${rosterRows.join('')}</div>`}
             </div>
 
-            <div class="space-y-3">
+            <div class="space-y-3 lg:sticky lg:top-0">
                 <div class="flex items-center justify-between gap-3">
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">History</p>
                     <div class="flex items-center gap-2">

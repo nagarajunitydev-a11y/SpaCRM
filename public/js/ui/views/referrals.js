@@ -72,7 +72,7 @@ function summaryPanel(rows) {
             <div class="absolute right-0 top-0 w-32 h-32 bg-brand-500/10 rounded-full blur-2xl pointer-events-none" aria-hidden="true"></div>
             <span class="text-[10px] font-bold text-brand-400 uppercase tracking-widest block mb-1">Performance</span>
             <h2 class="text-lg font-extrabold text-white">Referral Programme</h2>
-            <div class="grid grid-cols-2 gap-2.5 mt-4">
+            <div class="grid grid-cols-2 gap-2.5 mt-4 lg:grid-cols-3 lg:gap-3">
                 ${tile('Total referrals', s.total)}
                 ${tile('Successful', s.successful, 'text-emerald-400')}
                 ${tile('Pending', s.pending, 'text-amber-400')}
@@ -141,7 +141,7 @@ export function renderReferralListBody(rows) {
     if (!rows || rows.length === 0) {
         return emptyState('No referrals match the current filters.');
     }
-    return `<div class="space-y-2.5">${rows.map((r) => referralCard(r)).join('')}</div>`;
+    return `<div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">${rows.map((r) => referralCard(r)).join('')}</div>`;
 }
 
 function filterChips(active) {
@@ -180,8 +180,8 @@ export function renderReferralSettings(settings) {
     const isPercent = s.rewardType === REWARD_TYPES.PERCENT;
 
     return `
-        <form data-action="submit-referral-settings" class="space-y-3.5" novalidate>
-            ${toggleRow('enabled', 'Referral programme', 'Turn the whole programme on or off for this salon.', s.enabled)}
+        <form data-action="submit-referral-settings" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0 lg:max-w-4xl" novalidate>
+            <div class="lg:col-span-2">${toggleRow('enabled', 'Referral programme', 'Turn the whole programme on or off for this salon.', s.enabled)}</div>
 
             ${formField('Reward Type', selectControl('rewardType', [
                 { value: REWARD_TYPES.FIXED, label: 'Fixed amount (₹)' },
@@ -209,7 +209,7 @@ export function renderReferralSettings(settings) {
 
             ${formField('Max Redemption per Invoice (%)', textInput('maxRedemptionPercent', '50', { type: 'number', className: 'input-number', value: s.maxRedemptionPercent }), 'The largest share of any single invoice that may be paid from the referral wallet.')}
 
-            <button type="submit" class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">Save Referral Settings</button>
+            <button type="submit" class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">Save Referral Settings</button>
         </form>
     `;
 }

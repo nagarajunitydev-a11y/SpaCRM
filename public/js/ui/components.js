@@ -45,7 +45,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
         : '';
 
     return `
-        <header class="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/80 px-4 py-3.5 flex items-center justify-between sticky top-0 z-30 gap-2">
+        <header class="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/80 px-4 py-3.5 flex items-center justify-between sticky top-0 z-30 gap-2 lg:px-6 lg:py-4">
             <div class="flex items-center space-x-2.5 min-w-0">
                 ${logoMark()}
                 <div class="min-w-0">
@@ -68,7 +68,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
     `;
 }
 
-/** Bottom navigation bar. */
+/** Bottom navigation bar (mobile). */
 export function bottomNav(state) {
     const isOwner = state.userRole === 'salon_owner';
 
@@ -89,7 +89,7 @@ export function bottomNav(state) {
           ];
 
     return `
-        <nav class="absolute bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800/80 px-2 py-2.5 flex items-center justify-around z-30 shadow-2xl safe-bottom" aria-label="Main navigation">
+        <nav data-nav="bottom" class="absolute bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-slate-800/80 px-2 py-2.5 flex items-center justify-around z-30 shadow-2xl safe-bottom" aria-label="Main navigation">
             ${items.map((item) => {
                 const active = item.tab && item.tab === state.activeTab;
                 const isLogout = item.logout;
@@ -102,6 +102,81 @@ export function bottomNav(state) {
                     </button>
                 `;
             }).join('')}
+        </nav>
+    `;
+}
+
+/** Desktop sidebar navigation (hidden on mobile via CSS). */
+export function desktopSidebar(state) {
+    const isOwner = state.userRole === 'salon_owner';
+
+    const ownerItems = [
+        { tab: 'dashboard', label: 'Home', icon: 'layout-dashboard' },
+        { tab: 'appointments', label: 'Bookings', icon: 'calendar' },
+        { tab: 'customers', label: 'Clients', icon: 'users' },
+        { tab: 'referrals', label: 'Referrals', icon: 'gift' },
+        { tab: 'services', label: 'Services', icon: 'sparkles' },
+        { tab: 'staff', label: 'Staff', icon: 'user-check' },
+    ];
+
+    const items = isOwner
+        ? ownerItems
+        : [
+              { tab: 'admin_salons', label: 'All Salons', icon: 'building-2' },
+          ];
+
+    return `
+        <nav data-nav="sidebar" class="hidden lg:flex flex-col w-[16rem] shrink-0 bg-slate-950 border-r border-slate-800/50 h-full overflow-y-auto no-scrollbar" aria-label="Sidebar navigation">
+            <div class="p-5 pb-6 border-b border-slate-800/50">
+                <div class="flex items-center space-x-3">
+                    ${logoMark('w-11 h-11', 'w-9 h-9')}
+                    <div class="min-w-0">
+                        <h1 class="font-bold text-sm text-slate-100 tracking-tight">Qvrix Luxe</h1>
+                        <p class="text-[10px] text-brand-400 font-semibold uppercase tracking-wider">${esc(state.userRole === 'super_admin' ? 'Super Admin' : 'Salon Owner')}</p>
+                    </div>
+                </div>
+                ${isOwner && (state.salonsList || []).length > 0 ? `
+                    <div class="mt-4 flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-300">
+                        <i data-lucide="store" class="w-3.5 h-3.5 text-brand-500 mr-2 shrink-0"></i>
+                        <select data-action="salon" class="bg-transparent font-medium text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 text-ellipsis" aria-label="Select salon">
+                            ${(state.salonsList || []).map((s) => `
+                                <option value="${escAttr(s.id)}" ${s.id === state.currentSalonId ? 'selected' : ''} class="bg-slate-900">${esc(s.name)}</option>
+                            `).join('')}
+                        </select>
+                    </div>
+                ` : ''}
+            </div>
+
+            <div class="flex-1 p-3 space-y-1">
+                ${items.map((item) => {
+                    const active = item.tab && item.tab === state.activeTab;
+                    const cls = active
+                        ? 'bg-brand-600/15 text-brand-400 border border-brand-500/20'
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent';
+                    return `
+                        <button data-action="tab" data-tab="${escAttr(item.tab)}" aria-current="${active ? 'page' : 'false'}"
+                            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition touch-manipulation ${escAttr(cls)}">
+                            <i data-lucide="${escAttr(item.icon)}" class="w-[18px] h-[18px] shrink-0"></i>
+                            <span>${esc(item.label)}</span>
+                        </button>
+                    `;
+                }).join('')}
+            </div>
+
+            <div class="p-3 border-t border-slate-800/50 space-y-1">
+                ${isOwner ? `
+                    <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours"
+                        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent transition touch-manipulation">
+                        <i data-lucide="circle-help" class="w-[18px] h-[18px] shrink-0"></i>
+                        <span>Help & Tours</span>
+                    </button>
+                ` : ''}
+                <button data-action="logout" aria-label="Logout" title="Logout"
+                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent transition touch-manipulation">
+                    <i data-lucide="log-out" class="w-[18px] h-[18px] shrink-0"></i>
+                    <span>Sign Out</span>
+                </button>
+            </div>
         </nav>
     `;
 }
@@ -294,6 +369,7 @@ export default {
     logoMark,
     appHeader,
     bottomNav,
+    desktopSidebar,
     statCard,
     quickAction,
     actionButton,

@@ -28,7 +28,7 @@ import { validateForm, toIndianE164 } from './core/validate.js';
 import { sanitizeDOM, esc, escAttr } from './core/sanitize.js';
 import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
-import { appHeader, bottomNav, networkBanner, emptyState } from './ui/components.js';
+import { appHeader, bottomNav, desktopSidebar, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft } from './core/draft.js';
 import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive } from './core/utils.js';
 import renderLogin from './ui/views/login.js';
@@ -48,7 +48,7 @@ import renderServices from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
 import renderSalonSetup from './ui/views/salonSetup.js';
-import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
+import renderModalSheet, { renderCustomerSuggestions, renderServiceSuggestions } from './ui/views/modals.js';
 import renderReferrals, {
     setReferralSearch,
     referralRows,
@@ -278,9 +278,14 @@ function buildShell(state) {
 
     return `
         ${networkBanner(state)}
-        ${appHeader(state)}
-        <main class="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar">${viewHtml}</main>
-        ${showNav ? bottomNav(state) : ''}
+        <div class="flex flex-1 min-h-0 w-full desktop-container">
+            ${desktopSidebar(state)}
+            <div class="flex-1 flex flex-col min-w-0">
+                ${appHeader(state)}
+                <main class="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar">${viewHtml}</main>
+                ${showNav ? bottomNav(state) : ''}
+            </div>
+        </div>
         ${state.isModalOpen ? renderModalSheet(state) : ''}
     `;
 }
@@ -609,6 +614,49 @@ function updateCustomerSuggestions(el) {
     refreshIcons(container);
 }
 
+function updateServiceSuggestions(el) {
+    const form = el.closest('form');
+    const container = form && form.querySelector('[data-service-suggestions]');
+    if (!container) return;
+
+    const value = (el.value || '').trim();
+    if (value.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    const state = store.getState();
+    const q = value.toLowerCase();
+
+    // Salon's own catalog first, then the standard reference catalogue (an
+    // entry already present in the salon's catalog wins and is not duplicated).
+    const seen = new Set();
+    const matches = [];
+    const collect = (source) => (s) => {
+        const name = (s.name || '').trim();
+        const key = name.toLowerCase();
+        if (!name || seen.has(key)) return;
+        seen.add(key);
+        matches.push({
+            name,
+            category: (s.category || '').trim(),
+            duration: (s.duration || '').trim(),
+            price: Number(s.price) || 0,
+            source,
+        });
+    };
+    scopedBySalon(state.servicesList, state.currentSalonId).forEach(collect('catalog'));
+    PREDEFINED_SERVICES.forEach(collect('catalogue'));
+
+    const filtered = matches.filter((s) =>
+        s.name.toLowerCase().includes(q)
+        || (s.category || '').toLowerCase().includes(q),
+    );
+
+    container.innerHTML = renderServiceSuggestions(filtered, value);
+    refreshIcons(container);
+}
+
 const actions = {
     async 'role'(el) {
         const role = el.dataset.role;
@@ -815,6 +863,29 @@ const actions = {
         syncAllFormButtons(liveForm);
     },
 
+    async 'service-search'(el) {
+        updateServiceSuggestions(el);
+    },
+
+    async 'pick-service'(el) {
+        const form = el.closest('form[data-action="submit-service"]');
+        if (!form) return;
+        const set = (name, value) => {
+            const input = form.querySelector(`[name="${name}"]`);
+            if (input) input.value = value;
+        };
+        const pickedName = el.dataset.name || '';
+        set('name', pickedName);
+        set('category', el.dataset.category || '');
+        set('price', el.dataset.price || '');
+        set('duration', el.dataset.duration || '');
+        const search = form.querySelector('[data-action="service-search"]');
+        if (search) search.value = pickedName;
+        const container = form.querySelector('[data-service-suggestions]');
+        if (container) container.innerHTML = '';
+        syncAllFormButtons(form);
+    },
+
     async 'logout'() {
         await authService.signOut();
         syncSalonScope();
@@ -890,7 +961,7 @@ const actions = {
         if (!container) return;
         container.innerHTML = customers.length === 0
             ? emptyState(q ? `No clients found for "${esc(query)}"` : 'No clients registered.')
-            : `<div class="space-y-2.5">${customers.map((c) => renderCustomerCard(c)).join('')}</div>`;
+            : `<div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">${customers.map((c) => renderCustomerCard(c)).join('')}</div>`;
         refreshIcons(container);
     },
 
@@ -1541,6 +1612,11 @@ function attachDelegation() {
         if (picker) {
             const handler = actions['customer-search'];
             Promise.resolve(handler(picker, event)).catch((err) => console.warn(err));
+        }
+        const serviceSearch = event.target.closest('[data-action="service-search"]');
+        if (serviceSearch) {
+            const handler = actions['service-search'];
+            Promise.resolve(handler(serviceSearch, event)).catch((err) => console.warn(err));
         }
         const listSearch = event.target.closest('[data-action="customer-search-list"]');
         if (listSearch) {

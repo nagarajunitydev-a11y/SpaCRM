@@ -41,7 +41,7 @@ export function renderCustomers(state) {
                 </div>`,
             )}
 
-            <div class="relative" data-tutorial="customers-search">
+            <div class="relative lg:max-w-xl" data-tutorial="customers-search">
                 <input type="text" data-action="customer-search-list" placeholder="Search clients by name, phone, email…"
                     value=""
                     class="w-full bg-slate-900 border border-slate-800 pl-9 pr-9 py-2.5 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
@@ -56,7 +56,7 @@ export function renderCustomers(state) {
                 ${customers.length === 0
                     ? emptyState('No clients registered.')
                     : `
-                        <div class="space-y-2.5">
+                        <div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
                             ${customers.map((c) => renderCustomerCard(c)).join('')}
                         </div>
                     `}

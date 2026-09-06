@@ -141,3 +141,140 @@ button,
         transition-duration: 0.01ms !important;
     }
 }
+
+/* ================================================================
+   DESKTOP LAYOUT (>= 1024px)
+   Full SaaS dashboard: sidebar nav, wider content, centered modals.
+   All mobile styles remain untouched below this comment.
+   ================================================================ */
+@media (min-width: 1024px) {
+    /* --- App Shell: remove phone-frame constraints --- */
+    .app-shell {
+        max-width: none !important;
+        width: 100% !important;
+        margin: 0 !important;
+        border-left: none !important;
+        border-right: none !important;
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+        position: relative;
+    }
+
+    /* Desktop sidebar — hidden on mobile (Tailwind `hidden lg:flex`) */
+    [data-nav="sidebar"] {
+        display: flex !important;
+    }
+
+    /* Mobile bottom nav — hidden on desktop */
+    [data-nav="bottom"] {
+        display: none !important;
+    }
+
+    /* --- Row container: sidebar + content column --- */
+    .desktop-container {
+        flex: 1 1 0% !important;
+        min-height: 0;
+        min-width: 0;
+        display: flex;
+        flex-direction: row;
+    }
+
+    /* --- Header: clean top bar in the content column --- */
+    .desktop-container header {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+    }
+
+    /* --- Main content: flexible area with comfortable padding --- */
+    .desktop-container main {
+        flex: 1 1 0%;
+        min-width: 0;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+        padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+    }
+
+    /* Content wrapper max-width for readability on ultrawide */
+    .desktop-container main > * {
+        max-width: 90rem;
+        margin-left: auto;
+        margin-right: auto;
+        width: 100%;
+    }
+
+    /* --- Modals: centered dialog, not bottom sheet --- */
+    .app-shell [data-action="modal-backdrop"] {
+        align-items: center;
+        justify-content: center;
+        padding: 2rem;
+    }
+
+    .app-shell [data-action="modal-backdrop"] > div {
+        max-height: 85vh;
+        width: 100%;
+        max-width: 36rem;
+        border-radius: 1.5rem;
+        border: 1px solid rgba(30, 41, 59, 0.6);
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+        margin: auto;
+    }
+
+    /* --- Dashboard / data-view responsive grids ---
+       Specific layouts are applied via Tailwind `lg:` classes inside the
+       view renderers (dashboard.js, customers.js, etc.). */
+
+    /* Appointment filter bar: horizontal layout on desktop */
+    .desktop-container .grid.grid-cols-2.gap-1\\.5 {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .desktop-container .grid.grid-cols-2.gap-1\\.5 > * {
+        flex: 1;
+        min-width: 0;
+    }
+
+    /* --- Section headers: slightly larger typography --- */
+    .desktop-container h2.text-lg {
+        font-size: 1.25rem;
+    }
+
+    /* --- Login: centered card on desktop --- */
+    .desktop-container .bg-gradient-to-b.from-slate-900,
+    .app-shell > .bg-gradient-to-b.from-slate-900 {
+        justify-content: center;
+        align-items: center;
+    }
+
+    .app-shell > .bg-gradient-to-b.from-slate-900 > div.text-center,
+    .app-shell > .bg-gradient-to-b.from-slate-900 > div.w-full {
+        max-width: 24rem;
+        width: 100%;
+    }
+}
+
+/* Desktop xl: even more space */
+@media (min-width: 1280px) {
+    .desktop-container main {
+        padding-left: 2.5rem !important;
+        padding-right: 2.5rem !important;
+    }
+}
+
+/* Desktop 2xl: ultrawide optimization */
+@media (min-width: 1536px) {
+    .desktop-container main {
+        padding-left: 3rem !important;
+        padding-right: 3rem !important;
+    }
+
+    .desktop-container main > * {
+        max-width: 100rem;
+    }
+}

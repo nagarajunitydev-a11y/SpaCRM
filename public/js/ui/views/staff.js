@@ -21,7 +21,7 @@ function renderRoster(state) {
             ${staff.length === 0
                 ? emptyState('No staff members registered yet.')
                 : `
-                    <div class="grid grid-cols-1 gap-2.5">
+                    <div class="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-3">
                         ${staff.map((st) => `
                             <div class="bg-slate-900 border border-slate-800 p-4 rounded-2xl flex items-center space-x-3.5">
                                 <div class="w-11 h-11 rounded-2xl bg-brand-500/15 text-brand-400 flex items-center justify-center font-bold text-base shrink-0" aria-hidden="true">

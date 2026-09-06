@@ -117,13 +117,13 @@ export function renderDashboard(state) {
                 <div class="absolute right-0 top-0 w-32 h-32 bg-brand-500/10 rounded-full blur-2xl pointer-events-none" aria-hidden="true"></div>
                 <span class="text-[10px] font-bold text-brand-400 uppercase tracking-widest block mb-1">Overview</span>
                 <h2 class="text-xl font-extrabold text-white">Your Salon at a Glance</h2>
-                <div class="grid grid-cols-2 gap-3 mt-4">
+                <div class="grid grid-cols-2 gap-3 mt-4 lg:grid-cols-2 lg:max-w-2xl">
                     ${statCard(`${periodLabel(activeTab)} Bookings`, filtered.length)}
                     ${statCard('Est. Revenue', formatCurrency(totalRevenue), 'text-emerald-400')}
                 </div>
             </div>
 
-            <div class="grid grid-cols-4 gap-2.5">
+            <div class="grid grid-cols-4 gap-2.5 lg:grid-cols-5 lg:gap-3">
                 ${quickAction('appointment', 'Book', 'calendar-plus', 'bg-brand-500/10 text-brand-400')}
                 ${quickAction('customer', 'Client', 'user-plus', 'bg-indigo-500/10 text-indigo-400')}
                 ${quickAction('service', 'Service', 'sparkle', 'bg-emerald-500/10 text-emerald-400')}
@@ -131,29 +131,33 @@ export function renderDashboard(state) {
                 ${quickAction('booking-link', 'Booking Link', 'link', 'bg-teal-500/10 text-teal-400')}
             </div>
 
-            <div class="space-y-3">
-                <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-2xl p-1">
-                    ${PERIODS.map((p) => `
-                        <button data-action="dashboard-tab" data-period="${esc(p.key)}"
-                            class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition touch-manipulation active:scale-[0.97] ${activeTab === p.key ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/25' : 'text-slate-400 hover:text-slate-200'}">
-                            <i data-lucide="${esc(p.icon)}" class="w-3.5 h-3.5"></i>
-                            <span>${esc(p.label)}</span>
-                        </button>
-                    `).join('')}
+            <div class="lg:grid lg:grid-cols-[minmax(0,300px)_1fr] lg:gap-5 lg:items-start">
+                <div class="space-y-3 lg:sticky lg:top-2">
+                    <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-2xl p-1">
+                        ${PERIODS.map((p) => `
+                            <button data-action="dashboard-tab" data-period="${esc(p.key)}"
+                                class="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[11px] font-semibold transition touch-manipulation active:scale-[0.97] ${activeTab === p.key ? 'bg-brand-600 text-white shadow-lg shadow-brand-600/25' : 'text-slate-400 hover:text-slate-200'}">
+                                <i data-lucide="${esc(p.icon)}" class="w-3.5 h-3.5"></i>
+                                <span>${esc(p.label)}</span>
+                            </button>
+                        `).join('')}
+                    </div>
+
+                    <div class="flex items-center justify-between">
+                        <h3 class="font-bold text-sm text-slate-200">${esc(periodLabel(activeTab))} Appointments</h3>
+                        <span class="text-[10px] text-slate-500 font-medium">${filtered.length} booking${filtered.length !== 1 ? 's' : ''}</span>
+                    </div>
                 </div>
 
-                <div class="flex items-center justify-between">
-                    <h3 class="font-bold text-sm text-slate-200">${esc(periodLabel(activeTab))} Appointments</h3>
-                    <span class="text-[10px] text-slate-500 font-medium">${filtered.length} booking${filtered.length !== 1 ? 's' : ''}</span>
+                <div class="mt-4 lg:mt-0">
+                    ${filtered.length === 0
+                        ? emptyState(activeTab === 'today' ? 'No appointments scheduled for today.' : `No appointments in ${esc(periodLabel(activeTab).toLowerCase())}.`)
+                        : `
+                            <div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">
+                                ${filtered.map((a) => renderAppointmentCard(a)).join('')}
+                            </div>
+                        `}
                 </div>
-
-                ${filtered.length === 0
-                    ? emptyState(activeTab === 'today' ? 'No appointments scheduled for today.' : `No appointments in ${esc(periodLabel(activeTab).toLowerCase())}.`)
-                    : `
-                        <div class="space-y-2.5">
-                            ${filtered.map((a) => renderAppointmentCard(a)).join('')}
-                        </div>
-                    `}
             </div>
         </div>
     `;

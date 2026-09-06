@@ -30,7 +30,7 @@ export function renderServices(state) {
             ${services.length === 0
                 ? emptyState('No services in the catalog yet.')
                 : `
-                    <div class="grid grid-cols-1 gap-2.5">
+                    <div class="grid grid-cols-1 gap-2.5 lg:grid-cols-2 lg:gap-3">
                         ${services.map((s) => {
                             const disabled = s.active === false;
                             return `

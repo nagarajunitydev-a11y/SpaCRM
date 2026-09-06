@@ -172,7 +172,7 @@ export function renderAppointmentListBody(rows, totalCount) {
     if (!rows || rows.length === 0) {
         return emptyState(totalCount > 0 ? 'No appointments match the current filters.' : 'No appointments found.');
     }
-    return `<div class="space-y-2.5">${sortAppointmentsByCreation(rows).map((a) => appointmentCard(a)).join('')}</div>`;
+    return `<div class="space-y-2.5 lg:grid lg:grid-cols-2 lg:gap-3 lg:space-y-0">${sortAppointmentsByCreation(rows).map((a) => appointmentCard(a)).join('')}</div>`;
 }
 
 /** A <select> wired directly for the appointment-filter change handler. */
@@ -193,25 +193,25 @@ function filterBar(state, filters, query) {
     const count = activeFilterCount(filters, query);
 
     return `
-        <div class="bg-slate-900/60 border border-slate-800/60 p-2.5 rounded-xl space-y-1.5">
-            <div class="relative">
+        <div class="bg-slate-900/60 border border-slate-800/60 p-2.5 rounded-xl space-y-1.5 lg:flex lg:flex-wrap lg:items-center lg:gap-2 lg:space-y-0">
+            <div class="relative lg:w-72 lg:shrink-0">
                 <input type="text" data-action="appointment-search" placeholder="Search customer, service, staff, invoice…"
                     value="${escAttr(query)}"
                     class="w-full bg-slate-950 border border-slate-800 pl-8 pr-3 py-1.5 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-brand-500 placeholder:text-slate-500">
                 <i data-lucide="search" class="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
             </div>
 
-            <div class="grid grid-cols-2 gap-1.5">
+            <div class="grid grid-cols-2 gap-1.5 lg:flex-1 lg:min-w-[11rem]">
                 ${filterSelect('status', [{ value: 'all', label: 'All statuses' }, ...STATUS_OPTIONS.map((s) => ({ value: s, label: s }))], filters.status)}
                 ${filterSelect('paymentStatus', [{ value: 'all', label: 'All payments' }, ...PAYMENT_STATUS_OPTIONS], filters.paymentStatus)}
             </div>
 
-            <div class="grid grid-cols-2 gap-1.5">
+            <div class="grid grid-cols-2 gap-1.5 lg:flex-1 lg:min-w-[11rem]">
                 ${filterSelect('staffName', [{ value: 'all', label: 'All staff' }, ...staffNames.map((s) => ({ value: s, label: s }))], filters.staffName)}
                 ${filterSelect('serviceName', [{ value: 'all', label: 'All services' }, ...serviceNames.map((s) => ({ value: s, label: s }))], filters.serviceName)}
             </div>
 
-            <div data-appointment-filter-footer>${filterFooter(count)}</div>
+            <div class="lg:w-full lg:shrink-0" data-appointment-filter-footer>${filterFooter(count)}</div>
         </div>
     `;
 }
