@@ -249,11 +249,20 @@ async function main() {
         return listCustomers().filter((c) => (c.phone || '').replace(/\\D/g, '').slice(-10) === '${NEW_PHONE}').length;
     })()`);
     assert(customerCount === 1, 'only ONE customer record exists for the new phone (no duplicates)');
+    const storedPhone = await evaluate(`(async () => {
+        const { listCustomers } = await import('/js/services/customersRepository.js');
+        const row = listCustomers().find((c) => (c.phone || '').replace(/\\D/g, '').slice(-10) === '${NEW_PHONE}');
+        return row ? row.phone : null;
+    })()`);
+    assert(storedPhone === '+919876543210', `walk-in-created client stores the consistent E.164 phone form (got "${storedPhone}")`);
 
     console.log('\n[9] The walk-in appears in the appointments list and drives revenue');
     await click('[data-action="tab"][data-tab="appointments"]');
     await waitFor(`document.body.innerText.includes('${CLIENT_NAME}')`);
     assert(true, 'appointments list shows the walk-in');
+    await click('[data-action="tab"][data-tab="customers"]');
+    await waitFor(`document.body.innerText.includes('${CLIENT_NAME}')`);
+    assert(true, 'walk-in-created client appears immediately in the main Customers list');
     await click('[data-action="tab"][data-tab="dashboard"]');
     await waitFor(`document.body.innerText.includes('Your Salon at a Glance')`);
     const rev = await evaluate(revenueExpr);
@@ -288,6 +297,66 @@ async function main() {
     );
     assert(afterRemove.ok, 'removing a service drops it and restores the ₹95 subtotal');
     assert(await evaluate(`(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-summary]'); return el && el.innerText.includes('₹95'); })()`), 'live summary follows the removal (₹95)');
+
+    console.log('\n[12] Client created on the Customers page is searchable in Quick Billing (same backend source)');
+    const CLIENTS_PHONE = '9000000001';
+    const CLIENTS_NAME = 'Clients Page Client';
+    await click('[data-action="tab"][data-tab="customers"]');
+    await waitFor(`document.querySelector('[data-action="modal"][data-modal="customer"]') !== null`);
+    await click('[data-action="modal"][data-modal="customer"]');
+    await waitFor(`document.querySelector('form[data-action="submit-customer"]') !== null`);
+    await evaluate(`(() => {
+        const f = document.querySelector('form[data-action="submit-customer"]');
+        const set = (n, v) => { const el = f.querySelector('[name="' + n + '"]'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); };
+        set('name', '${CLIENTS_NAME}');
+        set('phone', '${CLIENTS_PHONE}');
+        set('email', 'clients@example.com');
+        f.requestSubmit();
+        return true;
+    })()`);
+    await waitFor(`document.querySelector('form[data-action="submit-customer"]') === null`, 12000);
+    const clientsCust = await evaluate(`(async () => {
+        const { findCustomerByPhone } = await import('/js/services/customersRepository.js');
+        const c = findCustomerByPhone('${CLIENTS_PHONE}');
+        return c ? JSON.stringify({ id: c.id, name: c.name, phone: c.phone }) : 'null';
+    })()`);
+    const parsedCust = JSON.parse(clientsCust);
+    assert(parsedCust && parsedCust.name === CLIENTS_NAME, 'Customers-page form created the contact');
+    assert(parsedCust && parsedCust.phone === '+919000000001', 'Customers page stored the same E.164 phone format');
+    assert(await evaluate(`(async () => {
+        const { listCustomers } = await import('/js/services/customersRepository.js');
+        return listCustomers().filter((c) => (c.phone || '').replace(/\\D/g, '').slice(-10) === '${CLIENTS_PHONE}').length;
+    })()`) === 1, 'exactly one customer record exists for the number');
+    await openQuickBilling();
+    await setValue('customerPhone', CLIENTS_PHONE);
+    await waitFor(`document.body.innerText.includes('${CLIENTS_NAME}')`);
+    assert(await evaluate(`document.body.innerText.includes('Existing client')`), 'Clients-page client is found instantly in Quick Billing');
+    const qbFound = await evaluate(`(() => {
+        const h = document.querySelector('${qbFormSelector} [name="customerId"]');
+        const n = document.querySelector('${qbFormSelector} [name="customerName"]');
+        return JSON.stringify({ id: h ? h.value : null, name: n ? n.value : null });
+    })()`);
+    const found = JSON.parse(qbFound);
+    assert(found.id === parsedCust.id, 'Quick Billing binds the SAME customerId that the Clients page created');
+    assert(found.name === CLIENTS_NAME, 'Quick Billing auto-filled the Clients-page client name');
+    await addService('Signature Facial'); // ₹95
+    await setValue('paymentMethod', 'cash');
+    await waitFor(`(() => { const btn = document.querySelector('${qbFormSelector} button[type="submit"]'); return btn && !btn.disabled; })()`);
+    await evaluate(`document.querySelector('${qbFormSelector}').requestSubmit()`);
+    await waitFor(`document.body.innerText.includes('Walk-in billed & paid')`);
+    const linked = await evaluate(`(async () => {
+        const { listAppointments } = await import('/js/services/appointmentsRepository.js');
+        const rows = listAppointments().filter((a) => a.customerName === '${CLIENTS_NAME}');
+        const a = rows[rows.length - 1];
+        return a ? JSON.stringify({ customerId: a.customerId, customerName: a.customerName, paid: a.paid, amount: a.invoiceAmount }) : 'null';
+    })()`);
+    const bill = JSON.parse(linked);
+    assert(bill && bill.customerId === parsedCust.id, 'appointment + invoice + payment record links the Clients-page customer ID');
+    assert(bill && bill.customerName === CLIENTS_NAME && bill.paid === true && bill.amount === 95, 'billed walk-in uses the linked client, settles paid with the ₹95 invoice');
+    assert(await evaluate(`(async () => {
+        const { listCustomers } = await import('/js/services/customersRepository.js');
+        return listCustomers().filter((c) => (c.phone || '').replace(/\\D/g, '').slice(-10) === '${CLIENTS_PHONE}').length;
+    })()`) === 1, 'billing that existing client never duplicates the contact');
 
     console.log(`\n===== QUICK BILLING E2E RESULT: ${pass} passed, ${fail} failed =====`);
     if (ws) ws.close();

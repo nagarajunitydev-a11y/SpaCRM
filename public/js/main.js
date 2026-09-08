@@ -412,14 +412,30 @@ function deleteRecord(target) {
 }
 
 async function resolveAppointmentCustomer(data) {
+    // Never create a contact on the strength of a pre-snapshot read: wait for
+    // the salon's customer list to load (a no-op in demo mode), then look up
+    // the SAME data the Customers module reads and writes.
+    try {
+        await customersRepository.ensureCustomersLoaded();
+    } catch (err) {
+        console.warn('[customer] Customer list sync unavailable:', err);
+    }
     if (data.customerId) {
         const picked = customersRepository.getCustomer(data.customerId);
         if (picked) return picked;
     }
-    const byName = customersRepository.findCustomerByName(data.customerName);
-    if (byName) return byName;
-    const byPhone = customersRepository.findCustomerByPhone(data.customerPhone);
+    // The phone number is the contact's identity key whenever one is present
+    // (Quick Billing always has one): an unmatched number is a NEW contact even
+    // if another client happens to share the typed name. Name matching only
+    // kicks in when no phone was provided at all.
+    const byPhone = String(data.customerPhone || '').trim()
+        ? customersRepository.findCustomerByPhone(data.customerPhone)
+        : null;
     if (byPhone) return byPhone;
+    const byName = String(data.customerPhone || '').trim()
+        ? null
+        : customersRepository.findCustomerByName(data.customerName);
+    if (byName) return byName;
     const created = await customersRepository.addCustomerQuick({
         name: data.customerName,
         phone: data.customerPhone || '',
@@ -654,12 +670,20 @@ function digitsOf(value) {
     return String(value || '').replace(/\D/g, '').slice(0, 10);
 }
 
+/** Bumps on every phone keystroke so the newest lookup always wins. */
+let qbPhoneLookupSeq = 0;
+
 /**
  * Phone-first client resolution for the walk-in bill: as soon as a valid
  * 10-digit number is typed, look the client up. Existing clients are shown
  * immediately (id + name hidden fields set); a brand-new number reveals the
  * inline "Customer Name" field in the same page. Called from the live
  * `quick-billing-phone` input handler.
+ *
+ * The lookup runs against the SAME customer data as the main Clients module
+ * (customersRepository). While that backend list is still loading its first
+ * snapshot, an empty result is not proof the number is new, so a neutral
+ * "checking…" block is shown instead of a premature new-client card.
  */
 function updateQuickBillingCustomer(el) {
     const form = el.closest('form[data-action="submit-quick-billing"]');
@@ -667,19 +691,24 @@ function updateQuickBillingCustomer(el) {
     if (!form || !container) return;
 
     const phone = digitsOf(el.value);
-    const customer = phone.length === 10 ? customersRepository.findCustomerByPhone(phone) : null;
+    const ready = customersRepository.isCustomersLoaded();
+    const customer = ready && phone.length === 10 ? customersRepository.findCustomerByPhone(phone) : null;
 
     // Preserve the name already typed for a new client while this block
     // re-renders (e.g. after a re-typed number), so nothing is lost.
-    const priorName = container.querySelector('[name="customerName"]');
+    const priorName = container.querySelector('[name="customerName"]:not([type="hidden"])');
     const keptName = !customer && priorName ? priorName.value : '';
 
-    container.innerHTML = renderQuickBillingCustomer(customer, { phone, name: String(keptName || '') });
+    container.innerHTML = renderQuickBillingCustomer(customer, {
+        phone,
+        name: String(keptName || ''),
+        checking: !ready && phone.length === 10,
+    });
     sanitizeDOM(container);
     refreshIcons(container);
 
-    const nameInput = container.querySelector('[name="customerName"]');
-    if (!customer && phone.length === 10 && nameInput) nameInput.focus();
+    const nameInput = container.querySelector('[name="customerName"]:not([type="hidden"])');
+    if (!customer && ready && phone.length === 10 && nameInput) nameInput.focus();
 
     updateQuickBilling(form);
     syncFormValidity(form, 'customerPhone');
@@ -699,9 +728,11 @@ function updateQuickBilling(form, changedName = null) {
     const selectedServices = names.map((name) => catalog.find((s) => s.name === name)).filter(Boolean);
     const invoiceAmount = round2(selectedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
 
+    // Same identity rules as resolveAppointmentCustomer: id, then phone (the
+    // contact key whenever present), and only then an exact-name fallback.
     const customer = customersRepository.getCustomer(data.customerId)
-        || customersRepository.findCustomerByName(data.customerName)
-        || customersRepository.findCustomerByPhone(data.customerPhone);
+        || (String(data.customerPhone || '').trim() ? customersRepository.findCustomerByPhone(data.customerPhone) : null)
+        || (String(data.customerPhone || '').trim() ? null : customersRepository.findCustomerByName(data.customerName));
     const walletBalance = referralService.walletBalanceOf(customer);
     const settings = sanitizeSettings(state.referralSettings);
 
@@ -970,7 +1001,23 @@ const actions = {
         updateCustomerSuggestions(el);
     },
 
+    /**
+     * Live phone lookup for the walk-in bill. Waits for the customer list's
+     * first backend snapshot before declaring a number is new — but fast by
+     * default: demo mode (and an already-loaded Firebase snapshot) resolves
+     * immediately, and the sequence guard makes every keystroke supersede the
+     * previous one so an older lookup can never overwrite a newer result.
+     */
     async 'quick-billing-phone'(el) {
+        const seq = ++qbPhoneLookupSeq;
+        try {
+            await customersRepository.ensureCustomersLoaded();
+        } catch (err) {
+            // Offline/unreachable: fall through and resolve against whatever
+            // the local list holds — a stale cache is still better than none.
+            console.warn('[quick-billing] Customer list sync unavailable:', err);
+        }
+        if (seq !== qbPhoneLookupSeq) return;
         updateQuickBillingCustomer(el);
     },
 

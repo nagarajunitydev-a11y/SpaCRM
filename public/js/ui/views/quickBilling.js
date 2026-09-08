@@ -152,7 +152,7 @@ export function renderWalletBlock({ walletBalance, cap, settingsEnabled }) {
  * write handler exactly like the old search picker did, and the phone input
  * itself carries `customerPhone`.
  */
-export function renderQuickBillingCustomer(customer, { phone = '', name = '' } = {}) {
+export function renderQuickBillingCustomer(customer, { phone = '', name = '', checking = false } = {}) {
     if (customer) {
         return `
             <div class="bg-emerald-500/10 border border-emerald-500/25 rounded-2xl p-3.5 flex items-center gap-3">
@@ -165,6 +165,23 @@ export function renderQuickBillingCustomer(customer, { phone = '', name = '' } =
             </div>
             <input type="hidden" name="customerId" value="${escAttr(customer.id)}">
             <input type="hidden" name="customerName" value="${escAttr(customer.name)}">
+        `;
+    }
+
+    // The salon's customer list has not delivered its first snapshot yet, so an
+    // empty result is not evidence the number is new — hold judgement until the
+    // backend data arrives.
+    if (checking) {
+        return `
+            <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-3.5 flex items-center gap-3">
+                <span class="w-9 h-9 rounded-xl bg-slate-800 text-slate-400 flex items-center justify-center shrink-0"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i></span>
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold text-slate-300">Checking existing clients…</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5">Syncing with the client list…</p>
+                </div>
+            </div>
+            <input type="hidden" name="customerId" value="">
+            <input type="hidden" name="customerName" value="">
         `;
     }
 

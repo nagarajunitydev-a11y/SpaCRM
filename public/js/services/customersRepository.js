@@ -1,10 +1,18 @@
 /**
  * customersRepository.js
- * Tenant-scoped customers with reward points and a referral wallet.
+ * Tenant-scoped customers with reward points and a referral wallet. This is the
+ * SINGLE customer/contact source for the whole app — the Quick Billing / walk-in
+ * flow, the Customers list, the appointment picker and the referral programme all
+ * read and write through this repository, never a separate local contact store.
  *
  * Every customer is stored under their salon and receives signup bonus
  * points when created. Duplicate customers (same phone or exact name)
  * within the salon are rejected before anything is written.
+ *
+ * Phone numbers are normalised consistently everywhere: input is reduced to
+ * its 10 national digits, and saved records always store the full E.164
+ * `+91XXXXXXXXXX` form, so a bare 10-digit search matches whatever form a
+ * record was saved under.
  *
  * Two independent balances live on a client record and are never mixed:
  *   `rewardPoints`  - the loyalty scheme, measured in points;
@@ -15,6 +23,7 @@
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
 import { createScopedRepository } from './scopedRepository.js';
+import { normalizePhoneDigits, toIndianE164, isBlank } from '../core/validate.js';
 
 const SIGNUP_BONUS = 100;
 
@@ -37,10 +46,14 @@ export const setSalon = repo.setSalon;
 export const listCustomers = repo.data;
 export const updateCustomer = repo.update;
 
-/** Normalise a phone to digits-only so +1 555-0143 == 15550143. */
-function normalizePhone(phone) {
-    return String(phone || '').replace(/\D/g, '');
-}
+/**
+ * True once the salon's customer list has loaded (Firebase snapshot delivered,
+ * or demo/local data). Callers must await {@link ensureCustomersLoaded} before
+ * deciding a number is NEW — otherwise a lookup raced against the still-empty
+ * pre-first-snapshot list would fabricate duplicates.
+ */
+export const isCustomersLoaded = repo.isLoaded;
+export const ensureCustomersLoaded = repo.ensureLoaded;
 
 /** Find a client in the current salon by exact name (case-insensitive). */
 export function findCustomerByName(name) {
@@ -49,11 +62,15 @@ export function findCustomerByName(name) {
     return listCustomers().find((c) => (c.name || '').trim().toLowerCase() === q) || null;
 }
 
-/** Find a client in the current salon by phone (format-insensitive). */
+/**
+ * Find a client in the current salon by phone (format-insensitive). The bare
+ * 10-digit search key matches records stored as E.164 +91XXXXXXXXXX, with a
+ * leading +91, or as plain national digits.
+ */
 export function findCustomerByPhone(phone) {
-    const q = normalizePhone(phone);
+    const q = normalizePhoneDigits(phone);
     if (!q) return null;
-    return listCustomers().find((c) => normalizePhone(c.phone) === q) || null;
+    return listCustomers().find((c) => normalizePhoneDigits(c.phone) === q) || null;
 }
 
 /**
@@ -76,15 +93,26 @@ export async function addCustomer(payload) {
 }
 
 /**
- * Quick-add from the appointment picker. Returns the existing client when one
- * matches (name/phone), otherwise creates one — never duplicates.
+ * Quick-add from the appointment picker / walk-in billing. Returns the existing
+ * client when one matches, otherwise creates one — never duplicates.
+ *
+ * When a phone number is present it is the identity key: the client is matched
+ * by phone only, so a number that is not on file can never be silently linked
+ * to a different client that merely shares the typed name. Without a phone
+ * (e.g. a name-only quick-add from the appointment picker) matching falls back
+ * to the exact name. New records always store the E.164 phone form so every
+ * future search — from Quick Billing or the Customers list — resolves to the
+ * same digits.
  */
 export async function addCustomerQuick(payload) {
-    const existing = findCustomerByName(payload.name) || findCustomerByPhone(payload.phone);
+    const existing = isBlank(payload.phone)
+        ? findCustomerByName(payload.name)
+        : findCustomerByPhone(payload.phone);
     if (existing) return existing;
     return repo.add(
         {
             ...payload,
+            phone: toIndianE164(payload.phone),
             rewardPoints: SIGNUP_BONUS,
             walletBalance: STARTING_WALLET_BALANCE,
         },
@@ -137,5 +165,7 @@ export default {
     listCustomers,
     getCustomer,
     redeemReward,
+    isCustomersLoaded,
+    ensureCustomersLoaded,
     seed,
 };

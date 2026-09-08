@@ -40,6 +40,18 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
     let unsub = null;
     let salonId = null;
     let subscribedId = null;
+    // True once the current salon's first snapshot has delivered (or the data
+    // is local, e.g. demo mode). Until it flips, the list may be empty/stale,
+    // so callers that decide to CREATE a record must first await ensureLoaded().
+    let loaded = false;
+    const loadWaiters = new Set();
+
+    function settleLoaders() {
+        if (loaded) return;
+        loaded = true;
+        loadWaiters.forEach((resolve) => resolve(true));
+        loadWaiters.clear();
+    }
 
     function data() {
         const rows = store.getState()[stateKey] || [];
@@ -69,15 +81,34 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
         }
         subscribedId = id;
         salonId = id;
-        if (isDemoMode()) return;
+        // A new salon (or the first one) has not delivered its data yet.
+        loaded = false;
+        if (isDemoMode()) {
+            // Demo data lives in the store and is ready immediately.
+            settleLoaders();
+            return;
+        }
         // No tenant data exists until a signed-in user points at a real salon.
         // Listening with an empty/inaccessible salon id only produces
         // "Missing or insufficient permissions." errors, so we stay silent.
-        if (!id || !store.getState().currentUser) return;
+        if (!id || !store.getState().currentUser) {
+            // Nothing to load yet — treat the (expected-empty) list as ready so
+            // callers never wait on a listener that will not be created.
+            settleLoaders();
+            return;
+        }
         unsub = listenCollection(
             ['salons', id, collectionName],
-            (rows) => setData(rows),
-            () => setData([]),
+            (rows) => {
+                settleLoaders();
+                setData(rows);
+            },
+            () => {
+                // An error still ends the loading window so awaiting callers are
+                // not left hanging; the live list simply stays whatever it has.
+                settleLoaders();
+                setData([]);
+            },
         );
     }
 
@@ -88,6 +119,31 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
 
     function init(id) {
         subscribe(id);
+    }
+
+    /** True when the current salon's data has loaded (always true in demo). */
+    function isLoaded() {
+        return isDemoMode() || loaded;
+    }
+
+    /**
+     * Resolve once the current salon's data has loaded, or false after the
+     * timeout (backend unreachable). A caller that is about to CREATE a record
+     * should await this first so a just-existing record is never duplicated by
+     * a read that predates the first snapshot.
+     */
+    async function ensureLoaded(timeoutMs = 6000) {
+        if (isLoaded()) return true;
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => {
+                loadWaiters.delete(resolve);
+                resolve(false);
+            }, timeoutMs);
+            loadWaiters.add((result) => {
+                clearTimeout(timer);
+                resolve(result);
+            });
+        });
     }
 
     async function add(payload, opts = {}) {
@@ -136,7 +192,7 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
         return { id };
     }
 
-    return { init, setSalon, add, update, remove, data, seed };
+    return { init, setSalon, add, update, remove, data, isLoaded, ensureLoaded, seed };
 }
 
 export default createScopedRepository;
