@@ -196,19 +196,32 @@ async function main() {
     assert(selectedText.includes('₹170'), 'subtotal is ₹170 for the two services (95 + 75)');
     assert(await evaluate(`(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-summary]'); return el && el.innerText.includes('₹170'); })()`), 'live summary shows the ₹170 invoice');
 
-    console.log('\n[4] Phone digits-only rule + partial number does NOT auto-lookup');
+    console.log('\n[4] Phone digits-only rule + type-ahead container wired, partial number keeps search idle');
     await setValue('customerPhone', '98765-432a'); // punctuation + letter get stripped
     const sanitizedPhone = await evaluate(`document.querySelector('${qbFormSelector} [name="customerPhone"]').value`);
     assert(sanitizedPhone === '98765432', `phone input is digits-only and capped at 10 (got "${sanitizedPhone}")`);
     await waitFor(`(() => { const c = document.querySelector('${qbFormSelector} [data-quickbilling-customer]'); return c && c.innerText.includes('10-digit'); })()`);
-    assert(await evaluate(`document.querySelector('${qbFormSelector} [data-quickbilling-customer] [name="customerName"]:not([type="hidden"])') === null`), 'no name field / no lookup for an incomplete number');
+    assert(await evaluate(`document.querySelector('${qbFormSelector} [name="customerName"]:not([type="hidden"])') === null`), 'no name field / no lookup for an incomplete number');
+    assert(await evaluate(`document.querySelector('${qbFormSelector} [data-quickbilling-customer-dropdown]') !== null`), 'type-ahead dropdown container is present');
     assert(await evaluate(submitDisabledExpr), 'Complete Payment stays disabled with a partial number');
+    await new Promise((r) => setTimeout(r, 400)); // let the debounced search settle
+    assert(await evaluate(`document.querySelectorAll('${qbFormSelector} [data-quickbilling-customer-dropdown] [data-action="quick-billing-select-customer"]').length === 0`), 'no matching contact rows for a non-matching partial number');
 
     console.log('\n[5] Valid 10-digit number for a NEW client shows an inline name field');
     await setValue('customerPhone', NEW_PHONE);
     await waitFor(`document.querySelector('${qbFormSelector} [data-quickbilling-customer] [name="customerName"]') !== null`);
     assert(await evaluate(`document.body.innerText.includes('New client — ${NEW_PHONE} not on file')`), 'new-number card identifies the phone as not on file');
     assert(await evaluate(`document.body.innerText.includes('No referral balance available (₹0)')`), 'wallet block shows the empty-balance state for a new client');
+    // The auto-focus-lock regression guard: after the name field appears, the
+    // phone field must remain fully focusable/editable — nothing steals focus.
+    assert(await evaluate(`(() => {
+        const p = document.querySelector('${qbFormSelector} [name="customerPhone"]');
+        if (!p) return false;
+        p.focus();
+        const grabbed = document.activeElement && document.activeElement.id ? document.activeElement.id : (document.activeElement && document.activeElement.name) || 'inputs';
+        return document.activeElement === p && p.value === '${NEW_PHONE}';
+    })()`), 'phone field stays focusable and holds its number after the name field appears');
+    await evaluate(`document.activeElement && document.activeElement.blur && document.activeElement.blur(); true`);
 
     console.log('\n[6] Adding the name + payment method enables the button');
     await setValue('customerName', CLIENT_NAME);
@@ -357,6 +370,45 @@ async function main() {
         const { listCustomers } = await import('/js/services/customersRepository.js');
         return listCustomers().filter((c) => (c.phone || '').replace(/\\D/g, '').slice(-10) === '${CLIENTS_PHONE}').length;
     })()`) === 1, 'billing that existing client never duplicates the contact');
+
+    console.log('\n[13] Type-ahead dropdown: search-as-you-type, pick, then re-edit the number');
+    await openQuickBilling();
+    // While still typing a PARTIAL number the matching contact must appear.
+    await setValue('customerPhone', '900');
+    await waitFor(`document.querySelector('${qbFormSelector} [data-action="quick-billing-select-customer"][data-id="${parsedCust.id}"]') !== null`);
+    const rowText = await evaluate(`(document.querySelector('${qbFormSelector} [data-action="quick-billing-select-customer"][data-id="${parsedCust.id}"]') || { innerText: '' }).innerText`);
+    assert(rowText.includes(CLIENTS_NAME), 'dropdown row shows the matching client name while typing');
+    assert(rowText.includes('+91 90000 00001'), 'dropdown row shows the matching phone number in national form');
+    // Picking the contact populates the SAME Quick Billing UI (no navigation).
+    await click(`[data-action="quick-billing-select-customer"][data-id="${parsedCust.id}"]`);
+    await waitFor(`(() => { const h = document.querySelector('${qbFormSelector} [name="customerId"]'); return h && h.value === '${parsedCust.id}'; })()`);
+    assert(await evaluate(`document.body.innerText.includes('Existing client')`), 'selected contact shows as an existing client in the same page');
+    assert(await evaluate(`document.querySelector('${qbFormSelector} [data-quickbilling-customer-dropdown] [data-action="quick-billing-select-customer"]') === null`), 'dropdown clears after picking a contact');
+    assert(await evaluate(`document.querySelector('${qbFormSelector} [name="customerPhone"]').value === '${CLIENTS_PHONE}'`), 'phone field is filled with the picked record\'s 10-digit number');
+    // Changing the number to one NOT on file re-runs the search and shows the
+    // inline name field again — but the phone field stays editable throughout.
+    await setValue('customerPhone', '9988776655');
+    await waitFor(`document.querySelector('${qbFormSelector} [data-quickbilling-customer] [name="customerName"]') !== null`);
+    assert(await evaluate(`document.body.innerText.includes('New client — 9988776655 not on file')`), 're-edited number (no match) re-runs the search and shows the name field');
+    assert(await evaluate(`(() => {
+        const p = document.querySelector('${qbFormSelector} [name="customerPhone"]');
+        p.focus();
+        return document.activeElement === p && p.value === '9988776655';
+    })()`), 'phone field is still focusable/editable while the name field is shown');
+    // Re-typing an EXISTING number hides the new-client name field again.
+    await setValue('customerPhone', CLIENTS_PHONE);
+    await waitFor(`(() => {
+        const block = document.querySelector('${qbFormSelector} [data-quickbilling-customer]');
+        return block && block.innerText.includes('${CLIENTS_NAME}') && block.querySelector('[name="customerName"]:not([type="hidden"])') === null;
+    })()`);
+    assert(true, 'editing the number to an existing client hides the name field and shows the existing details');
+    assert(await evaluate(`(() => { const h = document.querySelector('${qbFormSelector} [name="customerId"]'); return h && h.value === '${parsedCust.id}'; })()`), 'existing-match bind keeps the same customer record');
+    // A full 10-digit number with no backend match shows the no-results state.
+    await setValue('customerPhone', '4444444444');
+    await waitFor(`document.querySelector('${qbFormSelector} [data-quickbilling-customer-dropdown]').innerText.includes('No matching client')`);
+    assert(await evaluate(`document.querySelector('${qbFormSelector} [data-quickbilling-customer] [name="customerName"]') !== null`), 'no-results dropdown state appears alongside the inline name field');
+    await waitFor(`(() => { const btn = document.querySelector('${qbFormSelector} button[type="submit"]'); return btn && btn.disabled; })()`);
+    assert(true, 'unfilled bill stays disabled (no accidental submit during search)');
 
     console.log(`\n===== QUICK BILLING E2E RESULT: ${pass} passed, ${fail} failed =====`);
     if (ws) ws.close();

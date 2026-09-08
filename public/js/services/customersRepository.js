@@ -74,6 +74,24 @@ export function findCustomerByPhone(phone) {
 }
 
 /**
+ * Prefix-search customers by phone for the live type-ahead dropdown. Reuses
+ * the SAME tenant-scoped repository list as everywhere else — normalised to
+ * the 10 national digits, so `+91…` records match a bare typed prefix the same
+ * way the exact lookup matches a full number. Exact-length records sort first,
+ * capped at `limit` matches.
+ */
+export function searchCustomersByPhone(phonePrefix, limit = 6) {
+    const q = normalizePhoneDigits(phonePrefix);
+    if (!q) return [];
+    return listCustomers()
+        .map((c) => ({ c, national: normalizePhoneDigits(c.phone) }))
+        .filter(({ national }) => national && national.startsWith(q))
+        .sort((a, b) => a.national.length - b.national.length)
+        .slice(0, limit)
+        .map(({ c }) => c);
+}
+
+/**
  * Add a client, awarding the signup bonus points.
  * Duplicate clients within the salon are rejected.
  */
@@ -159,6 +177,7 @@ export default {
     addCustomerQuick,
     findCustomerByName,
     findCustomerByPhone,
+    searchCustomersByPhone,
     findCustomerByReferralCode,
     updateCustomer,
     deleteCustomer,

@@ -24,7 +24,7 @@ import * as referralService from './services/referralService.js';
 import * as bookingSettingsRepository from './services/bookingSettingsRepository.js';
 import { store } from './core/store.js';
 import { switchTab, setRole, openModal, closeModal, openDeleteConfirm } from './core/router.js';
-import { validateForm, toIndianE164 } from './core/validate.js';
+import { validateForm, toIndianE164, normalizePhoneDigits } from './core/validate.js';
 import { sanitizeDOM, esc, escAttr } from './core/sanitize.js';
 import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
@@ -62,6 +62,7 @@ import {
     renderQuickBillingForm,
     renderQuickBillingReceipt,
     renderQuickBillingCustomer,
+    renderQuickBillingCustomerSuggestions,
     renderQuickBillingServiceSuggestions,
     renderSelectedServices,
     renderWalletBlock,
@@ -673,6 +674,9 @@ function digitsOf(value) {
 /** Bumps on every phone keystroke so the newest lookup always wins. */
 let qbPhoneLookupSeq = 0;
 
+/** Debounce timer for the phone type-ahead search. */
+let qbCustomerSearchTimer = null;
+
 /**
  * Phone-first client resolution for the walk-in bill: as soon as a valid
  * 10-digit number is typed, look the client up. Existing clients are shown
@@ -684,6 +688,13 @@ let qbPhoneLookupSeq = 0;
  * (customersRepository). While that backend list is still loading its first
  * snapshot, an empty result is not proof the number is new, so a neutral
  * "checking…" block is shown instead of a premature new-client card.
+ *
+ * NB: the inline name field is NEVER auto-focused. Pulling focus into it on
+ * every keystroke is what made the phone field feel locked / unreachable —
+ * the caret was yanked away and small screens scrolled the name field into
+ * view. The phone input stays in control (mouse, touch and keyboard); the
+ * user can move freely between the two fields and any re-typed number re-runs
+ * this lookup and re-swaps the inline block.
  */
 function updateQuickBillingCustomer(el) {
     const form = el.closest('form[data-action="submit-quick-billing"]');
@@ -707,11 +718,59 @@ function updateQuickBillingCustomer(el) {
     sanitizeDOM(container);
     refreshIcons(container);
 
-    const nameInput = container.querySelector('[name="customerName"]:not([type="hidden"])');
-    if (!customer && ready && phone.length === 10 && nameInput) nameInput.focus();
+    // No focus is taken from the phone field: let the user stay in the number
+    // or move to the name field at their own pace.
 
+    scheduleQuickBillingCustomerSearch(el);
     updateQuickBilling(form);
     syncFormValidity(form, 'customerPhone');
+}
+
+/**
+ * Debounced type-ahead for the phone field. Shows a loading card immediately,
+ * then swaps in the matching contacts (searched against the same customers
+ * repository as the Clients module) once typing pauses. The keystroke sequence
+ * token discards stale results, so a slow lookup can never overwrite a newer
+ * one, and the dropdown renders in-flow so it never covers the phone input.
+ */
+function scheduleQuickBillingCustomerSearch(el) {
+    const form = el.closest('form[data-action="submit-quick-billing"]');
+    const dropdown = form && form.querySelector('[data-quickbilling-customer-dropdown]');
+    if (!form || !dropdown) return;
+
+    const phone = digitsOf(el.value);
+    clearTimeout(qbCustomerSearchTimer);
+    if (!phone) {
+        dropdown.innerHTML = '';
+        return;
+    }
+
+    const token = qbPhoneLookupSeq;
+    dropdown.innerHTML = renderQuickBillingCustomerSuggestions(null, phone, { loading: true });
+    sanitizeDOM(dropdown);
+    refreshIcons(dropdown);
+
+    qbCustomerSearchTimer = setTimeout(() => {
+        const settle = () => {
+            clearTimeout(qbCustomerSearchTimer);
+            if (token !== qbPhoneLookupSeq) return;
+            // Re-locate the container in the LIVE document instead of rendering
+            // into the node captured above: any background store snapshot
+            // (booking-settings seeding, a repo update, a new realtime doc)
+            // re-renders the whole view mid-typing, which DETACHES that old
+            // node. Rendering into it would silently vanish.
+            const liveForm = document.querySelector('form[data-action="submit-quick-billing"]');
+            const liveDropdown = liveForm && liveForm.querySelector('[data-quickbilling-customer-dropdown]');
+            const livePhone = liveForm ? digitsOf((liveForm.querySelector('[name="customerPhone"]') || { value: '' }).value) : '';
+            if (!liveDropdown || livePhone !== phone) return;
+            liveDropdown.innerHTML = renderQuickBillingCustomerSuggestions(customersRepository.searchCustomersByPhone(phone), phone, {});
+            sanitizeDOM(liveDropdown);
+            refreshIcons(liveDropdown);
+        };
+        // Wait for the first backend snapshot when needed; an already-loaded
+        // list resolves immediately, so the debounce is the only real delay.
+        customersRepository.ensureCustomersLoaded().then(settle).catch(settle);
+    }, 180);
 }
 
 /**
@@ -1019,6 +1078,40 @@ const actions = {
         }
         if (seq !== qbPhoneLookupSeq) return;
         updateQuickBillingCustomer(el);
+    },
+
+    /**
+     * Pick a contact from the live phone type-ahead dropdown. Fills the phone
+     * field with the record's 10-digit national number, renders the "existing
+     * client" card inline in the same page, and clears the dropdown. The write
+     * later flows through the same hidden fields + customers repository as the
+     * Customers module — no separate contact store.
+     */
+    async 'quick-billing-select-customer'(el) {
+        const form = el.closest('form[data-action="submit-quick-billing"]');
+        if (!form) return;
+        let customer = customersRepository.getCustomer(el.dataset.id);
+        if (!customer && el.dataset.phone) customer = customersRepository.findCustomerByPhone(el.dataset.phone);
+        if (!customer) {
+            showNotification('That client could not be resolved.', 'error');
+            return;
+        }
+
+        const phone = normalizePhoneDigits(customer.phone);
+        const phoneInput = form.querySelector('[name="customerPhone"]');
+        if (phoneInput && phoneInput.value !== phone) phoneInput.value = phone;
+
+        const container = form.querySelector('[data-quickbilling-customer]');
+        if (container) {
+            container.innerHTML = renderQuickBillingCustomer(customer, { phone });
+            sanitizeDOM(container);
+            refreshIcons(container);
+        }
+        const dropdown = form.querySelector('[data-quickbilling-customer-dropdown]');
+        if (dropdown) dropdown.innerHTML = '';
+
+        updateQuickBilling(form);
+        syncFormValidity(form, 'customerPhone');
     },
 
     async 'pick-customer'(el) {

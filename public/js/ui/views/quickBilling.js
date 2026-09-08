@@ -26,6 +26,7 @@ import { round2, num } from '../../core/referral.js';
 import { splitPayment, invoiceNoFor } from '../../core/wallet.js';
 import { DISCOUNT_TYPES } from '../../core/discount.js';
 import { renderPaymentSummary, PAYMENT_METHODS } from './payment.js';
+import { normalizePhoneDigits } from '../../core/validate.js';
 
 const DISCOUNT_TYPE_OPTIONS = [
     { value: DISCOUNT_TYPES.PERCENTAGE, label: 'Percentage (%)' },
@@ -205,6 +206,90 @@ export function renderQuickBillingCustomer(customer, { phone = '', name = '', ch
     `;
 }
 
+/** Format a stored number as the human "+91 XXXXX XXXXX" national form. */
+function phoneLabel(phone) {
+    const national = normalizePhoneDigits(phone);
+    return national.length === 10 ? `+91 ${national.slice(0, 5)} ${national.slice(5)}` : (phone || '');
+}
+
+/**
+ * Type-ahead matches derived from the CURRENT rendered customer list (the same
+ * backend source as the Clients module). Deriving them from state on every
+ * render — not just imperatively — is what lets the dropdown survive a
+ * background store update (e.g. booking-settings seeding) that re-creates the
+ * whole form mid-typing: the draft restores the entered number, and the
+ * dropdown is recomputed right back, exactly like the rest of the form.
+ */
+function phoneTypeaheadMatches(customers, phone) {
+    const digits = digitsOf(phone);
+    if (!digits) return [];
+    return (customers || [])
+        .map((c) => ({ c, national: normalizePhoneDigits(c.phone) }))
+        .filter(({ national }) => national && national.startsWith(digits))
+        .sort((a, b) => a.national.length - b.national.length)
+        .slice(0, 6)
+        .map(({ c }) => c);
+}
+
+/**
+ * The live phone type-ahead dropdown under the phone field.
+ *  - `loading`          -> brief "searching" card while the debounced lookup runs.
+ *  - matches available  -> tappable rows (name + phone) that select the contact.
+ *  - no matches + 10 digits -> a no-results state (the inline name field below
+ *                              then handles the new-client path).
+ *  - no matches + fewer digits -> nothing (keep typing).
+ *
+ * Rendered in-flow (never absolutely positioned) so it can never cover the
+ * phone input — that field must stay reachable by mouse/touch at all times.
+ */
+export function renderQuickBillingCustomerSuggestions(matches, phone, opts = {}) {
+    const { loading = false } = opts || {};
+    const digits = digitsOf(phone);
+
+    if (loading) {
+        return `
+            <div class="bg-slate-950/70 border border-slate-800/70 rounded-xl p-3 flex items-center gap-2.5">
+                <i data-lucide="loader" class="w-4 h-4 text-brand-400 animate-spin shrink-0"></i>
+                <p class="text-[11px] text-slate-400">Searching clients…</p>
+            </div>
+        `;
+    }
+
+    const list = (matches || [])
+        .slice(0, 6)
+        .map((c) => `
+            <button type="button" data-action="quick-billing-select-customer"
+                data-id="${escAttr(c.id)}" data-name="${escAttr(c.name)}" data-phone="${escAttr(c.phone || '')}"
+                class="w-full flex items-center justify-between gap-3 bg-slate-950 border border-slate-800/80 px-3.5 py-2.5 rounded-xl text-left transition active:scale-[0.98] touch-manipulation">
+                <span class="min-w-0">
+                    <span class="block text-xs font-semibold text-slate-100 truncate">${esc(c.name)}</span>
+                    <span class="block text-[10px] text-slate-400 mt-0.5">${esc(phoneLabel(c.phone))}</span>
+                </span>
+                <span class="text-brand-400 shrink-0"><i data-lucide="user-check" class="w-4 h-4"></i></span>
+            </button>
+        `).join('');
+
+    if (list) {
+        return `
+            <div class="space-y-1.5">
+                <p class="text-[9px] font-bold uppercase tracking-widest text-slate-500 px-0.5">Matching clients</p>
+                ${list}
+            </div>
+        `;
+    }
+
+    if (digits.length === 10) {
+        return `
+            <div class="bg-slate-950/70 border border-slate-800/70 rounded-xl p-3 flex items-center gap-2.5">
+                <i data-lucide="search-x" class="w-4 h-4 text-slate-500 shrink-0"></i>
+                <p class="text-[11px] text-slate-400">No matching client — enter their name below.</p>
+            </div>
+        `;
+    }
+
+    return '';
+}
+
 /**
  * The walk-in billing page. Phone-number driven client resolution happens in a
  * live block below the phone field; date/time are automatic (now) and shown
@@ -230,6 +315,7 @@ export function renderQuickBillingForm(state, draft = null) {
     }
 
     const phone = digitsOf(draftData.customerPhone);
+    const dropdownMatches = phoneTypeaheadMatches(customers, phone);
     let customer = null;
     const pickedId = draftData.customerId;
     if (pickedId) customer = customers.find((c) => c.id === pickedId) || null;
@@ -280,7 +366,8 @@ export function renderQuickBillingForm(state, draft = null) {
                             <input type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required name="customerPhone" autocomplete="tel-national" placeholder="98765 43210" data-action="quick-billing-phone" value="${escAttr(phone)}"
                                 class="w-full min-w-0 bg-transparent px-4 py-3 text-base tracking-widest text-slate-100 focus:outline-none">
                         </div>
-                    `, 'Digits only, up to 10. Search starts the moment the number is complete.')}
+                    `, 'Digits only, up to 10. Matching clients appear below as you type.')}
+                    <div data-quickbilling-customer-dropdown class="mt-2">${renderQuickBillingCustomerSuggestions(dropdownMatches, phone)}</div>
                     <div data-quickbilling-customer class="mt-2">${renderQuickBillingCustomer(customer, { phone, name: draftData.customerName || '' })}</div>
                 </div>
 
@@ -431,4 +518,5 @@ export default {
     renderSelectedServices,
     renderWalletBlock,
     renderQuickBillingCustomer,
+    renderQuickBillingCustomerSuggestions,
 };
