@@ -18,7 +18,6 @@ import { sanitizeSettings, round2, num } from '../../core/referral.js';
 import renderPaymentForm from './payment.js';
 import renderCustomerProfile from './customerProfile.js';
 import renderBookingLinkModal from './bookingLink.js';
-import { renderQuickBillingForm, renderQuickBillingReceipt } from './quickBilling.js';
 
 const TITLES = {
     customer: 'Add New Client',
@@ -35,8 +34,6 @@ const TITLES = {
     'service-catalogue': 'Import From Catalogue',
     attendance: 'Mark Attendance',
     'help-menu': 'Help & Guided Tours',
-    'quick-billing': 'Quick Billing / Walk-in',
-    'quick-billing-receipt': 'Invoice / Receipt',
 };
 
 const EDIT_TITLES = {
@@ -118,14 +115,6 @@ function renderForm(state, type) {
 
     if (type === 'booking-link') {
         return renderBookingLinkModal(state);
-    }
-
-    if (type === 'quick-billing') {
-        return renderQuickBillingForm(state, getDraft('quickBilling'));
-    }
-
-    if (type === 'quick-billing-receipt') {
-        return renderQuickBillingReceipt(state);
     }
 
     if (type === 'customer') {

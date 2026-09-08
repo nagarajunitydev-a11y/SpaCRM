@@ -210,6 +210,14 @@ export function validateForm(formKey, data, ctx = {}) {
     }
 
     if (formKey === 'submit-quick-billing') {
+        // Phone-first flow: a valid 10-digit mobile number is mandatory (it is
+        // what finds an existing client or what the new client is saved under),
+        // and the client name must exist — auto-set to the found client's name
+        // for existing numbers, typed inline for brand-new numbers.
+        check(errors, 'customerPhone', v('customerPhone'), [
+            required('Phone number is required.'),
+            indianPhone('Enter a valid 10-digit mobile number (e.g. 98765 43210).'),
+        ]);
         check(errors, 'customerName', v('customerName'), [required('Client name is required.')]);
         let selectedServices = [];
         try { selectedServices = JSON.parse(v('selectedServices') || '[]'); } catch { selectedServices = []; }

@@ -149,7 +149,7 @@ export function desktopSidebar(state) {
 
             <div class="flex-1 p-3 space-y-1">
                 ${isOwner ? `
-                    <button data-action="modal" data-modal="quick-billing"
+                    <button data-action="tab" data-tab="quickBilling"
                         class="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[13px] font-bold transition touch-manipulation active:scale-95 hover:bg-emerald-500/25 mb-1">
                         <i data-lucide="zap" class="w-[18px] h-[18px] shrink-0"></i>
                         <span>Quick Billing / Walk-in</span>
@@ -198,10 +198,13 @@ export function statCard(label, value, valueClass = 'text-white') {
     `;
 }
 
-/** Quick action button (dashboard). */
-export function quickAction(modalType, label, iconName, accent = 'text-brand-400 bg-brand-500/10') {
+/** Quick action button (dashboard). `action` is 'modal' (default) or 'tab'. */
+export function quickAction(key, label, iconName, accent = 'text-brand-400 bg-brand-500/10', action = 'modal') {
+    const navAttr = action === 'tab'
+        ? `data-action="tab" data-tab="${escAttr(key)}"`
+        : `data-action="modal" data-modal="${escAttr(key)}"`;
     return `
-        <button data-action="modal" data-modal="${escAttr(modalType)}" class="flex flex-col items-center justify-center p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl transition text-center group active:scale-95 touch-manipulation" aria-label="${escAttr(label)}">
+        <button ${navAttr} class="flex flex-col items-center justify-center p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl transition text-center group active:scale-95 touch-manipulation" aria-label="${escAttr(label)}">
             <div class="w-10 h-10 rounded-xl ${escAttr(accent)} flex items-center justify-center mb-1.5 group-hover:scale-105 transition"><i data-lucide="${escAttr(iconName)}" class="w-5 h-5"></i></div>
             <span class="text-[10px] font-semibold text-slate-300">${esc(label)}</span>
         </button>

@@ -29,7 +29,7 @@ import { sanitizeDOM, esc, escAttr } from './core/sanitize.js';
 import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, desktopSidebar, networkBanner, emptyState } from './ui/components.js';
-import { saveDraft, getDraft } from './core/draft.js';
+import { saveDraft, getDraft, clearDraft } from './core/draft.js';
 import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive, currentSalonDateTime, todayStr } from './core/utils.js';
 import { shiftDate } from './core/attendance.js';
 import renderLogin from './ui/views/login.js';
@@ -58,7 +58,14 @@ import renderReferrals, {
 } from './ui/views/referrals.js';
 import { renderPaymentSummary, defaultInvoiceAmount } from './ui/views/payment.js';
 import { renderBookingLinkModal, bookingLinkFor } from './ui/views/bookingLink.js';
-import { renderQuickBillingServiceSuggestions, renderSelectedServices, renderWalletBlock } from './ui/views/quickBilling.js';
+import {
+    renderQuickBillingForm,
+    renderQuickBillingReceipt,
+    renderQuickBillingCustomer,
+    renderQuickBillingServiceSuggestions,
+    renderSelectedServices,
+    renderWalletBlock,
+} from './ui/views/quickBilling.js';
 import { ANY_STAFF } from './core/scheduling.js';
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
@@ -248,6 +255,10 @@ function maybeSyncPublicCatalog() {
 
 function renderOwnerTab(state) {
     switch (state.activeTab) {
+        case 'quickBilling':
+            return state.quickBillingReceipt
+                ? renderQuickBillingReceipt(state)
+                : renderQuickBillingForm(state, getDraft('quickBilling'));
         case 'appointments': return renderAppointments(state);
         case 'customers': return renderCustomers(state);
         case 'referrals': return renderReferrals(state);
@@ -288,7 +299,7 @@ function buildShell(state) {
                 ${appHeader(state)}
                 <main class="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar">${viewHtml}</main>
                 ${isOwner && showNav ? `
-                    <button data-action="modal" data-modal="quick-billing" aria-label="Quick Billing" title="Quick Billing"
+                    <button data-action="tab" data-tab="quickBilling" aria-label="Quick Billing" title="Quick Billing"
                         class="fixed bottom-24 right-4 z-40 lg:hidden w-14 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-xl shadow-emerald-500/40 active:scale-95 transition touch-manipulation">
                         <i data-lucide="zap" class="w-6 h-6"></i>
                     </button>
@@ -638,6 +649,42 @@ function getSelectedServiceNames(form) {
     }
 }
 
+/** Digits-only phone, capped at 10 — matches the live input sanitisation. */
+function digitsOf(value) {
+    return String(value || '').replace(/\D/g, '').slice(0, 10);
+}
+
+/**
+ * Phone-first client resolution for the walk-in bill: as soon as a valid
+ * 10-digit number is typed, look the client up. Existing clients are shown
+ * immediately (id + name hidden fields set); a brand-new number reveals the
+ * inline "Customer Name" field in the same page. Called from the live
+ * `quick-billing-phone` input handler.
+ */
+function updateQuickBillingCustomer(el) {
+    const form = el.closest('form[data-action="submit-quick-billing"]');
+    const container = form && form.querySelector('[data-quickbilling-customer]');
+    if (!form || !container) return;
+
+    const phone = digitsOf(el.value);
+    const customer = phone.length === 10 ? customersRepository.findCustomerByPhone(phone) : null;
+
+    // Preserve the name already typed for a new client while this block
+    // re-renders (e.g. after a re-typed number), so nothing is lost.
+    const priorName = container.querySelector('[name="customerName"]');
+    const keptName = !customer && priorName ? priorName.value : '';
+
+    container.innerHTML = renderQuickBillingCustomer(customer, { phone, name: String(keptName || '') });
+    sanitizeDOM(container);
+    refreshIcons(container);
+
+    const nameInput = container.querySelector('[name="customerName"]');
+    if (!customer && phone.length === 10 && nameInput) nameInput.focus();
+
+    updateQuickBilling(form);
+    syncFormValidity(form, 'customerPhone');
+}
+
 /**
  * Recompute the live quick-billing breakdown (selected list, wallet block,
  * summary) in place, so typing never triggers a full re-render. The wallet
@@ -652,7 +699,9 @@ function updateQuickBilling(form, changedName = null) {
     const selectedServices = names.map((name) => catalog.find((s) => s.name === name)).filter(Boolean);
     const invoiceAmount = round2(selectedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
 
-    const customer = customersRepository.getCustomer(data.customerId) || customersRepository.findCustomerByName(data.customerName);
+    const customer = customersRepository.getCustomer(data.customerId)
+        || customersRepository.findCustomerByName(data.customerName)
+        || customersRepository.findCustomerByPhone(data.customerPhone);
     const walletBalance = referralService.walletBalanceOf(customer);
     const settings = sanitizeSettings(state.referralSettings);
 
@@ -692,7 +741,7 @@ function updateQuickBilling(form, changedName = null) {
     refreshIcons(form);
 
     // Snapshot the in-progress bill so a full app re-render (any store change)
-    // rebuilds this modal with the entered values intact instead of wiping them.
+    // rebuilds this page with the entered values intact instead of wiping them.
     saveDraft('quickBilling', { ...data, selectedServices: JSON.stringify(names) });
 }
 
@@ -919,6 +968,10 @@ const actions = {
 
     async 'customer-search'(el) {
         updateCustomerSuggestions(el);
+    },
+
+    async 'quick-billing-phone'(el) {
+        updateQuickBillingCustomer(el);
     },
 
     async 'pick-customer'(el) {
@@ -1412,7 +1465,9 @@ const actions = {
         }
 
         markAppointmentAsNew(appointment.id);
-        openModal('quick-billing-receipt', appointmentForSettlement);
+        clearDraft('quickBilling');
+        // The receipt is part of the Quick Billing page/view (never a popup).
+        store.setState({ quickBillingReceipt: appointmentForSettlement, activeTab: 'quickBilling' });
     },
 
     async 'update-appointment-status'(el) {
@@ -1782,7 +1837,13 @@ const actions = {
             refund: round2(num(appointment.invoiceAmount)),
         });
         showNotification('Invoice refunded.');
-        closeModal();
+        // Refunding from the walk-in receipt page refreshes that page in place;
+        // refunding from the Payment sheet (modal) still closes it as before.
+        const refundState = store.getState();
+        if (refundState.isModalOpen) closeModal();
+        else if (refundState.activeTab === 'quickBilling') {
+            store.setState({ quickBillingReceipt: findAppointment(String(appointment.id)) });
+        }
     },
 
     async 'submit-salon'(form, event, data) {
@@ -1870,6 +1931,11 @@ function attachDelegation() {
         if (quickBillingServiceSearch) {
             const handler = actions['quick-billing-service-search'];
             Promise.resolve(handler(quickBillingServiceSearch, event)).catch((err) => console.warn(err));
+        }
+        const qbPhone = event.target.closest('[data-action="quick-billing-phone"]');
+        if (qbPhone) {
+            const handler = actions['quick-billing-phone'];
+            Promise.resolve(handler(qbPhone, event)).catch((err) => console.warn(err));
         }
         const listSearch = event.target.closest('[data-action="customer-search-list"]');
         if (listSearch) {

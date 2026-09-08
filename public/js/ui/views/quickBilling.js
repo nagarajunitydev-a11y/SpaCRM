@@ -1,11 +1,18 @@
 /**
  * views/quickBilling.js
  * Fast walk-in POS flow: bill a client immediately without a pre-booked
- * appointment. Reuses the exact billing architecture as the Payment sheet —
+ * appointment. Rendered as a full page/view (not a popup) inside the app's
+ * active tab. Reuses the exact billing architecture as the Payment sheet —
  * the same discount / referral-wallet / split payment maths, the same summary
  * renderer and the same ledger rules — but drives a dedicated `submit-quick-
  * billing` form whose handler in main.js writes a Completed + paid appointment
  * in one step.
+ *
+ * The flow is phone-first: the receptionist types a 10-digit mobile number,
+ * the client is looked up automatically, an existing client's details appear
+ * immediately, and a brand-new number reveals an inline "Customer Name" field
+ * in the same page (no navigation). Date/time are never picked — every walk-in
+ * is stamped with the salon's current date & time automatically.
  *
  * Values are live-updated in place (never a full app re-render), so an
  * in-progress walk-in bill keeps its typed input while the breakdown below it
@@ -24,6 +31,9 @@ const DISCOUNT_TYPE_OPTIONS = [
     { value: DISCOUNT_TYPES.PERCENTAGE, label: 'Percentage (%)' },
     { value: DISCOUNT_TYPES.FIXED, label: 'Fixed Amount (₹)' },
 ];
+
+/** Digits-only, capped at 10 (mirrors the live phone input rule). */
+const digitsOf = (value) => String(value || '').replace(/\D/g, '').slice(0, 10);
 
 /** Current local date/time in the record format plus a human label. */
 function currentDateTime() {
@@ -132,27 +142,81 @@ export function renderWalletBlock({ walletBalance, cap, settingsEnabled }) {
 }
 
 /**
- * The walk-in billing form. Date/time are automatic (now) and shown read-only;
- * services are added from the live catalog via search. All state needed by the
- * write handler is carried on hidden inputs / named fields so the central
- * submit delegation handles it exactly like any other entity form.
+ * The inline client block under the phone field.
+ *  - `customer` set  -> existing client found, details shown (read-only confirmation).
+ *  - 10 digits, no   -> brand-new number: an inline "Customer Name" field appears
+ *    customer            right here, still inside the same Quick Billing page.
+ *  - anything else    -> short hint while the number is being typed.
+ *
+ * Hidden `customerId` / `customerName` fields carry the resolved record to the
+ * write handler exactly like the old search picker did, and the phone input
+ * itself carries `customerPhone`.
+ */
+export function renderQuickBillingCustomer(customer, { phone = '', name = '' } = {}) {
+    if (customer) {
+        return `
+            <div class="bg-emerald-500/10 border border-emerald-500/25 rounded-2xl p-3.5 flex items-center gap-3">
+                <span class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0"><i data-lucide="user-check" class="w-5 h-5"></i></span>
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-bold text-slate-100 truncate">${esc(customer.name)}</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5 truncate">${esc(customer.phone || '')} • Existing client${num(customer.rewardPoints) > 0 ? ` • ${Math.round(num(customer.rewardPoints))} pts` : ''}</p>
+                </div>
+                <span class="text-[9px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-full shrink-0">Found</span>
+            </div>
+            <input type="hidden" name="customerId" value="${escAttr(customer.id)}">
+            <input type="hidden" name="customerName" value="${escAttr(customer.name)}">
+        `;
+    }
+
+    if (phone.length === 10) {
+        return `
+            <div class="bg-brand-500/10 border border-brand-500/30 rounded-2xl p-3.5 space-y-2.5">
+                <p class="text-[11px] font-semibold text-brand-300 flex items-center gap-1.5">
+                    <i data-lucide="user-plus" class="w-3.5 h-3.5 shrink-0"></i>
+                    <span>New client — ${esc(phone)} not on file</span>
+                </p>
+                ${formField('Customer Name', textInput('customerName', 'Client name', { required: true, value: name }))}
+            </div>
+            <input type="hidden" name="customerId" value="">
+        `;
+    }
+
+    return `
+        <p class="text-[10px] text-slate-500 leading-relaxed">Enter the client's 10-digit mobile number. Existing clients are looked up automatically; a new number shows an inline name field right here.</p>
+        <input type="hidden" name="customerId" value="">
+        <input type="hidden" name="customerName" value="">
+    `;
+}
+
+/**
+ * The walk-in billing page. Phone-number driven client resolution happens in a
+ * live block below the phone field; date/time are automatic (now) and shown
+ * read-only; services are added from the live catalog via search. All state
+ * needed by the write handler is carried on hidden inputs / named fields so the
+ * central submit delegation handles it exactly like any other entity form.
  */
 export function renderQuickBillingForm(state, draft = null) {
     const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const staff = scopedBySalon(state.staffList, state.currentSalonId);
+    const customers = scopedBySalon(state.customersList, state.currentSalonId);
     const isOwner = state.userRole === 'salon_owner';
     const now = currentDateTime();
 
-    // A full app re-render (any store change) rebuilds the whole modal sheet,
-    // so an in-progress walk-in bill is restored from the non-reactive draft
-    // (see core/draft.js) instead of being wiped mid-entry.
+    // A full app re-render (any store change) rebuilds the whole view, so an
+    // in-progress walk-in bill is restored from the non-reactive draft (see
+    // core/draft.js) instead of being wiped mid-entry.
     const draftData = draft || {};
     let draftNames = [];
     if (Array.isArray(draftData.selectedServices)) draftNames = draftData.selectedServices.filter(Boolean);
     else if (typeof draftData.selectedServices === 'string') {
         try { draftNames = JSON.parse(draftData.selectedServices || '[]'); } catch { draftNames = []; }
     }
-    const d = (v) => String(v ?? '').replace(/"/g, '&quot;');
+
+    const phone = digitsOf(draftData.customerPhone);
+    let customer = null;
+    const pickedId = draftData.customerId;
+    if (pickedId) customer = customers.find((c) => c.id === pickedId) || null;
+    if (!customer && phone.length === 10) customer = customers.find((c) => digitsOf(c.phone) === phone) || null;
 
     const staffOptions = [
         { value: '', label: 'Not assigned' },
@@ -171,75 +235,85 @@ export function renderQuickBillingForm(state, draft = null) {
         `;
 
     return `
-        <form data-action="submit-quick-billing" class="space-y-3.5" novalidate>
-            <div class="bg-emerald-500/10 border border-emerald-500/25 rounded-2xl p-3.5 flex items-center gap-3">
-                <span class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0"><i data-lucide="zap" class="w-5 h-5"></i></span>
+        <div class="max-w-xl mx-auto">
+            <div class="flex items-center gap-3 mb-4">
+                <button type="button" data-action="tab" data-tab="dashboard" aria-label="Back to dashboard" title="Back to dashboard"
+                    class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation shrink-0">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </button>
                 <div class="min-w-0">
-                    <p class="text-xs font-bold text-emerald-300">Quick Billing / Walk-in</p>
-                    <p class="text-[10px] text-slate-400 mt-0.5">${esc(now.label)} — date & time are recorded automatically.</p>
+                    <h2 class="font-bold text-sm text-slate-100 truncate">Quick Billing / Walk-in</h2>
+                    <p class="text-[10px] text-slate-500 truncate">Fast POS for walk-in clients</p>
                 </div>
             </div>
 
-            <div>
-                <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Client</label>
-                <div class="relative">
-                    <input type="text" name="customerName" required autocomplete="off" value="${d(draftData.customerName)}"
-                        placeholder="Search name or phone…"
-                        data-action="customer-search"
-                        class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 pr-9">
-                    <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                </div>
-                <input type="hidden" name="customerId" value="${d(draftData.customerId)}">
-                <div data-customer-suggestions class="mt-2"></div>
-                <p class="mt-1 text-[10px] text-slate-500">Start typing to find an existing client, or add a new one below.</p>
-            </div>
-
-            <div>
-                <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Add Services</label>
-                <div class="relative">
-                    <input type="text" autocomplete="off" placeholder="Search service name or category…"
-                        data-action="quick-billing-service-search"
-                        class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 pr-9">
-                    <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
-                </div>
-                <div data-quickbilling-service-suggestions class="mt-2"></div>
-                <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(draftNames))}">
-                <div class="mt-2 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2" data-quickbilling-selected-services>
-                    ${renderSelectedServices(draftNames, services)}
+            <div class="bg-emerald-500/10 border border-emerald-500/25 rounded-2xl p-3.5 flex items-center gap-3 mb-4">
+                <span class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0"><i data-lucide="zap" class="w-4 h-4"></i></span>
+                <div class="min-w-0">
+                    <p class="text-xs font-bold text-emerald-300">Billing at ${esc(now.label)}</p>
+                    <p class="text-[10px] text-slate-400 mt-0.5">Date & time are recorded automatically — no selection needed.</p>
                 </div>
             </div>
 
-            <div>
-                <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Assigned Stylist (optional)</label>
-                ${selectControl('staffName', staffOptions, 'Not assigned', { required: false, value: draftData.staffName || '' })}
-            </div>
+            <form data-action="submit-quick-billing" class="space-y-3.5" novalidate>
+                <div>
+                    ${formField('Phone Number', `
+                        <div class="flex w-full bg-slate-950 border border-slate-800 rounded-xl focus-within:border-brand-500 overflow-hidden">
+                            <span class="px-3.5 border-r border-slate-800 bg-slate-900/40 flex items-center text-xs font-bold text-slate-300 select-none" aria-hidden="true">+91</span>
+                            <input type="tel" inputmode="numeric" pattern="[0-9]{10}" maxlength="10" required name="customerPhone" autocomplete="tel-national" placeholder="98765 43210" data-action="quick-billing-phone" value="${escAttr(phone)}"
+                                class="w-full min-w-0 bg-transparent px-4 py-3 text-base tracking-widest text-slate-100 focus:outline-none">
+                        </div>
+                    `, 'Digits only, up to 10. Search starts the moment the number is complete.')}
+                    <div data-quickbilling-customer class="mt-2">${renderQuickBillingCustomer(customer, { phone, name: draftData.customerName || '' })}</div>
+                </div>
 
-            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-3">
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <i data-lucide="badge-percent" class="w-3.5 h-3.5 shrink-0"></i><span>Discount</span>
-                </p>
-                ${discountBlock}
-            </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Add Services</label>
+                    <div class="relative">
+                        <input type="text" autocomplete="off" placeholder="Search service name or category…"
+                            data-action="quick-billing-service-search"
+                            class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 pr-9">
+                        <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+                    </div>
+                    <div data-quickbilling-service-suggestions class="mt-2"></div>
+                    <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(draftNames))}">
+                    <div class="mt-2 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2" data-quickbilling-selected-services>
+                        ${renderSelectedServices(draftNames, services)}
+                    </div>
+                </div>
 
-            <div data-quickbilling-wallet>
-                ${renderWalletBlock({ walletBalance: 0, cap: 0, settingsEnabled: true })}
-            </div>
+                <div>
+                    <label class="block text-[11px] font-semibold text-slate-400 uppercase mb-1">Assigned Stylist (optional)</label>
+                    ${selectControl('staffName', staffOptions, 'Not assigned', { required: false, value: draftData.staffName || '' })}
+                </div>
 
-            ${formField('Payment Method', selectControl('paymentMethod', PAYMENT_METHODS, 'Select a method', { required: true, value: draftData.paymentMethod || '' }))}
-            ${formField('Reference (optional)', textInput('paymentReference', 'UPI ref / last 4 digits', { required: false, value: draftData.paymentReference || '' }))}
+                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-3">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                        <i data-lucide="badge-percent" class="w-3.5 h-3.5 shrink-0"></i><span>Discount</span>
+                    </p>
+                    ${discountBlock}
+                </div>
 
-            <div data-quickbilling-summary class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
-                ${renderPaymentSummary({ invoiceAmount: 0, walletRedeem: 0, walletBalance: 0, cap: 0, discount: 0, discountText: '' })}
-            </div>
+                <div data-quickbilling-wallet>
+                    ${renderWalletBlock({ walletBalance: 0, cap: 0, settingsEnabled: true })}
+                </div>
 
-            <button type="submit" disabled class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">Complete Payment</button>
-        </form>
+                ${formField('Payment Method', selectControl('paymentMethod', PAYMENT_METHODS, 'Select a method', { required: true, value: draftData.paymentMethod || '' }))}
+                ${formField('Reference (optional)', textInput('paymentReference', 'UPI ref / last 4 digits', { required: false, value: draftData.paymentReference || '' }))}
+
+                <div data-quickbilling-summary class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
+                    ${renderPaymentSummary({ invoiceAmount: 0, walletRedeem: 0, walletBalance: 0, cap: 0, discount: 0, discountText: '' })}
+                </div>
+
+                <button type="submit" disabled class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none">Complete Payment</button>
+            </form>
+        </div>
     `;
 }
 
-/** Receipt shown right after a walk-in is billed. */
+/** Receipt shown right after a walk-in is billed (rendered in the same view). */
 export function renderQuickBillingReceipt(state) {
-    const appointment = state.modalRecord || {};
+    const appointment = state.quickBillingReceipt || state.modalRecord || {};
     const invoiceNo = appointment.invoiceNo || invoiceNoFor(appointment.id);
     const split = splitPayment({
         invoiceAmount: appointment.invoiceAmount,
@@ -262,61 +336,82 @@ export function renderQuickBillingReceipt(state) {
         : (appointment.serviceNames || (appointment.serviceName ? [appointment.serviceName] : []));
 
     return `
-        <div class="space-y-4">
-            <div class="text-center">
-                <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center" aria-hidden="true">
-                    <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+        <div class="max-w-xl mx-auto">
+            <div class="flex items-center gap-3 mb-4">
+                <button type="button" data-action="tab" data-tab="dashboard" aria-label="Back to dashboard" title="Back to dashboard"
+                    class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation shrink-0">
+                    <i data-lucide="arrow-left" class="w-4 h-4"></i>
+                </button>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-sm text-slate-100 truncate">Invoice / Receipt</h2>
+                    <p class="text-[10px] text-slate-500 truncate">Quick Billing / Walk-in</p>
                 </div>
-                <p class="text-sm font-extrabold text-slate-100 mt-2">Walk-in billed & paid</p>
-                <p class="text-[10px] text-slate-500 mt-0.5 font-mono">${esc(invoiceNo)}</p>
             </div>
 
-            <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
-                ${line('Client', appointment.customerName || '—')}
-                ${line('Date & time', `${appointment.date || ''} ${appointment.time || ''}`)}
-                <div class="h-px bg-slate-800 my-1"></div>
-                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Services</p>
-                ${serviceRows.map((s) => {
-                    const name = typeof s === 'string' ? s : (s?.name || '');
-                    const price = typeof s === 'string' ? '' : formatCurrency(s?.price);
-                    return `
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-[11px] text-slate-300 truncate">${esc(name)}</span>
-                            <span class="text-[10px] text-slate-400 shrink-0">${esc(price)}</span>
-                        </div>
-                    `;
-                }).join('')}
-                <div class="h-px bg-slate-800 my-1"></div>
-                ${line('Invoice total', formatCurrency(split.invoiceAmount))}
-                ${split.discount > 0 ? line('Client discount', `- ${formatCurrency(split.discount)}`, 'text-amber-400') : ''}
-                ${line('Paid from wallet', formatCurrency(split.walletRedeemed), 'text-brand-400')}
-                ${line(`Paid by ${methodLabel}`, formatCurrency(split.amountDue), 'text-emerald-400')}
-                ${appointment.walletBalanceBefore !== undefined ? line('Wallet before', formatCurrency(appointment.walletBalanceBefore), 'text-slate-300') : ''}
-                ${appointment.walletBalanceAfter !== undefined ? line('Wallet after', formatCurrency(appointment.walletBalanceAfter), 'text-slate-300') : ''}
-                ${appointment.paymentReference ? line('Reference', appointment.paymentReference, 'text-slate-300') : ''}
-            </div>
+            <div class="space-y-4">
+                <div class="text-center">
+                    <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center" aria-hidden="true">
+                        <i data-lucide="check-circle-2" class="w-6 h-6"></i>
+                    </div>
+                    <p class="text-sm font-extrabold text-slate-100 mt-2">Walk-in billed & paid</p>
+                    <p class="text-[10px] text-slate-500 mt-0.5 font-mono">${esc(invoiceNo)}</p>
+                </div>
 
-            ${appointment.refunded
-                ? `<p class="text-[10px] text-rose-400/80 text-center">Refunded on ${esc(String(appointment.refundedAt || '').slice(0, 10))}. Referral rewards earned by this invoice have been reversed.</p>`
-                : `<button data-action="refund-invoice" data-id="${escAttr(appointment.id)}"
+                <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3.5 space-y-1.5">
+                    ${line('Client', appointment.customerName || '—')}
+                    ${appointment.customerPhone ? line('Phone', appointment.customerPhone, 'text-slate-300') : ''}
+                    ${line('Date & time', `${appointment.date || ''} ${appointment.time || ''}`)}
+                    <div class="h-px bg-slate-800 my-1"></div>
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Services</p>
+                    ${serviceRows.map((s) => {
+                        const name = typeof s === 'string' ? s : (s?.name || '');
+                        const price = typeof s === 'string' ? '' : formatCurrency(s?.price);
+                        return `
+                            <div class="flex items-center justify-between gap-2">
+                                <span class="text-[11px] text-slate-300 truncate">${esc(name)}</span>
+                                <span class="text-[10px] text-slate-400 shrink-0">${esc(price)}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                    <div class="h-px bg-slate-800 my-1"></div>
+                    ${line('Invoice total', formatCurrency(split.invoiceAmount))}
+                    ${split.discount > 0 ? line('Client discount', `- ${formatCurrency(split.discount)}`, 'text-amber-400') : ''}
+                    ${line('Paid from wallet', formatCurrency(split.walletRedeemed), 'text-brand-400')}
+                    ${line(`Paid by ${methodLabel}`, formatCurrency(split.amountDue), 'text-emerald-400')}
+                    ${appointment.walletBalanceBefore !== undefined ? line('Wallet before', formatCurrency(appointment.walletBalanceBefore), 'text-slate-300') : ''}
+                    ${appointment.walletBalanceAfter !== undefined ? line('Wallet after', formatCurrency(appointment.walletBalanceAfter), 'text-slate-300') : ''}
+                    ${appointment.paymentReference ? line('Reference', appointment.paymentReference, 'text-slate-300') : ''}
+                </div>
+
+                ${appointment.refunded
+                    ? `<p class="text-[10px] text-rose-400/80 text-center">Refunded on ${esc(String(appointment.refundedAt || '').slice(0, 10))}. Referral rewards earned by this invoice have been reversed.</p>`
+                    : `<button data-action="refund-invoice" data-id="${escAttr(appointment.id)}"
                         class="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-rose-600/30 transition active:scale-95 touch-manipulation">Refund this bill</button>`}
 
-            <div class="flex gap-2.5">
-                <button type="button" data-action="modal" data-modal="quick-billing"
-                    class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition active:scale-95 touch-manipulation">
-                    <i data-lucide="zap" class="w-3.5 h-3.5 inline mr-1"></i>New Billing
-                </button>
-                ${appointment.customerId
-                    ? `<button type="button" data-action="customer-profile" data-id="${escAttr(appointment.customerId)}"
-                        class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-95 touch-manipulation">
-                        <i data-lucide="user-round" class="w-3.5 h-3.5 inline mr-1"></i>View Client
-                    </button>`
-                    : ''}
+                <div class="flex gap-2.5">
+                    <button type="button" data-action="tab" data-tab="quickBilling"
+                        class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-emerald-600/30 transition active:scale-95 touch-manipulation">
+                        <i data-lucide="zap" class="w-3.5 h-3.5 inline mr-1"></i>New Billing
+                    </button>
+                    ${appointment.customerId
+                        ? `<button type="button" data-action="customer-profile" data-id="${escAttr(appointment.customerId)}"
+                            class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-95 touch-manipulation">
+                            <i data-lucide="user-round" class="w-3.5 h-3.5 inline mr-1"></i>View Client
+                        </button>`
+                        : ''}
+                </div>
+                <button type="button" data-action="tab" data-tab="dashboard"
+                    class="w-full py-3 bg-slate-950/60 border border-slate-800 text-slate-300 text-xs font-bold rounded-xl transition active:scale-95 touch-manipulation">Done</button>
             </div>
-            <button type="button" data-action="close-modal"
-                class="w-full py-3 bg-slate-950/60 border border-slate-800 text-slate-300 text-xs font-bold rounded-xl transition active:scale-95 touch-manipulation">Done</button>
         </div>
     `;
 }
 
-export default { renderQuickBillingForm, renderQuickBillingReceipt, renderQuickBillingServiceSuggestions, renderSelectedServices, renderWalletBlock };
+export default {
+    renderQuickBillingForm,
+    renderQuickBillingReceipt,
+    renderQuickBillingServiceSuggestions,
+    renderSelectedServices,
+    renderWalletBlock,
+    renderQuickBillingCustomer,
+};

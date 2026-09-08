@@ -124,7 +124,7 @@ export function renderDashboard(state) {
             </div>
 
             <div class="grid grid-cols-4 gap-2.5 lg:grid-cols-5 lg:gap-3">
-                ${quickAction('quick-billing', 'Quick Bill', 'zap', 'bg-emerald-500/15 text-emerald-400')}
+                ${quickAction('quickBilling', 'Quick Bill', 'zap', 'bg-emerald-500/15 text-emerald-400', 'tab')}
                 ${quickAction('appointment', 'Book', 'calendar-plus', 'bg-brand-500/10 text-brand-400')}
                 ${quickAction('customer', 'Client', 'user-plus', 'bg-indigo-500/10 text-indigo-400')}
                 ${quickAction('service', 'Service', 'sparkle', 'bg-emerald-500/10 text-emerald-400')}

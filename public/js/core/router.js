@@ -13,7 +13,11 @@ export const TABS = {
 };
 
 export function switchTab(tab) {
-    store.setState({ activeTab: tab });
+    // Quick Billing is a dedicated page in the tab flow (never a popup). Every
+    // navigation into or out of it starts from a clean walk-in bill — switching
+    // tabs wipes the in-progress draft and dismisses any previous receipt.
+    clearDraft('quickBilling');
+    store.setState({ activeTab: tab, quickBillingReceipt: null });
 }
 
 export function setRole(role) {
