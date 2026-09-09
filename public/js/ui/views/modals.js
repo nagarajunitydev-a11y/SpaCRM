@@ -180,14 +180,15 @@ function renderForm(state, type) {
         const rec = editingRecord(state, 'appointment');
         const draft = getDraft('appointment') || {};
         const pre = rec ? { ...rec, ...draft } : draft;
-        // Date & time are never picked any more: a booking is automatically
-        // stamped with the salon's CURRENT date/time (in the salon's configured
-        // timezone). Editing preserves the booking's original stamp.
+        // Appointment Booking uses explicit schedule controls. Quick Billing
+        // remains independent and continues to timestamp walk-ins automatically.
         const salon = (state.salonsList || []).find((s) => s.id === state.currentSalonId) || null;
         const salonNow = currentSalonDateTime(salon);
-        const appointmentStamp = rec && (rec.date || rec.time)
-            ? { date: rec.date || salonNow.date, time: rec.time || salonNow.time, label: [rec.date, rec.time].filter(Boolean).join(' · ') || salonNow.label }
-            : salonNow;
+        const appointmentStamp = {
+            date: pre.date || salonNow.date,
+            time: pre.time || salonNow.time,
+            label: [pre.date || salonNow.date, pre.time || salonNow.time].join(' · '),
+        };
         const selectedServiceNames = appointmentServiceNames(pre);
         const selectedServices = selectedServiceNames.map((name) => services.find((service) => service.name === name)).filter(Boolean);
         const subtotal = selectedServices.reduce((sum, service) => sum + (Number(service.price) || 0), 0);
@@ -217,6 +218,8 @@ function renderForm(state, type) {
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-200"><span>Final total</span><span>${esc(formatCurrency(subtotal))}</span></div>
                 </div>
                 <div class="lg:col-span-2">${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}</div>
+                ${formField('Appointment Date', `<input type="date" name="date" required min="${escAttr(salonNow.date)}" value="${escAttr(appointmentStamp.date)}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
+                ${formField('Appointment Time', `<input type="time" name="time" required value="${escAttr(appointmentStamp.time)}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
                 <div class="lg:col-span-2">
                     <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl px-3.5 py-3">
                         <div class="flex items-center justify-between gap-3">
@@ -227,11 +230,9 @@ function renderForm(state, type) {
                                     <span>${esc(appointmentStamp.label)}</span>
                                 </p>
                             </div>
-                            <p class="text-[10px] text-slate-500 text-right">${rec ? 'Original booking time' : 'Auto = salon current date & time'}</p>
+                            <p class="text-[10px] text-slate-500 text-right">${rec ? 'Edit scheduled date & time' : 'Select a future date & time'}</p>
                         </div>
                     </div>
-                    <input type="hidden" name="date" value="${escAttr(appointmentStamp.date)}">
-                    <input type="hidden" name="time" value="${escAttr(appointmentStamp.time)}">
                 </div>
                 ${rec ? `<div class="lg:col-span-2">${formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' }))}</div>` : ''}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Confirm Booking'}</button>

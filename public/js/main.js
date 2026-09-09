@@ -67,7 +67,8 @@ import {
     renderSelectedServices,
     renderWalletBlock,
 } from './ui/views/quickBilling.js';
-import { ANY_STAFF } from './core/scheduling.js';
+import { ANY_STAFF, totalDurationMinutes, withDuration, hasConflict, rangeForDate, timeToMinutes } from './core/scheduling.js';
+import { sanitizeBookingSettings } from './core/bookingConfig.js';
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
@@ -368,22 +369,6 @@ function readFormData(form) {
         data[key] = typeof value === 'string' ? value.trim() : value;
     }
     return data;
-}
-
-/**
- * Appointment date/time are automatic: the hidden `date`/`time` inputs carry
- * the salon's current date/time, refreshed right before a NEW booking is
- * validated so a form left open across a minute boundary can never be
- * rejected by the "time has already passed" guard. Edits (a form carrying an
- * `id`) always preserve the booking's original stamp.
- */
-function stampAppointmentDateTime(form) {
-    if (!form || form.querySelector('[name="id"]')) return;
-    const now = currentSalonDateTime(currentSalon());
-    const date = form.querySelector('[name="date"]');
-    const time = form.querySelector('[name="time"]');
-    if (date) date.value = now.date;
-    if (time) time.value = now.time;
 }
 
 function findRecord(type, id) {
@@ -827,7 +812,10 @@ function updateQuickBilling(form, changedName = null) {
     }
 
     const selectedContainer = form.querySelector('[data-quickbilling-selected-services]');
-    if (selectedContainer) selectedContainer.innerHTML = renderSelectedServices(names, catalog);
+    if (selectedContainer) selectedContainer.innerHTML = renderSelectedServices(names, catalog, {
+        staffName: data.staffName,
+        discount,
+    });
 
     sanitizeDOM(form);
     refreshIcons(form);
@@ -856,7 +844,7 @@ function updateQuickBillingServiceSuggestions(el) {
         .filter((s) => (s.name || '').toLowerCase().includes(q) || (s.category || '').toLowerCase().includes(q))
         .slice(0, 8);
 
-    container.innerHTML = renderQuickBillingServiceSuggestions(matches, getSelectedServiceNames(form));
+    container.innerHTML = renderQuickBillingServiceSuggestions(matches);
     sanitizeDOM(container);
     refreshIcons(container);
 }
@@ -1459,6 +1447,31 @@ const actions = {
             const service = catalog.find((row) => row.name === name);
             return service ? { name: service.name, price: Number(service.price) || 0, duration: service.duration || '' } : null;
         }).filter(Boolean);
+
+        // Normal appointments must fit the salon's configured hours and may
+        // never overlap another active appointment for the chosen staff.
+        // Walk-ins bypass this branch entirely: their current timestamp is a
+        // POS record, not a scheduled slot.
+        const durationMinutes = Math.max(1, totalDurationMinutes(selectedServiceNames, catalog));
+        const settings = sanitizeBookingSettings(store.getState().bookingSettings);
+        const range = rangeForDate(settings.workingHours, data.date);
+        const startMinutes = timeToMinutes(data.time);
+        if (!range || startMinutes === null || startMinutes + durationMinutes > range.end || startMinutes < range.start) {
+            throw new Error('Choose a time within the salon’s working hours for all selected services.');
+        }
+        const existingAppointments = withDuration(
+            scopedBySalon(store.getState().appointmentsList, store.getState().currentSalonId).filter((appointment) => appointment.id !== id),
+            catalog,
+        );
+        if (hasConflict({
+            existingAppointments,
+            staffName: data.staffName,
+            date: data.date,
+            startTime: data.time,
+            durationMinutes,
+        })) {
+            throw new Error('This staff member is already booked for the selected time.');
+        }
         const payload = {
             customerId: customer.id || '',
             customerName: customer.name,
@@ -1523,7 +1536,7 @@ const actions = {
         const name = (el.dataset.name || '').trim();
         if (!form || !name) return;
         const names = getSelectedServiceNames(form);
-        if (!names.includes(name)) names.push(name);
+        names.push(name);
         form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
 
         const searchInput = form.querySelector('[data-action="quick-billing-service-search"]');
@@ -1537,9 +1550,10 @@ const actions = {
 
     async 'quick-billing-remove-service'(el) {
         const form = el.closest('form[data-action="submit-quick-billing"]');
-        const name = (el.dataset.name || '').trim();
         if (!form) return;
-        const names = getSelectedServiceNames(form).filter((n) => n !== name);
+        const index = Number(el.dataset.index);
+        const names = getSelectedServiceNames(form);
+        if (Number.isInteger(index) && index >= 0) names.splice(index, 1);
         form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
         updateQuickBilling(form);
         syncFormValidity(form, 'selectedServices');
@@ -2145,14 +2159,11 @@ function attachDelegation() {
         const handler = actions[form.dataset.action];
         if (!handler) return;
 
-        // Auto-stamp the appointment's date/time just before validation so
-        // the validated values are exactly the salon's current time.
-        if (form.dataset.action === 'submit-appointment') {
-            stampAppointmentDateTime(form);
-        }
-
         const data = readFormData(form);
-        const ctx = { signup: form.querySelector('[name="salonName"]') !== null };
+        const ctx = {
+            signup: form.querySelector('[name="salonName"]') !== null,
+            nowDateTime: form.dataset.action === 'submit-appointment' ? currentSalonDateTime(currentSalon()) : undefined,
+        };
         const errors = validateForm(form.dataset.action, data, ctx);
         if (Object.keys(errors).length > 0) {
             renderFieldErrors(form, errors);

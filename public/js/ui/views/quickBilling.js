@@ -48,7 +48,7 @@ function currentDateTime() {
 }
 
 /** Selected services list + subtotal card, re-rendered in place on change. */
-export function renderSelectedServices(names, catalog) {
+export function renderSelectedServices(names, catalog, { staffName = '', discount = 0 } = {}) {
     const rows = (names || []).map((name) => catalog.find((s) => s.name === name))
         .filter(Boolean);
     const subtotal = round2(rows.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
@@ -60,21 +60,28 @@ export function renderSelectedServices(names, catalog) {
         </div>
         ${rows.length === 0
             ? '<p class="text-[11px] text-slate-500">Add one or more services to this bill.</p>'
-            : rows.map((service) => `
+            : rows.map((service, index) => {
+                const price = round2(Number(service.price) || 0);
+                const lineDiscount = index === rows.length - 1
+                    ? round2(discount - rows.slice(0, index).reduce((sum, row) => sum + round2(discount * (Number(row.price) || 0) / subtotal), 0))
+                    : round2(subtotal > 0 ? discount * price / subtotal : 0);
+                return `
                 <div class="flex items-center justify-between gap-2 text-xs">
                     <div class="min-w-0">
                         <p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p>
+                        <p class="text-[10px] text-slate-500 truncate">${esc(staffName || 'No staff assigned')}</p>
                         <p class="text-[10px] text-slate-500">${esc(service.duration || '—')} • ${esc(formatCurrency(service.price))}</p>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
-                        <span class="text-[10px] font-bold text-slate-300">${esc(formatCurrency(service.price))}</span>
-                        <button type="button" data-action="quick-billing-remove-service" data-name="${escAttr(service.name)}"
+                        <span class="text-[10px] text-right text-slate-300">${esc(formatCurrency(price))}<br>${lineDiscount > 0 ? `-${esc(formatCurrency(lineDiscount))}` : 'No discount'}<br><b>${esc(formatCurrency(round2(price - lineDiscount)))}</b></span>
+                        <button type="button" data-action="quick-billing-remove-service" data-index="${index}"
                             class="w-7 h-7 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}">
                             <i data-lucide="x" class="w-3.5 h-3.5"></i>
                         </button>
                     </div>
                 </div>
-            `).join('')}
+            `;
+            }).join('')}
         <div class="border-t border-slate-800 pt-2 flex items-center justify-between">
             <span class="text-[11px] font-semibold text-slate-300">Subtotal</span>
             <span class="text-sm font-extrabold text-brand-300">${esc(formatCurrency(subtotal))}</span>
@@ -83,25 +90,23 @@ export function renderSelectedServices(names, catalog) {
 }
 
 /** Live search dropdown of catalog services, one suggestion per row. */
-export function renderQuickBillingServiceSuggestions(matches, selectedNames = []) {
-    const selected = new Set(selectedNames || []);
+export function renderQuickBillingServiceSuggestions(matches) {
     if (!matches || matches.length === 0) {
         return '<p class="text-[10px] text-slate-500">No matching services in your catalog.</p>';
     }
     return `
         <div class="space-y-1.5">
             ${matches.map((svc) => {
-                const taken = selected.has(svc.name);
                 return `
-                    <button type="button" data-action="${taken ? '' : 'quick-billing-add-service'}" data-name="${escAttr(svc.name)}" ${taken ? 'disabled' : ''}
-                        class="w-full flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-left transition ${taken ? 'opacity-50 cursor-not-allowed' : 'hover:border-emerald-500/40 active:scale-[0.98] touch-manipulation'}">
+                    <button type="button" data-action="quick-billing-add-service" data-name="${escAttr(svc.name)}"
+                        class="w-full flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-left transition hover:border-emerald-500/40 active:scale-[0.98] touch-manipulation">
                         <span class="min-w-0">
                             <span class="block text-xs font-semibold text-slate-100 truncate">${esc(svc.name)}</span>
                             <span class="block text-[10px] text-slate-400 truncate">${esc(svc.category || 'Service')} • ${esc(svc.duration || '—')}</span>
                         </span>
                         <span class="text-emerald-400 shrink-0 flex items-center gap-1">
                             <span class="text-[10px] font-bold">${esc(formatCurrency(svc.price))}</span>
-                            <i data-lucide="${taken ? 'check' : 'plus-circle'}" class="w-4 h-4"></i>
+                            <i data-lucide="plus-circle" class="w-4 h-4"></i>
                         </span>
                     </button>
                 `;
@@ -467,13 +472,22 @@ export function renderQuickBillingReceipt(state) {
                     ${line('Date & time', `${appointment.date || ''} ${appointment.time || ''}`)}
                     <div class="h-px bg-slate-800 my-1"></div>
                     <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Services</p>
-                    ${serviceRows.map((s) => {
+                    ${serviceRows.map((s, index) => {
                         const name = typeof s === 'string' ? s : (s?.name || '');
-                        const price = typeof s === 'string' ? '' : formatCurrency(s?.price);
+                        const price = typeof s === 'string' ? 0 : Number(s?.price) || 0;
+                        const subtotal = serviceRows.reduce((sum, row) => sum + (typeof row === 'string' ? 0 : Number(row?.price) || 0), 0);
+                        const discount = Number(appointment.discountApplied) || 0;
+                        const priorDiscount = serviceRows.slice(0, index).reduce((sum, row) => {
+                            const rowPrice = typeof row === 'string' ? 0 : Number(row?.price) || 0;
+                            return sum + round2(subtotal > 0 ? discount * rowPrice / subtotal : 0);
+                        }, 0);
+                        const lineDiscount = index === serviceRows.length - 1
+                            ? round2(discount - priorDiscount)
+                            : round2(subtotal > 0 ? discount * price / subtotal : 0);
                         return `
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] text-slate-300 truncate">${esc(name)}</span>
-                                <span class="text-[10px] text-slate-400 shrink-0">${esc(price)}</span>
+                                <span class="text-[11px] text-slate-300 truncate">${esc(name)}<small class="block text-slate-500">${esc(appointment.staffName || 'No staff assigned')}</small></span>
+                                <span class="text-[10px] text-right text-slate-400 shrink-0">${esc(formatCurrency(price))}<br>${lineDiscount > 0 ? `-${esc(formatCurrency(lineDiscount))}` : 'No discount'}<br><b class="text-slate-200">${esc(formatCurrency(round2(price - lineDiscount)))}</b></span>
                             </div>
                         `;
                     }).join('')}
