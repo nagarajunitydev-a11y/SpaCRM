@@ -48,10 +48,13 @@ function currentDateTime() {
 }
 
 /** Selected services list + subtotal card, re-rendered in place on change. */
-export function renderSelectedServices(names, catalog, { staffName = '', discount = 0 } = {}) {
-    const rows = (names || []).map((name) => catalog.find((s) => s.name === name))
-        .filter(Boolean);
-    const subtotal = round2(rows.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
+export function renderSelectedServices(lineItems, catalog, { staffName = '', discount = 0 } = {}) {
+    const rows = (lineItems || []).map((line, index) => {
+        const item = typeof line === 'string' ? { id: `legacy-${index}`, name: line } : line;
+        const service = catalog.find((s) => s.id === item.serviceId) || catalog.find((s) => s.name === item.name);
+        return service ? { ...item, service } : null;
+    }).filter(Boolean);
+    const subtotal = round2(rows.reduce((sum, line) => sum + (Number(line.service.price) || 0), 0));
 
     return `
         <div class="flex items-center justify-between">
@@ -60,21 +63,25 @@ export function renderSelectedServices(names, catalog, { staffName = '', discoun
         </div>
         ${rows.length === 0
             ? '<p class="text-[11px] text-slate-500">Add one or more services to this bill.</p>'
-            : rows.map((service, index) => {
+            : rows.map((line, index) => {
+                const { service } = line;
                 const price = round2(Number(service.price) || 0);
                 const lineDiscount = index === rows.length - 1
-                    ? round2(discount - rows.slice(0, index).reduce((sum, row) => sum + round2(discount * (Number(row.price) || 0) / subtotal), 0))
+                    ? round2(discount - rows.slice(0, index).reduce((sum, row) => sum + round2(discount * (Number(row.service.price) || 0) / subtotal), 0))
                     : round2(subtotal > 0 ? discount * price / subtotal : 0);
                 return `
                 <div class="flex items-center justify-between gap-2 text-xs">
                     <div class="min-w-0">
-                        <p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p>
+                        <select data-action="quick-billing-edit-service" data-line-id="${escAttr(line.id)}"
+                            class="max-w-full bg-transparent text-xs font-semibold text-slate-200 focus:outline-none focus:text-brand-300">
+                            ${catalog.map((option) => `<option value="${escAttr(option.id || '')}" ${String(option.id || '') === String(line.serviceId || '') || (!line.serviceId && option.name === service.name) ? 'selected' : ''}>${esc(option.name)}</option>`).join('')}
+                        </select>
                         <p class="text-[10px] text-slate-500 truncate">${esc(staffName || 'No staff assigned')}</p>
                         <p class="text-[10px] text-slate-500">${esc(service.duration || '—')} • ${esc(formatCurrency(service.price))}</p>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
                         <span class="text-[10px] text-right text-slate-300">${esc(formatCurrency(price))}<br>${lineDiscount > 0 ? `-${esc(formatCurrency(lineDiscount))}` : 'No discount'}<br><b>${esc(formatCurrency(round2(price - lineDiscount)))}</b></span>
-                        <button type="button" data-action="quick-billing-remove-service" data-index="${index}"
+                        <button type="button" data-action="quick-billing-remove-service" data-line-id="${escAttr(line.id)}"
                             class="w-7 h-7 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}">
                             <i data-lucide="x" class="w-3.5 h-3.5"></i>
                         </button>
@@ -98,7 +105,7 @@ export function renderQuickBillingServiceSuggestions(matches) {
         <div class="space-y-1.5">
             ${matches.map((svc) => {
                 return `
-                    <button type="button" data-action="quick-billing-add-service" data-name="${escAttr(svc.name)}"
+                    <button type="button" data-action="quick-billing-add-service" data-service-id="${escAttr(svc.id || '')}" data-name="${escAttr(svc.name)}"
                         class="w-full flex items-center justify-between gap-3 bg-slate-950 border border-slate-800 px-4 py-2.5 rounded-xl text-left transition hover:border-emerald-500/40 active:scale-[0.98] touch-manipulation">
                         <span class="min-w-0">
                             <span class="block text-xs font-semibold text-slate-100 truncate">${esc(svc.name)}</span>
@@ -313,10 +320,10 @@ export function renderQuickBillingForm(state, draft = null) {
     // in-progress walk-in bill is restored from the non-reactive draft (see
     // core/draft.js) instead of being wiped mid-entry.
     const draftData = draft || {};
-    let draftNames = [];
-    if (Array.isArray(draftData.selectedServices)) draftNames = draftData.selectedServices.filter(Boolean);
+    let draftLineItems = [];
+    if (Array.isArray(draftData.selectedServices)) draftLineItems = draftData.selectedServices.filter(Boolean);
     else if (typeof draftData.selectedServices === 'string') {
-        try { draftNames = JSON.parse(draftData.selectedServices || '[]'); } catch { draftNames = []; }
+        try { draftLineItems = JSON.parse(draftData.selectedServices || '[]'); } catch { draftLineItems = []; }
     }
 
     const phone = digitsOf(draftData.customerPhone);
@@ -385,9 +392,9 @@ export function renderQuickBillingForm(state, draft = null) {
                         <i data-lucide="search" class="w-4 h-4 text-slate-500 absolute right-3.5 top-1/2 -translate-y-1/2 pointer-events-none"></i>
                     </div>
                     <div data-quickbilling-service-suggestions class="mt-2"></div>
-                    <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(draftNames))}">
+                    <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(draftLineItems))}">
                     <div class="mt-2 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2" data-quickbilling-selected-services>
-                        ${renderSelectedServices(draftNames, services)}
+                        ${renderSelectedServices(draftLineItems, services)}
                     </div>
                 </div>
 

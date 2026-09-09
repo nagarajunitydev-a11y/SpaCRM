@@ -30,7 +30,7 @@ import { refreshIcons, icon } from './ui/icons.js';
 import showNotification from './ui/notification.js';
 import { appHeader, bottomNav, desktopSidebar, networkBanner, emptyState } from './ui/components.js';
 import { saveDraft, getDraft, clearDraft } from './core/draft.js';
-import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive, currentSalonDateTime, todayStr } from './core/utils.js';
+import { debounce, scopedBySalon, formatCurrency, makeId, sanitizePhoneInputLive, currentSalonDateTime, todayStr } from './core/utils.js';
 import { shiftDate } from './core/attendance.js';
 import renderLogin, { renderForgotPassword, renderResetPassword } from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
@@ -641,13 +641,25 @@ function updatePaymentSummary(form) {
 /* Quick Billing / Walk-in helpers                                     */
 /* ------------------------------------------------------------------ */
 
-/** Service names currently on a walk-in bill (read from the hidden field). */
-function getSelectedServiceNames(form) {
+/**
+ * Line items currently on a walk-in bill. A line id identifies an occurrence,
+ * never the service itself, so the same service can be billed repeatedly.
+ */
+function getQuickBillingLineItems(form) {
     const input = form && form.querySelector('[name="selectedServices"]');
     if (!input) return [];
     try {
         const value = JSON.parse(input.value || '[]');
-        return [...new Set((Array.isArray(value) ? value : []).map((name) => String(name || '').trim()).filter(Boolean))];
+        return (Array.isArray(value) ? value : []).map((line, index) => {
+            // Legacy drafts stored service names only. Position gives each
+            // legacy occurrence a stable migration id until the next update.
+            if (typeof line === 'string') return { id: `legacy_bill_line_${index}`, name: line.trim(), serviceId: '' };
+            return {
+                id: String(line?.id || `legacy_bill_line_${index}`),
+                name: String(line?.name || '').trim(),
+                serviceId: String(line?.serviceId || ''),
+            };
+        }).filter((line) => line.name);
     } catch {
         return [];
     }
@@ -770,8 +782,8 @@ function updateQuickBilling(form, changedName = null) {
     const state = store.getState();
     const data = readFormData(form);
     const catalog = scopedBySalon(state.servicesList, state.currentSalonId);
-    const names = getSelectedServiceNames(form);
-    const selectedServices = names.map((name) => catalog.find((s) => s.name === name)).filter(Boolean);
+    const lineItems = getQuickBillingLineItems(form);
+    const selectedServices = lineItems.map((line) => catalog.find((s) => s.id === line.serviceId) || catalog.find((s) => s.name === line.name)).filter(Boolean);
     const invoiceAmount = round2(selectedServices.reduce((sum, s) => sum + (Number(s.price) || 0), 0));
 
     // Same identity rules as resolveAppointmentCustomer: id, then phone (the
@@ -812,7 +824,7 @@ function updateQuickBilling(form, changedName = null) {
     }
 
     const selectedContainer = form.querySelector('[data-quickbilling-selected-services]');
-    if (selectedContainer) selectedContainer.innerHTML = renderSelectedServices(names, catalog, {
+    if (selectedContainer) selectedContainer.innerHTML = renderSelectedServices(lineItems, catalog, {
         staffName: data.staffName,
         discount,
     });
@@ -822,7 +834,7 @@ function updateQuickBilling(form, changedName = null) {
 
     // Snapshot the in-progress bill so a full app re-render (any store change)
     // rebuilds this page with the entered values intact instead of wiping them.
-    saveDraft('quickBilling', { ...data, selectedServices: JSON.stringify(names) });
+    saveDraft('quickBilling', { ...data, selectedServices: JSON.stringify(lineItems) });
 }
 
 /** Live service-search dropdown inside the quick-billing form. */
@@ -1535,9 +1547,13 @@ const actions = {
         const form = el.closest('form[data-action="submit-quick-billing"]');
         const name = (el.dataset.name || '').trim();
         if (!form || !name) return;
-        const names = getSelectedServiceNames(form);
-        names.push(name);
-        form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
+        const lineItems = getQuickBillingLineItems(form);
+        lineItems.push({
+            id: makeId('bill_line'),
+            serviceId: String(el.dataset.serviceId || ''),
+            name,
+        });
+        form.querySelector('[name="selectedServices"]').value = JSON.stringify(lineItems);
 
         const searchInput = form.querySelector('[data-action="quick-billing-service-search"]');
         if (searchInput) searchInput.value = '';
@@ -1551,12 +1567,28 @@ const actions = {
     async 'quick-billing-remove-service'(el) {
         const form = el.closest('form[data-action="submit-quick-billing"]');
         if (!form) return;
-        const index = Number(el.dataset.index);
-        const names = getSelectedServiceNames(form);
-        if (Number.isInteger(index) && index >= 0) names.splice(index, 1);
-        form.querySelector('[name="selectedServices"]').value = JSON.stringify(names);
+        const lineId = String(el.dataset.lineId || '');
+        const lineItems = getQuickBillingLineItems(form);
+        const index = lineItems.findIndex((line) => line.id === lineId);
+        if (index >= 0) lineItems.splice(index, 1);
+        form.querySelector('[name="selectedServices"]').value = JSON.stringify(lineItems);
         updateQuickBilling(form);
         syncFormValidity(form, 'selectedServices');
+    },
+
+    async 'quick-billing-edit-service'(el) {
+        const form = el.closest('form[data-action="submit-quick-billing"]');
+        if (!form) return;
+        const serviceId = String(el.value || '');
+        const service = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId)
+            .find((row) => String(row.id || '') === serviceId);
+        const lineItems = getQuickBillingLineItems(form);
+        const line = lineItems.find((item) => item.id === String(el.dataset.lineId || ''));
+        if (!service || !line) return;
+        line.serviceId = service.id || '';
+        line.name = service.name;
+        form.querySelector('[name="selectedServices"]').value = JSON.stringify(lineItems);
+        updateQuickBilling(form);
     },
 
     async 'submit-quick-billing'(form, event, data) {
@@ -1566,11 +1598,17 @@ const actions = {
 
         const customer = await resolveAppointmentCustomer(data);
 
-        const names = getSelectedServiceNames(form);
+        const lineItems = getQuickBillingLineItems(form);
         const catalog = scopedBySalon(state.servicesList, salonId);
-        const selectedServices = names.map((name) => {
-            const service = catalog.find((row) => row.name === name);
-            return service ? { name: service.name, price: Number(service.price) || 0, duration: service.duration || '' } : null;
+        const selectedServices = lineItems.map((line) => {
+            const service = catalog.find((row) => row.id === line.serviceId) || catalog.find((row) => row.name === line.name);
+            return service ? {
+                lineItemId: line.id,
+                serviceId: service.id || '',
+                name: service.name,
+                price: Number(service.price) || 0,
+                duration: service.duration || '',
+            } : null;
         }).filter(Boolean);
         if (selectedServices.length === 0) throw new Error('Select at least one service.');
 
@@ -2107,7 +2145,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter'].includes(el.dataset.action)) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'quick-billing-edit-service'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
