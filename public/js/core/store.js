@@ -44,6 +44,12 @@ export const store = createStore({
     network: navigator.onLine !== false,
     authReady: false,
     authFormMode: 'signin', // 'signup' | 'signin'
+    authView: 'default', // guest auth screen: 'default' (sign-in/sign-up) | 'forgot' | 'reset'
+    resetOobCode: null, // one-time reset code from the Firebase email link (held in memory only — never persisted)
+    resetEmail: '', // account email bound to the reset code, when known
+    resetError: null, // message shown when the reset code is invalid/expired/unavailable
+    forgotSent: false, // true once a reset-link request has been submitted (shows the generic confirmation)
+    resetDone: false, // true once a new password has been saved via the reset link
     accountRole: 'salon_owner', // persistent role from the user profile (Firestore)
     currentUser: null,
     userRole: 'guest', // 'guest' | 'salon_owner' | 'super_admin'

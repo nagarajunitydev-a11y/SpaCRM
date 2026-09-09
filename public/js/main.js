@@ -32,7 +32,7 @@ import { appHeader, bottomNav, desktopSidebar, networkBanner, emptyState } from 
 import { saveDraft, getDraft, clearDraft } from './core/draft.js';
 import { debounce, scopedBySalon, formatCurrency, sanitizePhoneInputLive, currentSalonDateTime, todayStr } from './core/utils.js';
 import { shiftDate } from './core/attendance.js';
-import renderLogin from './ui/views/login.js';
+import renderLogin, { renderForgotPassword, renderResetPassword } from './ui/views/login.js';
 import renderDashboard from './ui/views/dashboard.js';
 import renderAppointments, {
     DEFAULT_APPOINTMENT_FILTERS,
@@ -271,6 +271,8 @@ function renderOwnerTab(state) {
 
 function buildView(state) {
     if (state.userRole === 'guest') {
+        if (state.authView === 'forgot') return renderForgotPassword(state);
+        if (state.authView === 'reset') return renderResetPassword(state);
         return renderLogin(state);
     }
     if (state.userRole === 'super_admin' && state.accountRole === 'super_admin') {
@@ -1038,6 +1040,26 @@ const actions = {
         store.setState({ authFormMode: el.dataset.mode === 'signin' ? 'signin' : 'signup' });
     },
 
+    async 'show-forgot-password'() {
+        store.setState({ authView: 'forgot', forgotSent: false, resetError: null });
+    },
+
+    async 'back-to-login'() {
+        store.setState({
+            authView: 'default',
+            forgotSent: false,
+            resetDone: false,
+            resetError: null,
+            resetOobCode: null,
+            resetEmail: '',
+        });
+        // Drop the one-time reset params from the URL so refreshing or
+        // re-sharing it can never re-trigger the (now consumed) reset flow.
+        if (window.location.search) {
+            window.history.replaceState({}, '', window.location.pathname);
+        }
+    },
+
     async 'toggle-password-visibility'(el) {
         const input = el.closest('[data-password-wrapper]')?.querySelector('input');
         if (!input) return;
@@ -1183,6 +1205,25 @@ const actions = {
             showNotification(`Successfully authenticated as ${email}!`);
         } else {
             showNotification(result.error || 'Authentication failed.', 'error');
+        }
+    },
+
+    async 'forgot-password'(form) {
+        const { email } = readFormData(form);
+        await authService.sendPasswordResetEmail(email);
+        // Always show the same confirmation — sendPasswordResetEmail() never
+        // reports whether the address is actually registered.
+        store.setState({ forgotSent: true });
+    },
+
+    async 'reset-password'(form) {
+        const { password } = readFormData(form);
+        const { resetOobCode } = store.getState();
+        const result = await authService.confirmPasswordReset(resetOobCode, password);
+        if (result.ok) {
+            store.setState({ resetDone: true, resetOobCode: null });
+        } else {
+            showNotification(result.error || 'Password reset failed.', 'error');
         }
     },
 
@@ -2173,8 +2214,28 @@ function registerServiceWorker() {
 /* Bootstrap                                                           */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Detect a Firebase password-reset link (?mode=resetPassword&oobCode=...)
+ * and validate the code up front, so the reset screen opens straight into
+ * either the new-password form or a clear expired/invalid message — never a
+ * form that's guaranteed to fail on submit.
+ */
+async function maybeHandlePasswordResetLink() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') !== 'resetPassword' || !params.get('oobCode')) return;
+
+    const result = await authService.verifyPasswordResetCode(params.get('oobCode'));
+    store.setState({
+        authView: 'reset',
+        resetOobCode: result.ok ? params.get('oobCode') : null,
+        resetEmail: result.ok ? result.email : '',
+        resetError: result.ok ? null : result.error,
+    });
+}
+
 async function bootstrap() {
     await initFirebase();
+    await maybeHandlePasswordResetLink();
 
     // Scoped repos are safe to "prime" with no salon before auth/salon
     // resolves: with a null id, scopedRepository.subscribe() returns

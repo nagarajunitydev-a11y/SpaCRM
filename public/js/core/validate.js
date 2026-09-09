@@ -88,6 +88,9 @@ const numberMax = (max, msg) => (v) => {
 const referralCode = (msg) => (v) => (isBlank(v) ? null : isValidCodeFormat(v) ? null : msg);
 /** A date that must not fall after today (used for date of birth). */
 const dateNotFuture = (msg) => (v) => (isBlank(v) || !isValidDate(v) ? null : String(v) > todayStr() ? msg : null);
+/** A password at least `min` characters long (Firebase's default minimum). */
+const passwordMin = (min, msg) => (v) => (isBlank(v) ? null : String(v).length >= min ? null : msg);
+
 /** A birth year within a plausible human lifespan. */
 const plausibleBirthYear = (msg) => (v) => {
     if (isBlank(v) || !isValidDate(v)) return null;
@@ -318,6 +321,22 @@ export function validateForm(formKey, data, ctx = {}) {
         }
         check(errors, 'email', v('email'), [required('Email is required.'), email('Enter a valid email address.')]);
         check(errors, 'password', v('password'), [required('Password is required.')]);
+        return errors;
+    }
+
+    if (formKey === 'forgot-password') {
+        // Same email rules as sign-in. The address is validated locally so any
+        // format error is reported before anything reaches the auth backend.
+        check(errors, 'email', v('email'), [required('Email is required.'), email('Enter a valid email address.')]);
+        return errors;
+    }
+
+    if (formKey === 'reset-password') {
+        check(errors, 'password', v('password'), [required('Password is required.'), passwordMin(6, 'Password must be at least 6 characters.')]);
+        check(errors, 'confirmPassword', v('confirmPassword'), [required('Please confirm your new password.')]);
+        if (!errors.password && !errors.confirmPassword && v('password') !== v('confirmPassword')) {
+            errors.confirmPassword = 'Passwords do not match.';
+        }
         return errors;
     }
 

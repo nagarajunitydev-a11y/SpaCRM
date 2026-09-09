@@ -32,6 +32,9 @@ import {
     signInWithEmailAndPassword,
     createUserWithEmailAndPassword,
     signInAnonymously,
+    sendPasswordResetEmail as fbSendPasswordResetEmail,
+    confirmPasswordReset as fbConfirmPasswordReset,
+    verifyPasswordResetCode as fbVerifyPasswordResetCode,
     GoogleAuthProvider,
     signOut as fbSignOut,
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
@@ -333,6 +336,84 @@ export async function signUpWithEmail(email, password) {
     }
 }
 
+/**
+ * Build the URL the password-reset email should send the user back to. Uses
+ * the current host so production and local development resolve to the app
+ * itself, preserves any app-level query params (e.g. a dev-only ?firebase=1),
+ * and strips any stale one-time action params so the reset screen starts clean.
+ */
+function actionCodeContinueUrl() {
+    const url = new URL(window.location.href);
+    ['mode', 'oobCode', 'apiKey', 'lang', 'v'].forEach((k) => url.searchParams.delete(k));
+    return url.toString();
+}
+
+/**
+ * Send the Firebase password-reset email for an address.
+ *
+ * The result deliberately never reveals whether the address is registered:
+ * every non-fatal outcome looks identical (the caller shows the same generic
+ * message), and real errors are only logged, never surfaced as an
+ * account-specific failure. No reset tokens or codes are stored anywhere.
+ */
+export async function sendPasswordResetEmail(email) {
+    const fb = getFirebase();
+    if (!fb) {
+        console.log('[AUTH] Password reset skipped: Firebase not initialized (demo mode).');
+        return { ok: false, code: 'auth/unavailable', error: 'Password reset requires Firebase Authentication.' };
+    }
+    try {
+        await fbSendPasswordResetEmail(fb.auth, email, {
+            url: actionCodeContinueUrl(),
+            handleCodeInApp: true,
+        });
+        return { ok: true };
+    } catch (err) {
+        // Log the real reason for diagnostics but never leak it to the user.
+        console.warn('[AUTH] Password reset email send failed:', err.code || err.message);
+        return { ok: false, code: err.code || null };
+    }
+}
+
+/**
+ * Validate a password-reset action code from the emailed link and resolve the
+ * account email it is bound to. Used to surface expired/invalid links clearly
+ * on the reset screen before the user types a new password.
+ */
+export async function verifyPasswordResetCode(oobCode) {
+    const fb = getFirebase();
+    if (!oobCode) return { ok: false, code: 'auth/invalid-action-code', error: friendlyResetError({ code: 'auth/invalid-action-code' }) };
+    if (!fb) {
+        return { ok: false, code: 'auth/unavailable', error: 'Password reset requires Firebase Authentication.' };
+    }
+    try {
+        const email = await fbVerifyPasswordResetCode(fb.auth, oobCode);
+        return { ok: true, email };
+    } catch (err) {
+        console.warn('[AUTH] Reset code verification failed:', err.code || err.message);
+        return { ok: false, code: err.code || null, error: friendlyResetError(err) };
+    }
+}
+
+/**
+ * Set a new password on the account bound to a validated reset code. The
+ * one-time code is consumed by Firebase and never stored by the app.
+ */
+export async function confirmPasswordReset(oobCode, newPassword) {
+    const fb = getFirebase();
+    if (!oobCode) return { ok: false, code: 'auth/invalid-action-code', error: friendlyResetError({ code: 'auth/invalid-action-code' }) };
+    if (!fb) {
+        return { ok: false, code: 'auth/unavailable', error: 'Password reset requires Firebase Authentication.' };
+    }
+    try {
+        await fbConfirmPasswordReset(fb.auth, oobCode, newPassword);
+        return { ok: true };
+    } catch (err) {
+        console.warn('[AUTH] Password reset failed:', err.code || err.message);
+        return { ok: false, code: err.code || null, error: friendlyResetError(err) };
+    }
+}
+
 /** Anonymous sign-in against real Firebase. Never fabricates a session. */
 export async function signInAnonymouslyNow() {
     const fb = getFirebase();
@@ -414,6 +495,22 @@ export function friendlyAuthError(err) {
     return map[code] || 'Authentication failed. Please try again.';
 }
 
+/**
+ * Friendly, account-neutral messages for the password-reset flow. These never
+ * reveal whether a specific account exists — invalid/expired codes are treated
+ * identically so a link in the wild can't be used to probe addresses.
+ */
+function friendlyResetError(err) {
+    const code = (err && err.code) || 'auth/unknown';
+    const map = {
+        'auth/invalid-action-code': 'This reset link is invalid or has expired. Please request a new one.',
+        'auth/expired-action-code': 'This reset link has expired. Please request a new one.',
+        'auth/weak-password': 'Password must be at least 6 characters.',
+        'auth/network-request-failed': 'Network error. Check your connection and try again.',
+    };
+    return map[code] || friendlyAuthError(err);
+}
+
 export default {
     handleAuthStateChanged,
     signInWithGoogle,
@@ -421,6 +518,9 @@ export default {
     usesRedirectFlow,
     signInWithEmail,
     signUpWithEmail,
+    sendPasswordResetEmail,
+    verifyPasswordResetCode,
+    confirmPasswordReset,
     signInAnonymouslyNow,
     signOut,
     restoreSession,
