@@ -286,12 +286,14 @@ export function formField(label, controlHtml, hint = '') {
 
 /** Text input control. */
 export function textInput(name, placeholder, opts = {}) {
-    const { type = 'text', required = true, className = '', autocomplete = '', value = '' } = opts;
+    const { type = 'text', required = true, className = '', autocomplete = '', value = '', min = '', step = '' } = opts;
     const val = value !== null && value !== undefined ? escAttr(String(value)) : '';
     return `
         <input type="${escAttr(type)}" name="${escAttr(name)}" ${required ? 'required' : ''} placeholder="${escAttr(placeholder)}"
             ${val ? `value="${val}"` : ''}
             ${autocomplete ? `autocomplete="${escAttr(autocomplete)}"` : ''}
+            ${min !== '' ? `min="${escAttr(min)}"` : ''}
+            ${step !== '' ? `step="${escAttr(step)}"` : ''}
             class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 ${escAttr(className)}">
     `;
 }
@@ -338,9 +340,9 @@ export function phoneInput(name, opts = {}) {
 
 /** Select control. `value` marks the currently selected option. */
 export function selectControl(name, options, placeholder, opts = {}) {
-    const { required = true, className = '', value = '' } = opts;
+    const { required = true, className = '', value = '', dataAction = '' } = opts;
     return `
-        <select name="${escAttr(name)}" ${required ? 'required' : ''} class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 ${escAttr(className)}">
+        <select name="${escAttr(name)}" ${dataAction ? `data-action="${escAttr(dataAction)}"` : ''} ${required ? 'required' : ''} class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 ${escAttr(className)}">
             ${placeholder ? `<option value="" disabled ${value === '' || value == null ? 'selected' : ''}>${esc(placeholder)}</option>` : ''}
             ${options.map((o) => `<option value="${escAttr(o.value)}" ${String(o.value) === String(value) ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}
         </select>

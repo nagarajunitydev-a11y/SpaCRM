@@ -665,6 +665,28 @@ function getQuickBillingLineItems(form) {
     }
 }
 
+/** Appointment editor line items retain every occurrence, including customs. */
+function getAppointmentLineItems(value) {
+    let parsed = value;
+    if (typeof parsed === 'string') {
+        try { parsed = JSON.parse(parsed || '[]'); } catch { parsed = []; }
+    }
+    return (Array.isArray(parsed) ? parsed : []).map((line, index) => {
+        if (typeof line === 'string') return {
+            id: `legacy_appointment_line_${index}`,
+            serviceId: '', name: line.trim(), price: null, duration: '', custom: false,
+        };
+        return {
+            id: String(line?.lineItemId || `legacy_appointment_line_${index}`),
+            serviceId: String(line?.serviceId || ''),
+            name: String(line?.name || line?.serviceName || '').trim(),
+            price: Number.isFinite(Number(line?.price)) ? Number(line.price) : null,
+            duration: line?.duration || '',
+            custom: line?.custom === true,
+        };
+    }).filter((line) => line.name || line.custom);
+}
+
 /** Digits-only phone, capped at 10 — matches the live input sanitisation. */
 function digitsOf(value) {
     return String(value || '').replace(/\D/g, '').slice(0, 10);
@@ -1450,21 +1472,54 @@ const actions = {
     async 'submit-appointment'(form, event, data) {
         const id = data.id;
         const customer = await resolveAppointmentCustomer(data);
-        let selectedServiceNames = [];
-        try { selectedServiceNames = JSON.parse(data.selectedServices || '[]'); } catch { selectedServiceNames = []; }
-        selectedServiceNames = [...new Set([...selectedServiceNames, data.serviceName]
-            .map((name) => String(name || '').trim()).filter(Boolean))];
+        const selectedLineItems = getAppointmentLineItems(data.selectedServices);
         const catalog = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId);
-        const selectedServices = selectedServiceNames.map((name) => {
-            const service = catalog.find((row) => row.name === name);
-            return service ? { name: service.name, price: Number(service.price) || 0, duration: service.duration || '' } : null;
+        for (const line of selectedLineItems.filter((item) => item.custom)) {
+            if (!line.name || !Number.isFinite(Number(line.price)) || Number(line.price) < 0) {
+                throw new Error('Each Other Service needs a name and an amount of ₹0 or more.');
+            }
+        }
+        // Preserve the existing one-click booking behavior: a currently
+        // selected service is accepted even if the Add button was not used.
+        if (selectedLineItems.length === 0 && data.serviceName) {
+            if (data.serviceName === 'Other Service') {
+                const amount = Number(data.otherServiceAmount);
+                const name = String(data.otherServiceName || '').trim();
+                if (!name || !Number.isFinite(amount) || amount < 0) {
+                    throw new Error('Enter an Other Service name and an amount of ₹0 or more.');
+                }
+                selectedLineItems.push({ id: makeId('appointment_line'), serviceId: '', name, price: amount, duration: '', custom: true });
+            } else {
+                const service = catalog.find((row) => row.name === data.serviceName);
+                if (service) selectedLineItems.push({ id: makeId('appointment_line'), serviceId: service.id || '', name: service.name, price: service.price, duration: service.duration || '', custom: false });
+            }
+        }
+        const selectedServices = selectedLineItems.map((line) => {
+            if (line.custom) return {
+                lineItemId: line.id,
+                serviceId: '',
+                name: line.name,
+                price: Math.max(0, Number(line.price) || 0),
+                duration: line.duration || '',
+                custom: true,
+            };
+            const service = catalog.find((row) => row.id === line.serviceId) || catalog.find((row) => row.name === line.name);
+            return service ? {
+                lineItemId: line.id,
+                serviceId: service.id || '',
+                name: service.name,
+                price: Number(service.price) || 0,
+                duration: service.duration || '',
+                custom: false,
+            } : null;
         }).filter(Boolean);
+        if (selectedServices.length === 0) throw new Error('Select at least one service.');
 
         // Normal appointments must fit the salon's configured hours and may
         // never overlap another active appointment for the chosen staff.
         // Walk-ins bypass this branch entirely: their current timestamp is a
         // POS record, not a scheduled slot.
-        const durationMinutes = Math.max(1, totalDurationMinutes(selectedServiceNames, catalog));
+        const durationMinutes = Math.max(1, totalDurationMinutes(selectedServices.filter((line) => !line.custom).map((line) => line.name), catalog));
         const settings = sanitizeBookingSettings(store.getState().bookingSettings);
         const range = rangeForDate(settings.workingHours, data.date);
         const startMinutes = timeToMinutes(data.time);
@@ -1489,6 +1544,7 @@ const actions = {
             customerName: customer.name,
             serviceName: selectedServices[0]?.name || data.serviceName,
             services: selectedServices,
+            amount: round2(selectedServices.reduce((sum, service) => sum + service.price, 0)),
             staffName: data.staffName,
             date: data.date,
             time: data.time,
@@ -1517,10 +1573,23 @@ const actions = {
         const picker = form?.querySelector('[name="serviceName"]');
         const selected = form?.querySelector('[name="selectedServices"]');
         if (!form || !picker || !selected || !picker.value) return;
-        let names = [];
-        try { names = JSON.parse(selected.value || '[]'); } catch { names = []; }
-        selected.value = JSON.stringify([...new Set([...names, picker.value])]);
+        const lineItems = getAppointmentLineItems(selected.value);
+        if (picker.value === 'Other Service') {
+            const name = String(form.querySelector('[name="otherServiceName"]')?.value || '').trim();
+            const amount = Number(form.querySelector('[name="otherServiceAmount"]')?.value);
+            if (!name) throw new Error('Enter a name or description for the other service.');
+            if (!Number.isFinite(amount) || amount < 0) throw new Error('Other service amount must be ₹0 or more.');
+            lineItems.push({ id: makeId('appointment_line'), serviceId: '', name, price: amount, duration: '', custom: true });
+        } else {
+            const service = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId)
+                .find((row) => row.name === picker.value);
+            if (!service) throw new Error('Choose a valid service.');
+            lineItems.push({ id: makeId('appointment_line'), serviceId: service.id || '', name: service.name, price: service.price, duration: service.duration || '', custom: false });
+        }
+        selected.value = JSON.stringify(lineItems);
         picker.value = '';
+        const other = form.querySelector('[data-other-appointment-service]');
+        if (other) other.classList.add('hidden');
         saveDraft('appointment', readFormData(form));
         store.setState({});
     },
@@ -1529,12 +1598,71 @@ const actions = {
         const form = el.closest('form[data-action="submit-appointment"]');
         const selected = form?.querySelector('[name="selectedServices"]');
         if (!form || !selected) return;
-        let names = [];
-        try { names = JSON.parse(selected.value || '[]'); } catch { names = []; }
-        names = names.filter((name) => name !== el.dataset.name);
-        selected.value = JSON.stringify(names);
+        const lineItems = getAppointmentLineItems(selected.value);
+        const lineId = String(el.dataset.lineId || '');
+        selected.value = JSON.stringify(lineItems.filter((line) => line.id !== lineId));
         const picker = form.querySelector('[name="serviceName"]');
         if (picker) picker.value = '';
+        saveDraft('appointment', readFormData(form));
+        store.setState({});
+    },
+
+    async 'appointment-service-picker'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const other = form?.querySelector('[data-other-appointment-service]');
+        if (other) other.classList.toggle('hidden', el.value !== 'Other Service');
+        if (form) saveDraft('appointment', readFormData(form));
+    },
+
+    async 'edit-appointment-line-service'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const selected = form?.querySelector('[name="selectedServices"]');
+        if (!form || !selected) return;
+        const lineItems = getAppointmentLineItems(selected.value);
+        const line = lineItems.find((item) => item.id === String(el.dataset.lineId || ''));
+        if (!line) return;
+        if (el.value === 'Other Service') {
+            line.custom = true;
+            line.serviceId = '';
+            line.name = line.name || 'Other Service';
+            line.price = Math.max(0, Number(line.price) || 0);
+            line.duration = '';
+        } else {
+            const service = scopedBySalon(store.getState().servicesList, store.getState().currentSalonId)
+                .find((row) => row.name === el.value);
+            if (!service) return;
+            line.custom = false;
+            line.serviceId = service.id || '';
+            line.name = service.name;
+            line.price = Number(service.price) || 0;
+            line.duration = service.duration || '';
+        }
+        selected.value = JSON.stringify(lineItems);
+        saveDraft('appointment', readFormData(form));
+        store.setState({});
+    },
+
+    async 'edit-appointment-custom-name'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const selected = form?.querySelector('[name="selectedServices"]');
+        const line = getAppointmentLineItems(selected?.value).find((item) => item.id === String(el.dataset.lineId || ''));
+        if (!form || !selected || !line) return;
+        line.name = String(el.value || '').trim();
+        selected.value = JSON.stringify(getAppointmentLineItems(selected.value).map((item) => item.id === line.id ? line : item));
+        saveDraft('appointment', readFormData(form));
+        store.setState({});
+    },
+
+    async 'edit-appointment-custom-amount'(el) {
+        const form = el.closest('form[data-action="submit-appointment"]');
+        const selected = form?.querySelector('[name="selectedServices"]');
+        const lineItems = getAppointmentLineItems(selected?.value);
+        const line = lineItems.find((item) => item.id === String(el.dataset.lineId || ''));
+        if (!form || !selected || !line) return;
+        // Preserve the raw value for submit-time validation rather than
+        // silently retaining an old amount after an invalid edit.
+        line.price = el.value;
+        selected.value = JSON.stringify(lineItems);
         saveDraft('appointment', readFormData(form));
         store.setState({});
     },
@@ -2145,7 +2273,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'quick-billing-edit-service'].includes(el.dataset.action)) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'quick-billing-edit-service', 'appointment-service-picker', 'edit-appointment-line-service', 'edit-appointment-custom-name', 'edit-appointment-custom-amount'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));

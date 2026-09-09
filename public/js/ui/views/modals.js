@@ -73,7 +73,7 @@ function editingRecord(state, type) {
     return (key && (state[key] || []).find((r) => r.id === id)) || null;
 }
 
-function appointmentServiceNames(record) {
+function appointmentLineItems(record) {
     let selected = record?.selectedServices;
     if (typeof selected === 'string') {
         try { selected = JSON.parse(selected); } catch { selected = []; }
@@ -81,8 +81,22 @@ function appointmentServiceNames(record) {
     if (!Array.isArray(selected) || selected.length === 0) {
         selected = record?.services || record?.serviceNames || (record?.serviceName ? [record.serviceName] : []);
     }
-    return [...new Set((selected || []).map((service) => typeof service === 'string' ? service : service?.name)
-        .map((name) => String(name || '').trim()).filter(Boolean))];
+    return (selected || []).map((service, index) => {
+        if (typeof service === 'string') {
+            return { id: `legacy_appointment_line_${index}`, serviceId: '', name: service.trim(), price: null, duration: '', custom: false };
+        }
+        return {
+            // `id` on a stored service can be its catalog id. It must never
+            // become the line id because repeated catalog services need
+            // independent controls.
+            id: String(service?.lineItemId || `legacy_appointment_line_${index}`),
+            serviceId: String(service?.serviceId || ''),
+            name: String(service?.name || service?.serviceName || '').trim(),
+            price: Number.isFinite(Number(service?.price)) ? Number(service.price) : null,
+            duration: service?.duration || '',
+            custom: service?.custom === true,
+        };
+    }).filter((line) => line.name || line.custom);
 }
 
 function renderForm(state, type) {
@@ -189,12 +203,19 @@ function renderForm(state, type) {
             time: pre.time || salonNow.time,
             label: [pre.date || salonNow.date, pre.time || salonNow.time].join(' · '),
         };
-        const selectedServiceNames = appointmentServiceNames(pre);
-        const selectedServices = selectedServiceNames.map((name) => services.find((service) => service.name === name)).filter(Boolean);
+        const selectedLineItems = appointmentLineItems(pre);
+        const selectedServices = selectedLineItems.map((line) => {
+            if (line.custom) return line;
+            const service = services.find((item) => item.id === line.serviceId) || services.find((item) => item.name === line.name);
+            return service ? { ...line, serviceId: service.id || '', name: service.name, price: service.price, duration: service.duration, custom: false } : line;
+        });
         const subtotal = selectedServices.reduce((sum, service) => sum + (Number(service.price) || 0), 0);
         // Disabled services can still appear on an existing booking (looked up
         // above from the full catalog) but are never offered for new picks.
-        const pickableServices = services.filter((s) => s.active !== false);
+        const pickableServices = [
+            ...services.filter((s) => s.active !== false),
+            { id: '__other_service__', name: 'Other Service', price: 0, duration: '', custom: true },
+        ];
         const statusOptions = [
             { value: 'Confirmed', label: 'Confirmed' },
             { value: 'In Progress', label: 'In Progress' },
@@ -205,14 +226,20 @@ function renderForm(state, type) {
             <form data-action="submit-appointment" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
                 ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
                 <div class="lg:col-span-2">${renderCustomerPicker(pre)}</div>
-                <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(selectedServiceNames))}">
-                ${formField('Select Service', selectControl('serviceName', pickableServices.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName }))}
+                <input type="hidden" name="selectedServices" value="${escAttr(JSON.stringify(selectedServices))}">
+                ${formField('Select Service', selectControl('serviceName', pickableServices.map((s) => ({ value: s.name, label: `${s.name} (₹${s.price})` })), 'Choose a service', { value: pre?.serviceName, dataAction: 'appointment-service-picker' }))}
                 <div class="flex items-end">
                     <button type="button" data-action="add-appointment-service" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-[0.98] touch-manipulation">Add selected service</button>
                 </div>
+                <div class="lg:col-span-2 ${pre?.serviceName === 'Other Service' ? '' : 'hidden'}" data-other-appointment-service>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        ${formField('Other Service Name / Description', textInput('otherServiceName', 'e.g. Hair Coloring', { required: false, value: pre?.otherServiceName || '' }))}
+                        ${formField('Other Service Amount (₹)', textInput('otherServiceAmount', '0', { type: 'number', required: false, className: 'input-number', value: pre?.otherServiceAmount || '', min: 0, step: '0.01' }))}
+                    </div>
+                </div>
                 <div class="lg:col-span-2 bg-slate-950/60 border border-slate-800/60 rounded-2xl p-3 space-y-2">
                     <div class="flex items-center justify-between"><p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Selected Services</p><span class="text-[10px] text-slate-500">${selectedServices.length}</span></div>
-                    ${selectedServices.length === 0 ? '<p class="text-[11px] text-slate-500">Add one or more services to this appointment.</p>' : selectedServices.map((service) => `<div class="flex items-center justify-between gap-2 text-xs"><div class="min-w-0"><p class="font-semibold text-slate-200 truncate">${esc(service.name)}</p><p class="text-[10px] text-slate-500">${esc(service.duration || '—')} • ${esc(formatCurrency(service.price))}</p></div><button type="button" data-action="remove-appointment-service" data-name="${escAttr(service.name)}" class="w-7 h-7 shrink-0 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>`).join('')}
+                    ${selectedServices.length === 0 ? '<p class="text-[11px] text-slate-500">Add one or more services to this appointment.</p>' : selectedServices.map((service) => `<div class="flex items-center justify-between gap-2 text-xs"><div class="min-w-0 space-y-1"><select data-action="edit-appointment-line-service" data-line-id="${escAttr(service.id)}" class="max-w-full bg-transparent text-xs font-semibold text-slate-200 focus:outline-none focus:text-brand-300"><option value="Other Service" ${service.custom ? 'selected' : ''}>Other Service</option>${pickableServices.filter((option) => !option.custom).map((option) => `<option value="${escAttr(option.name)}" ${!service.custom && option.name === service.name ? 'selected' : ''}>${esc(option.name)}</option>`).join('')}</select>${service.custom ? `<div class="flex gap-1.5"><input data-action="edit-appointment-custom-name" data-line-id="${escAttr(service.id)}" value="${escAttr(service.name)}" aria-label="Other service name" class="min-w-0 w-28 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-slate-100"><input data-action="edit-appointment-custom-amount" data-line-id="${escAttr(service.id)}" type="number" min="0" step="0.01" value="${escAttr(service.price)}" aria-label="Other service amount" class="w-20 bg-slate-800 border border-slate-700 rounded px-1.5 py-1 text-[10px] text-slate-100"></div>` : `<p class="text-[10px] text-slate-500">${esc(service.duration || '—')} • ${esc(formatCurrency(service.price))}</p>`}</div><button type="button" data-action="remove-appointment-service" data-line-id="${escAttr(service.id)}" class="w-7 h-7 shrink-0 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 flex items-center justify-center transition" aria-label="Remove ${escAttr(service.name)}"><i data-lucide="x" class="w-3.5 h-3.5"></i></button></div>`).join('')}
                     <div class="border-t border-slate-800 pt-2 flex items-center justify-between"><span class="text-[11px] font-semibold text-slate-300">Subtotal</span><span class="text-sm font-extrabold text-brand-300">${esc(formatCurrency(subtotal))}</span></div>
                     <div class="flex items-center justify-between text-[10px] text-slate-500"><span>Discount / credit</span><span>Applied at payment</span></div>
                     <div class="flex items-center justify-between text-[11px] font-bold text-slate-200"><span>Final total</span><span>${esc(formatCurrency(subtotal))}</span></div>
@@ -220,20 +247,6 @@ function renderForm(state, type) {
                 <div class="lg:col-span-2">${formField('Assigned Stylist', selectControl('staffName', staff.map((st) => ({ value: st.name, label: `${st.name} (${st.role})` })), 'Choose a stylist', { value: pre?.staffName }))}</div>
                 ${formField('Appointment Date', `<input type="date" name="date" required min="${escAttr(salonNow.date)}" value="${escAttr(appointmentStamp.date)}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
                 ${formField('Appointment Time', `<input type="time" name="time" required value="${escAttr(appointmentStamp.time)}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
-                <div class="lg:col-span-2">
-                    <div class="bg-slate-950/60 border border-slate-800/60 rounded-2xl px-3.5 py-3">
-                        <div class="flex items-center justify-between gap-3">
-                            <div>
-                                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Date & Time</p>
-                                <p class="text-xs font-semibold text-slate-200 mt-1 flex items-center gap-1.5">
-                                    <i data-lucide="clock" class="w-3.5 h-3.5 text-brand-400 shrink-0"></i>
-                                    <span>${esc(appointmentStamp.label)}</span>
-                                </p>
-                            </div>
-                            <p class="text-[10px] text-slate-500 text-right">${rec ? 'Edit scheduled date & time' : 'Select a future date & time'}</p>
-                        </div>
-                    </div>
-                </div>
                 ${rec ? `<div class="lg:col-span-2">${formField('Status', selectControl('status', statusOptions, '', { value: pre?.status || 'Confirmed' }))}</div>` : ''}
                 <button type="submit" disabled class="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-brand-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Confirm Booking'}</button>
             </form>
