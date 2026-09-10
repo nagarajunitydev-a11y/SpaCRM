@@ -18,7 +18,7 @@
  */
 
 import { getFirebase, isDemoMode } from './firebase.js';
-import { getInitialAuthToken } from '../config.js';
+import { getInitialAuthToken, resolveFirebaseConfig } from '../config.js';
 import { store } from '../core/store.js';
 import { makeId } from '../core/utils.js';
 import showNotification from '../ui/notification.js';
@@ -349,6 +349,24 @@ function actionCodeContinueUrl() {
 }
 
 /**
+ * Production continue URL for password-reset links, derived from the
+ * injected Firebase config's authDomain (the canonical production SPACRM
+ * host). Used only as a fallback when the current host is not whitelisted
+ * for action links. Only the host is ever used or logged — never keys.
+ */
+function productionContinueUrl() {
+    try {
+        const config = resolveFirebaseConfig();
+        if (config && typeof config.authDomain === 'string' && config.authDomain) {
+            return new URL(`https://${config.authDomain}/`).toString();
+        }
+    } catch {
+        // fall through to null
+    }
+    return null;
+}
+
+/**
  * Send the Firebase password-reset email for an address.
  *
  * The result deliberately never reveals whether the address is registered:
@@ -362,16 +380,43 @@ export async function sendPasswordResetEmail(email) {
         console.log('[AUTH] Password reset skipped: Firebase not initialized (demo mode).');
         return { ok: false, code: 'auth/unavailable', error: 'Password reset requires Firebase Authentication.' };
     }
+    const address = String(email || '').trim();
+    const settings = {
+        url: actionCodeContinueUrl(),
+        handleCodeInApp: true,
+    };
     try {
-        await fbSendPasswordResetEmail(fb.auth, email, {
-            url: actionCodeContinueUrl(),
-            handleCodeInApp: true,
-        });
+        await fbSendPasswordResetEmail(fb.auth, address, settings);
         return { ok: true };
     } catch (err) {
-        // Log the real reason for diagnostics but never leak it to the user.
-        console.warn('[AUTH] Password reset email send failed:', err.code || err.message);
-        return { ok: false, code: err.code || null };
+        const code = (err && err.code) || null;
+        // Safe diagnostics only: error code plus hosts, never the address,
+        // passwords, tokens or config secrets.
+        let host = null;
+        try { host = new URL(settings.url).host; } catch { host = null; }
+        console.warn('[AUTH] Password reset email send failed:', code || (err && err.message), host ? `(continue host: ${host})` : '');
+        // Firebase refuses to send when the continue-URL host is not
+        // whitelisted (local IPs, preview URLs) — no email goes out at all.
+        // Retry once against the production auth domain so the reset email is
+        // still delivered with a production SPACRM reset link.
+        if (code === 'auth/unauthorized-continue-uri') {
+            const fallback = productionContinueUrl();
+            if (fallback && fallback !== settings.url) {
+                try {
+                    await fbSendPasswordResetEmail(fb.auth, address, {
+                        url: fallback,
+                        handleCodeInApp: true,
+                    });
+                    console.log('[AUTH] Password reset sent via production continue URL.');
+                    return { ok: true };
+                } catch (retryErr) {
+                    const retryCode = (retryErr && retryErr.code) || null;
+                    console.warn('[AUTH] Production-URL reset retry failed:', retryCode || (retryErr && retryErr.message));
+                    return { ok: false, code: retryCode };
+                }
+            }
+        }
+        return { ok: false, code };
     }
 }
 

@@ -33,8 +33,8 @@ export function appHeader(state, { onLogoutLabel } = {}) {
 
     const salonSelector = isOwner && (state.salonsList || []).length > 0
         ? `
-            <div class="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-2.5 py-1 text-[11px] text-slate-300 max-w-[46vw]">
-                <i data-lucide="store" class="w-3 h-3 text-brand-500 mr-1.5 shrink-0"></i>
+            <div class="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 max-w-[46vw]">
+                <i data-lucide="store" class="w-4 h-4 text-brand-500 mr-1.5 shrink-0"></i>
                 <select data-action="salon" class="bg-transparent font-medium text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 text-ellipsis" aria-label="Select salon">
                     ${(state.salonsList || []).map((s) => `
                         <option value="${escAttr(s.id)}" ${s.id === state.currentSalonId ? 'selected' : ''} class="bg-slate-900">${esc(s.name)}</option>
@@ -56,12 +56,12 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             <div class="flex items-center space-x-2 shrink-0">
                 ${salonSelector}
                 ${isOwner ? `
-                <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours" class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation">
-                    <i data-lucide="circle-help" class="w-4 h-4"></i>
+                <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation">
+                    <i data-lucide="circle-help" class="w-5 h-5"></i>
                 </button>
                 ` : ''}
-                <button data-action="logout" aria-label="Logout" title="Logout" class="w-9 h-9 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 flex items-center justify-center transition active:scale-95 touch-manipulation">
-                    <i data-lucide="log-out" class="w-4 h-4"></i>
+                <button data-action="logout" aria-label="Logout" title="Logout" class="w-10 h-10 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 text-rose-400 flex items-center justify-center transition active:scale-95 touch-manipulation">
+                    <i data-lucide="log-out" class="w-5 h-5"></i>
                 </button>
             </div>
         </header>
@@ -126,7 +126,7 @@ export function desktopSidebar(state) {
           ];
 
     return `
-        <nav data-nav="sidebar" class="hidden lg:flex flex-col w-[16rem] shrink-0 bg-slate-950 border-r border-slate-800/50 h-full overflow-y-auto no-scrollbar" aria-label="Sidebar navigation">
+        <nav data-nav="sidebar" class="hidden lg:flex flex-col w-[17rem] shrink-0 bg-slate-950 border-r border-slate-800/50 h-full overflow-y-auto no-scrollbar" aria-label="Sidebar navigation">
             <div class="p-5 pb-6 border-b border-slate-800/50">
                 <div class="flex items-center space-x-3">
                     ${logoMark('w-11 h-11', 'w-9 h-9')}
@@ -147,11 +147,11 @@ export function desktopSidebar(state) {
                 ` : ''}
             </div>
 
-            <div class="flex-1 p-3 space-y-1">
+            <div class="flex-1 p-4 space-y-1.5">
                 ${isOwner ? `
                     <button data-action="tab" data-tab="quickBilling"
-                        class="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[13px] font-bold transition touch-manipulation active:scale-95 hover:bg-emerald-500/25 mb-1">
-                        <i data-lucide="zap" class="w-[18px] h-[18px] shrink-0"></i>
+                        class="w-full flex items-center justify-center gap-2 px-4 py-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-sm font-bold transition touch-manipulation active:scale-95 hover:bg-emerald-500/25 mb-1">
+                        <i data-lucide="zap" class="w-5 h-5 shrink-0"></i>
                         <span>Quick Billing / Walk-in</span>
                     </button>
                 ` : ''}
@@ -162,25 +162,25 @@ export function desktopSidebar(state) {
                         : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent';
                     return `
                         <button data-action="tab" data-tab="${escAttr(item.tab)}" aria-current="${active ? 'page' : 'false'}"
-                            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition touch-manipulation ${escAttr(cls)}">
-                            <i data-lucide="${escAttr(item.icon)}" class="w-[18px] h-[18px] shrink-0"></i>
+                            class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition touch-manipulation ${escAttr(cls)}">
+                            <i data-lucide="${escAttr(item.icon)}" class="w-5 h-5 shrink-0"></i>
                             <span>${esc(item.label)}</span>
                         </button>
                     `;
                 }).join('')}
             </div>
 
-            <div class="p-3 border-t border-slate-800/50 space-y-1">
+            <div class="p-4 border-t border-slate-800/50 space-y-1.5">
                 ${isOwner ? `
                     <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours"
-                        class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent transition touch-manipulation">
-                        <i data-lucide="circle-help" class="w-[18px] h-[18px] shrink-0"></i>
+                        class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 border border-transparent transition touch-manipulation">
+                        <i data-lucide="circle-help" class="w-5 h-5 shrink-0"></i>
                         <span>Help & Tours</span>
                     </button>
                 ` : ''}
                 <button data-action="logout" aria-label="Logout" title="Logout"
-                    class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent transition touch-manipulation">
-                    <i data-lucide="log-out" class="w-[18px] h-[18px] shrink-0"></i>
+                    class="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 border border-transparent transition touch-manipulation">
+                    <i data-lucide="log-out" class="w-5 h-5 shrink-0"></i>
                     <span>Sign Out</span>
                 </button>
             </div>
@@ -204,9 +204,9 @@ export function quickAction(key, label, iconName, accent = 'text-brand-400 bg-br
         ? `data-action="tab" data-tab="${escAttr(key)}"`
         : `data-action="modal" data-modal="${escAttr(key)}"`;
     return `
-        <button ${navAttr} class="flex flex-col items-center justify-center p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl transition text-center group active:scale-95 touch-manipulation" aria-label="${escAttr(label)}">
-            <div class="w-10 h-10 rounded-xl ${escAttr(accent)} flex items-center justify-center mb-1.5 group-hover:scale-105 transition"><i data-lucide="${escAttr(iconName)}" class="w-5 h-5"></i></div>
-            <span class="text-[10px] font-semibold text-slate-300">${esc(label)}</span>
+        <button ${navAttr} class="flex flex-col items-center justify-center p-4 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-2xl transition text-center group active:scale-95 touch-manipulation" aria-label="${escAttr(label)}">
+            <div class="w-12 h-12 rounded-xl ${escAttr(accent)} flex items-center justify-center mb-1.5 group-hover:scale-105 transition"><i data-lucide="${escAttr(iconName)}" class="w-6 h-6"></i></div>
+            <span class="text-[11px] font-semibold text-slate-300">${esc(label)}</span>
         </button>
     `;
 }
@@ -217,13 +217,13 @@ export function actionButton(label, { action, data = {}, kind = 'primary', iconN
         .map(([k, v]) => `data-${escAttr(k)}="${escAttr(v)}"`)
         .join(' ');
     const cls = kind === 'ghost'
-        ? 'px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-xl transition'
+        ? 'px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-[13px] font-semibold rounded-xl transition'
         : kind === 'indigo'
-            ? 'px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition'
-            : 'px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl shadow-lg shadow-brand-600/30 transition';
-    const iconHtml = iconName ? `<i data-lucide="${escAttr(iconName)}" class="w-3.5 h-3.5"></i>` : '';
+            ? 'px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-[13px] font-semibold rounded-xl shadow-lg shadow-indigo-600/30 transition'
+            : 'px-4 py-2.5 bg-brand-600 hover:bg-brand-500 text-white text-[13px] font-semibold rounded-xl shadow-lg shadow-brand-600/30 transition';
+    const iconHtml = iconName ? `<i data-lucide="${escAttr(iconName)}" class="w-4 h-4"></i>` : '';
     return `
-        <button data-action="${escAttr(action)}" ${dataAttrs} class="${escAttr(cls)} flex items-center space-x-1.5 active:scale-95 touch-manipulation ${escAttr(className)}">
+        <button data-action="${escAttr(action)}" ${dataAttrs} class="${escAttr(cls)} min-h-[2.5rem] inline-flex items-center justify-center gap-2 active:scale-95 touch-manipulation ${escAttr(className)}">
             ${iconHtml}${iconHtml ? '<span>' + esc(label) + '</span>' : esc(label)}
         </button>
     `;
@@ -233,8 +233,8 @@ export function actionButton(label, { action, data = {}, kind = 'primary', iconN
 export function infoIcon(sectionId, label = 'About this section') {
     return `
         <button type="button" data-action="section-info" data-section="${escAttr(sectionId)}" aria-label="${escAttr(label)}" title="${escAttr(label)}"
-            class="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation shrink-0">
-            <i data-lucide="info" class="w-3.5 h-3.5"></i>
+            class="w-9 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation shrink-0">
+            <i data-lucide="info" class="w-4 h-4"></i>
         </button>
     `;
 }
@@ -267,7 +267,7 @@ export function networkBanner(state) {
     if (state.network) return '';
     return `
         <div class="bg-amber-500/15 border-b border-amber-500/20 px-4 py-2 text-[10px] font-semibold text-amber-400 flex items-center space-x-2">
-            <i data-lucide="wifi-off" class="w-3.5 h-3.5 shrink-0"></i>
+            <i data-lucide="wifi-off" class="w-4 h-4 shrink-0"></i>
             <span>Offline — showing saved data. Changes will sync when you reconnect.</span>
         </div>
     `;
@@ -371,8 +371,8 @@ export function iconAction(action, data, label, iconName, cls = 'bg-slate-800 ho
         .join(' ');
     return `
         <button data-action="${escAttr(action)}" ${dataAttrs} aria-label="${escAttr(label)}" title="${escAttr(label)}"
-            class="w-8 h-8 rounded-xl ${escAttr(cls)} flex items-center justify-center transition active:scale-95 touch-manipulation">
-            <i data-lucide="${escAttr(iconName)}" class="w-3.5 h-3.5"></i>
+            class="w-9 h-9 rounded-xl ${escAttr(cls)} flex items-center justify-center transition active:scale-95 touch-manipulation">
+            <i data-lucide="${escAttr(iconName)}" class="w-4 h-4"></i>
         </button>
     `;
 }

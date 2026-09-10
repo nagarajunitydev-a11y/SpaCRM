@@ -278,3 +278,323 @@ button,
         max-width: 100rem;
     }
 }
+
+/* ================================================================
+   GLOBAL ICON & BUTTON SIZING SYSTEM — desktop (>= 1024px only)
+   ----------------------------------------------------------------
+   Audit baseline (mobile-first base, < 1024px — intentionally
+   untouched by every rule below):
+     • default icons .......... 16px (w-4 h-4 via js/ui/icons.js)
+     • meta / inline icons .... 12px (w-3) / 14px (w-3.5)
+     • sidebar nav icons ...... 18px, labels 13px, rows ~41px tall
+     • header icon buttons .... 36px box, 16px icon
+     • table / card actions ... 32px box, 14px icon (iconAction)
+     • text action buttons .... ~32px tall, 12px text (actionButton)
+     • tab pills / chips ...... ~33px tall, 11px text, 14px icon
+     • quick-action tiles ..... 40-48px tile, 20-24px icon, 10-11px label
+     • modal close ............ 32px box, 16px icon
+     • submit buttons ......... ~48px tall, 12px text (height already ok)
+   Desktop comfort scale applied below (all modules — Dashboard,
+   Customers, Staff, Appointments, Services, Billing, Expenses,
+   Reports, Settings — via shared selectors, no one-off styles):
+     • meta icons 16px / inline & button icons 18px
+     • nav / header / dropdown icons 20px / feature icons 24px
+     • icon-only buttons 40px (header 44px), text buttons 40px min-height,
+       primary submit buttons 48px min-height.
+   Unlayered author CSS wins over Tailwind's layered utilities, so no
+   !important is needed; pre-lucide <i> and rendered <svg> are both
+   covered (lucide copies classes onto the svg).
+   ================================================================ */
+@media (min-width: 1024px) {
+    :root {
+        --icon-meta: 1rem; /* 16px — badges, timestamps, meta rows */
+        --icon-inline: 1.125rem; /* 18px — search, inline & button icons */
+        --icon-button: 1.25rem; /* 20px — header, nav & dropdown icons */
+        --icon-feature: 1.5rem; /* 24px — quick-action & feature tiles */
+        --btn-icon: 2.5rem; /* 40px — icon-only touch target */
+        --btn-min-h: 2.5rem; /* 40px — text-button touch target */
+    }
+
+    /* --- 1. Tiny meta icons: 12px (w-3) → 16px -------------------- */
+    .desktop-container svg.lucide.w-3,
+    .desktop-container i[data-lucide].w-3 {
+        width: var(--icon-meta);
+        height: var(--icon-meta);
+    }
+
+    /* --- 2. Small icons: 14px (w-3.5) → 16px ---------------------- */
+    .desktop-container svg.lucide.w-3\.5,
+    .desktop-container i[data-lucide].w-3\.5 {
+        width: var(--icon-meta);
+        height: var(--icon-meta);
+    }
+
+    /* --- 3. Standard icons: 16px (w-4) → 18px --------------------- */
+    .desktop-container svg.lucide.w-4,
+    .desktop-container i[data-lucide].w-4 {
+        width: var(--icon-inline);
+        height: var(--icon-inline);
+    }
+
+    /* --- 4. Sidebar navigation: 20px icons, 44px rows, 14px labels - */
+    .desktop-container [data-nav='sidebar'] button {
+        min-height: 2.75rem;
+        font-size: 0.875rem;
+    }
+    .desktop-container [data-nav='sidebar'] button svg.lucide,
+    .desktop-container [data-nav='sidebar'] button i[data-lucide] {
+        width: var(--icon-button);
+        height: var(--icon-button);
+    }
+    .desktop-container [data-nav='sidebar'] button[data-tab='quickBilling'] {
+        min-height: 3rem;
+    }
+    .desktop-container [data-nav='sidebar'] select[data-action='salon'] {
+        min-height: 2.5rem;
+        font-size: 0.75rem;
+    }
+
+    /* --- 5. App header: 44px buttons, 20px icons, balanced type --- */
+    .desktop-container header button[data-action='open-help-menu'],
+    .desktop-container header button[data-action='logout'] {
+        width: 2.75rem;
+        height: 2.75rem;
+    }
+    .desktop-container header button svg.lucide,
+    .desktop-container header button i[data-lucide] {
+        width: var(--icon-button);
+        height: var(--icon-button);
+    }
+    .desktop-container header select[data-action='salon'] {
+        min-height: var(--btn-icon);
+        font-size: 0.75rem;
+    }
+    .desktop-container header h1 {
+        font-size: 0.875rem;
+    }
+
+    /* --- 6. Section-header action buttons: 40px tall, 13-14px ----- */
+    .desktop-container main button[data-action='modal']:not(.flex-col),
+    .desktop-container main button[data-action='role'],
+    .desktop-container main button[data-action='manage-salon'],
+    .desktop-container main button[data-action='tab']:not(.flex-col):not(.w-9) {
+        min-height: var(--btn-min-h);
+        padding: 0.625rem 1rem;
+        font-size: 0.8125rem;
+    }
+    .desktop-container main button[data-action='section-info'] {
+        width: var(--btn-icon);
+        height: var(--btn-icon);
+    }
+    .desktop-container main button[data-action='section-info'] svg.lucide,
+    .desktop-container main button[data-action='section-info'] i[data-lucide] {
+        width: var(--icon-inline);
+        height: var(--icon-inline);
+    }
+
+    /* --- 7. Table / card row actions: 40px targets, 18px icons --- */
+    .desktop-container main button[data-action='open-edit'],
+    .desktop-container main button[data-action='request-delete'],
+    .desktop-container main button[data-action='open-payment'],
+    .desktop-container main button[data-action='customer-profile'],
+    .desktop-container main button[data-action='toggle-service-active'] {
+        min-width: var(--btn-icon);
+        min-height: var(--btn-icon);
+        font-size: 0.8125rem;
+    }
+    .desktop-container main button[data-action='refund-invoice'] {
+        min-height: 3rem;
+        font-size: 0.875rem;
+    }
+    .desktop-container main button[data-action='wallet-use-max'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='wallet-use-max'] {
+        min-height: 2.25rem;
+        padding: 0.375rem 0.875rem;
+        font-size: 0.75rem;
+    }
+    .desktop-container main button[data-action='tab'].w-9,
+    .desktop-container main button[data-action='attendance-day-prev'],
+    .desktop-container main button[data-action='attendance-day-next'] {
+        width: var(--btn-icon);
+        height: var(--btn-icon);
+    }
+    .desktop-container main button[data-action='attendance-mark'] {
+        min-height: var(--btn-min-h);
+        padding: 0.625rem 1rem;
+        font-size: 0.8125rem;
+    }
+    .desktop-container main button[data-action='attendance-day-today'] {
+        min-height: var(--btn-icon);
+        padding-left: 1rem;
+        padding-right: 1rem;
+        font-size: 0.75rem;
+    }
+
+    /* --- 8. Quick status pills (Start / Complete): 32px, 12px ----- */
+    .desktop-container main button[data-action='update-appointment-status'] {
+        min-height: 2rem;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    /* --- 9. Tab pills & filter chips: 40px / 38px ----------------- */
+    .desktop-container main button[data-action='dashboard-tab'],
+    .desktop-container main button[data-action='staff-tab'],
+    .desktop-container main button[data-action='referral-tab'] {
+        min-height: var(--btn-min-h);
+        font-size: 0.75rem;
+    }
+    .desktop-container main button[data-action='referral-filter'] {
+        min-height: 2.375rem;
+        padding: 0.5rem 1rem;
+        font-size: 0.75rem;
+    }
+    .desktop-container main button[data-action='clear-appointment-filters'] {
+        min-height: 2rem;
+        font-size: 0.75rem;
+    }
+
+    /* --- 10. Dashboard quick-action tiles: 56px art, 24px icons --- */
+    .desktop-container main button.flex-col {
+        padding: 1rem 0.5rem;
+    }
+    .desktop-container main button.flex-col > div {
+        width: 3.5rem;
+        height: 3.5rem;
+    }
+    .desktop-container main button.flex-col > div svg.lucide,
+    .desktop-container main button.flex-col > div i[data-lucide] {
+        width: var(--icon-feature);
+        height: var(--icon-feature);
+    }
+    .desktop-container main button.flex-col > span {
+        font-size: 0.75rem;
+    }
+
+    /* --- 11. Filter bars, search & dropdown controls: 40-44px ----- */
+    .desktop-container main input[data-action='appointment-search'],
+    .desktop-container main select[data-action='appointment-filter'],
+    .desktop-container main input[data-action='customer-search-list'],
+    .desktop-container main input[data-action='service-search-list'],
+    .desktop-container main input[data-action='referral-search'],
+    .desktop-container main input[data-action='quick-billing-service-search'],
+    .desktop-container main input[data-action='attendance-month'],
+    .desktop-container main select[data-action='attendance-staff-filter'] {
+        min-height: 2.75rem;
+        font-size: 0.8125rem;
+    }
+    .desktop-container main input[data-action='attendance-date'] {
+        min-height: 2.75rem;
+        font-size: 0.8125rem;
+    }
+    .desktop-container main button[data-action='clear-customer-search'],
+    .desktop-container main button[data-action='clear-service-search'] {
+        width: 1.75rem;
+        height: 1.75rem;
+    }
+
+    /* --- 12. Dropdown / suggestion rows: 52px, 20px icons --------- */
+    .desktop-container main button[data-action='quick-billing-select-customer'],
+    .desktop-container main button[data-action='quick-billing-add-service'] {
+        min-height: 3.25rem;
+        padding: 0.75rem 1rem;
+    }
+    .desktop-container main button[data-action='quick-billing-select-customer'] svg.lucide,
+    .desktop-container main button[data-action='quick-billing-select-customer'] i[data-lucide],
+    .desktop-container main button[data-action='quick-billing-add-service'] svg.lucide,
+    .desktop-container main button[data-action='quick-billing-add-service'] i[data-lucide] {
+        width: var(--icon-button);
+        height: var(--icon-button);
+    }
+
+    /* --- 12b. Inline line-item remove buttons: 28px → 40px squares --- */
+    .desktop-container main button[data-action='quick-billing-remove-service'] {
+        width: var(--btn-icon);
+        height: var(--btn-icon);
+    }
+
+    /* --- 13. Attendance badges & report table: roomier type -------- */
+    .desktop-container main span[data-status] > span:last-child {
+        font-size: 0.6875rem;
+    }
+    .desktop-container main table th {
+        padding: 0.75rem;
+        font-size: 0.625rem;
+    }
+    .desktop-container main table td {
+        padding: 0.75rem;
+        font-size: 0.8125rem;
+    }
+
+    /* --- 14. Primary submit buttons: 48px, 14px -------------------- */
+    .desktop-container main button[type='submit'] {
+        min-height: 3rem;
+        font-size: 0.875rem;
+    }
+
+    /* --- 15. Modal sheets (rendered outside .desktop-container) ---- */
+    .app-shell [data-action='modal-backdrop'] button {
+        min-height: var(--btn-min-h);
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='remove-appointment-service'] {
+        width: var(--btn-icon);
+        height: var(--btn-icon);
+        min-height: var(--btn-icon);
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='close-modal'].rounded-full {
+        width: var(--btn-icon);
+        height: var(--btn-icon);
+        min-height: var(--btn-icon);
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='close-modal'].rounded-full svg.lucide,
+    .app-shell [data-action='modal-backdrop'] button[data-action='close-modal'].rounded-full i[data-lucide] {
+        width: var(--icon-button);
+        height: var(--icon-button);
+    }
+    .app-shell [data-action='modal-backdrop'] button[type='submit'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='confirm-delete'] {
+        min-height: 3rem;
+        font-size: 0.875rem;
+    }
+    .app-shell [data-action='modal-backdrop'] input:not([type='checkbox']):not([type='radio']),
+    .app-shell [data-action='modal-backdrop'] select {
+        min-height: 2.75rem;
+        font-size: 0.8125rem;
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='add-appointment-service'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='pick-customer'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='quick-add-customer'] {
+        min-height: 3rem;
+        font-size: 0.8125rem;
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='redeem-referral-balance'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='redeem-referral-balance-on-appointment'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='redeem-reward'] {
+        min-height: 2.75rem;
+        font-size: 0.8125rem;
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='replay-tutorial'] {
+        min-height: 3.25rem;
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='copy-booking-link'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='toggle-booking-qr'],
+    .app-shell [data-action='modal-backdrop'] div.grid a {
+        min-height: 2.75rem;
+        font-size: 0.75rem;
+    }
+    .app-shell [data-action='modal-backdrop'] button[data-action='copy-referral-code'],
+    .app-shell [data-action='modal-backdrop'] button[data-action='generate-referral-code'] {
+        min-height: var(--btn-min-h);
+        padding: 0.625rem 1rem;
+        font-size: 0.75rem;
+    }
+
+    /* --- 16. Body-level dialogs (tour, info, exit — outside #app) -- */
+    body > div[role='dialog'] button {
+        min-height: var(--btn-min-h);
+    }
+    body > div[role='dialog'] button[data-tutorial-action='skip']:has(svg.lucide:only-child),
+    body > div[role='dialog'] button[data-tutorial-action='skip']:has(i[data-lucide]:only-child) {
+        min-width: var(--btn-icon);
+    }
+}

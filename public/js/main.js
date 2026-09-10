@@ -1232,10 +1232,24 @@ const actions = {
 
     async 'forgot-password'(form) {
         const { email } = readFormData(form);
-        await authService.sendPasswordResetEmail(email);
-        // Always show the same confirmation — sendPasswordResetEmail() never
-        // reports whether the address is actually registered.
-        store.setState({ forgotSent: true });
+        const result = await authService.sendPasswordResetEmail(email);
+        // Generic confirmation on success — and when enumeration protection
+        // is off and the address is unknown — so the UI never reveals
+        // whether an account exists for the email.
+        if (result.ok || result.code === 'auth/user-not-found') {
+            store.setState({ forgotSent: true });
+            return;
+        }
+        // Actionable failures only: none of these disclose account existence.
+        const actionable = {
+            'auth/invalid-email': 'Enter a valid email address.',
+            'auth/missing-email': 'Enter your email address.',
+            'auth/too-many-requests': 'Too many attempts. Please wait a few minutes and try again.',
+            'auth/network-request-failed': 'Network error. Check your connection and try again.',
+            'auth/unauthorized-continue-uri': 'This site is not authorized to send reset links. Please use the production site or contact support.',
+            'auth/unavailable': 'Password reset requires Firebase Authentication.',
+        };
+        showNotification(actionable[result.code] || 'Could not send the reset email. Please try again.', 'error');
     },
 
     async 'reset-password'(form) {
@@ -1587,7 +1601,15 @@ const actions = {
             lineItems.push({ id: makeId('appointment_line'), serviceId: service.id || '', name: service.name, price: service.price, duration: service.duration || '', custom: false });
         }
         selected.value = JSON.stringify(lineItems);
+        // Reset before saving the editor draft. The subsequent modal render
+        // therefore starts with an empty picker while preserving the hidden
+        // line-item list above.
         picker.value = '';
+        picker.selectedIndex = 0;
+        const otherName = form.querySelector('[name="otherServiceName"]');
+        const otherAmount = form.querySelector('[name="otherServiceAmount"]');
+        if (otherName) otherName.value = '';
+        if (otherAmount) otherAmount.value = '';
         const other = form.querySelector('[data-other-appointment-service]');
         if (other) other.classList.add('hidden');
         saveDraft('appointment', readFormData(form));
