@@ -222,13 +222,14 @@ async function main() {
         const stf = f.querySelector('[name="staffName"]');
         svc.selectedIndex = 1;
         stf.selectedIndex = 1;
+        f.querySelector('[name="time"]').value = '10:00';
         return svc.value && stf.value;
     })()`);
     await submitForm('form[data-action="submit-appointment"]');
     await new Promise((r) => setTimeout(r, 200));
     assert(await evaluate(`document.body.innerText.includes('Jessica Alba')`), 'appointment booked');
 
-    console.log('\n[5b] Appointment validation & auto date/time');
+    console.log('\n[5b] Appointment validation & selected date/time');
     await click(`[data-action="tab"][data-tab="appointments"]`);
     await new Promise((r) => setTimeout(r, 150));
     await click(`[data-action="modal"][data-modal="appointment"]`);
@@ -236,19 +237,12 @@ async function main() {
     // Remove any lingering success toast from the earlier booking step.
     await evaluate(`document.getElementById('toast-notification')?.remove()`);
 
-    // Date & time are never picked any more: the form carries hidden inputs
-    // auto-stamped with the salon's current date/time and no visible pickers.
-    const stampOk = await evaluate(`(async () => {
-        const { currentSalonDateTime } = await import('/js/core/utils.js');
-        const now = currentSalonDateTime({ timezone: 'Asia/Kolkata' });
+    // Normal appointments expose independent date and time controls.
+    assert(await evaluate(`(() => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
-        const date = f.querySelector('[name="date"]');
-        const time = f.querySelector('[name="time"]');
-        return date && time
-            && date.value === now.date && time.value === now.time
-            && f.querySelectorAll('input[type="date"], input[type="time"]').length === 0;
-    })()`);
-    assert(stampOk, 'appointment form auto-stamps salon date/time (no pickers)');
+        return f.querySelector('input[type="date"][name="date"]') !== null
+            && f.querySelector('input[type="time"][name="time"]') !== null;
+    })()`), 'normal appointment has date and time pickers');
 
     // Fresh empty form -> Save button is disabled (cannot be saved).
     assert(await evaluate(`document.querySelector('form[data-action="submit-appointment"] button[type="submit"]').disabled === true`), 'submit disabled when form empty');
@@ -279,6 +273,7 @@ async function main() {
     await evaluate(`(() => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
         f.querySelector('[name="customerName"]').value = 'Validation Test Client';
+        f.querySelector('[name="time"]').value = '12:00';
         f.querySelector('[name="serviceName"]').selectedIndex = 1;
         f.querySelector('[name="staffName"]').selectedIndex = 1;
         // Simulate typing so the live validator enables the button.
@@ -288,7 +283,7 @@ async function main() {
     assert(await evaluate(`document.querySelector('form[data-action="submit-appointment"] button[type="submit"]').disabled === false`), 'submit enabled when form valid');
     await submitForm('form[data-action="submit-appointment"]');
     await waitFor(`document.body.innerText.includes('Validation Test Client')`);
-    assert(true, 'valid appointment saved (auto date/time)');
+    assert(true, 'valid appointment saved with selected time');
 
     console.log('\n[7] Logout + Super Admin');
     await click('[data-action="logout"]');

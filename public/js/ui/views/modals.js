@@ -18,13 +18,18 @@ import { sanitizeSettings, round2, num } from '../../core/referral.js';
 import renderPaymentForm from './payment.js';
 import renderCustomerProfile from './customerProfile.js';
 import renderBookingLinkModal from './bookingLink.js';
+import { renderReceipt, lockedFeatureView } from './subscription.js';
+import { renderPlanEditor } from './adminSubscriptions.js';
+
+/** Modals that belong to a plan feature; locked plans see an upgrade prompt instead. */
+const MODAL_FEATURES = { 'booking-link': 'onlineBooking', rewards: 'loyalty' };
 
 const TITLES = {
     customer: 'Add New Client',
     service: 'Add New Service',
     staff: 'Register Staff',
     appointment: 'Book Appointment',
-    salon: 'Provision New Salon',
+    salon: 'Add Branch',
     rewards: 'Client Rewards',
     payment: 'Collect Payment',
     'customer-profile': 'Client Profile',
@@ -33,6 +38,8 @@ const TITLES = {
     'confirm-delete': 'Confirm Deletion',
     'service-catalogue': 'Import From Catalogue',
     attendance: 'Mark Attendance',
+    receipt: 'Payment Receipt',
+    'plan-editor': 'Edit Plan',
     'help-menu': 'Help & Guided Tours',
 };
 
@@ -41,7 +48,7 @@ const EDIT_TITLES = {
     service: 'Edit Service',
     staff: 'Edit Staff Details',
     appointment: 'Edit Appointment',
-    salon: 'Edit Salon',
+    salon: 'Edit Branch',
     attendance: 'Edit Attendance',
 };
 
@@ -69,7 +76,7 @@ export function renderModalSheet(state) {
 function editingRecord(state, type) {
     const id = state.modalRecord && state.modalRecord.id;
     if (!id) return null;
-    const key = { customer: 'customersList', service: 'servicesList', staff: 'staffList', appointment: 'appointmentsList', attendance: 'attendanceList' }[type];
+    const key = { customer: 'customersList', service: 'servicesList', staff: 'staffList', appointment: 'appointmentsList', attendance: 'attendanceList', salon: 'salonsList' }[type];
     return (key && (state[key] || []).find((r) => r.id === id)) || null;
 }
 
@@ -105,6 +112,15 @@ function renderForm(state, type) {
 
     if (type === 'help-menu') {
         return renderHelpMenu();
+    }
+
+    if (type === 'receipt') return renderReceipt(state);
+    if (type === 'plan-editor') return renderPlanEditor(state);
+
+    // Plan-gated modals show an upgrade prompt instead of the feature.
+    const gatedFeature = MODAL_FEATURES[type];
+    if (gatedFeature && state.access && !state.access.can(gatedFeature)) {
+        return lockedFeatureView(state, gatedFeature);
     }
 
     if (type === 'rewards') {
@@ -257,13 +273,15 @@ function renderForm(state, type) {
     return `
         <form data-action="submit-salon" class="space-y-3.5 lg:grid lg:grid-cols-2 lg:gap-3.5 lg:space-y-0" novalidate>
             ${rec ? `<input type="hidden" name="id" value="${escAttr(rec.id)}">` : ''}
-            <div class="lg:col-span-2">${formField('Salon Branch Name', textInput('name', 'Luxe Glow SoHo', { value: rec?.name }))}</div>
-            ${formField('Owner Email', textInput('email', 'owner@sohostudio.com', { type: 'email', autocomplete: 'email', value: rec?.ownerEmail ?? rec?.email }))}
+            <div class="lg:col-span-2">${formField('Branch Name', textInput('name', 'Luxe Glow SoHo', { value: rec?.name }))}</div>
+            ${formField('Owner Email', textInput('email', 'owner@sohostudio.com', { type: 'email', autocomplete: 'email', value: rec?.ownerEmail ?? rec?.email ?? state.currentUser?.email ?? (state.salonsList || [])[0]?.ownerEmail }))}
             ${formField('Phone', phoneInput('phone', { value: rec?.phone }), 'Enter exactly 10 digits — e.g. 98765 43210.')}
             <div></div>
+            ${formField('Opening Time', `<input type="time" name="openTime" required value="${escAttr(rec?.openTime || '10:00')}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
+            ${formField('Closing Time', `<input type="time" name="closeTime" required value="${escAttr(rec?.closeTime || '19:00')}" class="w-full bg-slate-950 border border-slate-800 px-4 py-3 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">`)}
             <div class="lg:col-span-2">${formField('Location Address', textInput('address', '78 Mercer St, New York', { value: rec?.address }))}</div>
             <div class="lg:col-span-2">${formField('Timezone', selectControl('timezone', TIMEZONE_OPTIONS.map((t) => ({ value: t.value, label: t.label })), '', { value: rec?.timezone || 'Asia/Kolkata' }))}</div>
-            <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Provision Branch'}</button>
+            <button type="submit" disabled class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition mt-2 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed disabled:pointer-events-none lg:col-span-2 lg:mt-1">${rec ? 'Save Changes' : 'Add Branch'}</button>
         </form>
     `;
 }

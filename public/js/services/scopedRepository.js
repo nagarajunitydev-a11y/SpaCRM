@@ -36,6 +36,25 @@ function assertValidAdd(collectionName, payload, opts = {}) {
     }
 }
 
+/**
+ * Subscription gate (core/featureAccess.js via `state.access`). An expired or
+ * suspended plan is read-only — nothing is ever deleted — and customers /
+ * staff are capped by the plan. Absent in demo mode (access is unrestricted).
+ */
+const LIMITED_KINDS = { customers: 'customer', staff: 'staff' };
+function assertSubscriptionAllows(collectionName, { creating }) {
+    const access = store.getState().access;
+    if (!access || access.unrestricted) return;
+    if (access.locked) {
+        throw new Error('Your subscription has expired — your data is safe and view-only. Upgrade to continue.');
+    }
+    const kind = LIMITED_KINDS[collectionName];
+    if (creating && kind) {
+        const gate = access.canCreate(kind);
+        if (!gate.ok) throw new Error(gate.reason);
+    }
+}
+
 export function createScopedRepository({ stateKey, collectionName, seed }) {
     let unsub = null;
     let salonId = null;
@@ -147,6 +166,7 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
     }
 
     async function add(payload, opts = {}) {
+        assertSubscriptionAllows(collectionName, { creating: true });
         // Reject invalid data before touching local state, store or Firestore.
         assertValidAdd(collectionName, payload, opts);
         if (!salonId) {
@@ -174,6 +194,7 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
     }
 
     async function update(id, patch) {
+        assertSubscriptionAllows(collectionName, { creating: false });
         if (isDemoMode()) {
             setData(data().map((row) => (row.id === id ? { ...row, ...patch } : row)));
             return { id, ...patch };
@@ -183,6 +204,7 @@ export function createScopedRepository({ stateKey, collectionName, seed }) {
     }
 
     async function remove(id) {
+        assertSubscriptionAllows(collectionName, { creating: false });
         if (isDemoMode()) {
             setData(data().filter((row) => row.id !== id));
             return { id };

@@ -1,0 +1,520 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- Helpers ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getRole(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid))
+        && get(/databases/$(database)/documents/users/$(uid)).data.role == 'super_admin';
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getRole(request.auth.uid);
+    }
+
+    function ownsSalon(salonId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/salons/$(salonId)).data.ownerId == request.auth.uid;
+    }
+
+    function canAccessSalon(salonId) {
+      return isAdmin() || ownsSalon(salonId);
+    }
+
+    // True once the salon owner has explicitly turned public online booking
+    // on. This is the single gate every anonymous write in this file checks —
+    // with it off, none of the public-booking rules below grant anything.
+    function isPublicBookingEnabled(salonId) {
+      return exists(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config)
+        && get(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config).data.enabled == true;
+    }
+
+    // ---------- Server/database-level validation ----------
+
+    function isNonEmptyString(v, max) {
+      return v is string && v.size() > 0 && v.size() <= (max == null ? 200 : max);
+    }
+
+    function isOptionalString(v, max) {
+      return v is string && v.size() <= (max == null ? 200 : max);
+    }
+
+    function isOptionalOrNull(v, max) {
+      return v == null || (v is string && v.size() <= (max == null ? 200 : max));
+    }
+
+    // Reading a key that is ABSENT from a document map raises an evaluation
+    // error in Security Rules, which denies the request — `data.x == null`
+    // only ever guards an explicitly-stored null, never a missing key. On an
+    // `update`, `request.resource.data` is the MERGED document, so any record
+    // written before a field existed (e.g. clients created before the referral
+    // wallet shipped) would fail validation and be rejected outright. Every
+    // OPTIONAL field below is therefore read through `data.get(key, default)`,
+    // which yields the default when the key is absent. Required fields are
+    // still read directly — a document missing one of those is genuinely
+    // invalid and must still be refused.
+
+    function isValidAppointment(data) {
+      return isNonEmptyString(data.customerName, 120)
+        && isNonEmptyString(data.serviceName, 120)
+        && isNonEmptyString(data.staffName, 120)
+        && data.date is string && data.date.size() == 10
+        && data.time is string && data.time.size() == 5
+        && isNonEmptyString(data.status, 30)
+        && isOptionalOrNull(data.get('customerId', null), 128);
+    }
+
+    function isValidCustomer(data) {
+      return isNonEmptyString(data.name, 120)
+        && isOptionalOrNull(data.get('phone', null), 40)
+        && isOptionalOrNull(data.get('email', null), 120)
+        && (data.get('rewardPoints', null) == null
+            || (data.rewardPoints is number && data.rewardPoints >= 0))
+        // Referral wallet (rupees) - always a non-negative number when present.
+        && (data.get('walletBalance', null) == null
+            || (data.walletBalance is number && data.walletBalance >= 0))
+        && isOptionalOrNull(data.get('referralCode', null), 16)
+        && isOptionalOrNull(data.get('referredBy', null), 128)
+        && isOptionalOrNull(data.get('referredByCode', null), 16)
+        // Date of birth: a plain YYYY-MM-DD string, never required. An empty
+        // string (no DOB entered) is explicitly allowed alongside a full date.
+        && (data.get('dob', null) == null
+            || data.dob == ''
+            || (data.dob is string && data.dob.size() == 10))
+        // Per-client discount: optional type + non-negative value; a
+        // percentage discount can never exceed 100.
+        && (data.get('discountType', null) == null
+            || data.discountType == '' || data.discountType == 'percentage' || data.discountType == 'fixed')
+        && (data.get('discountValue', null) == null
+            || (data.discountValue is number && data.discountValue >= 0
+                && (data.get('discountType', '') != 'percentage' || data.discountValue <= 100)));
+    }
+
+    // A customer created by an anonymous public-booking visitor must start
+    // with exactly the same signup bonus/empty wallet an internally-created
+    // customer gets — a public writer can never grant itself extra points or
+    // a starting wallet balance.
+    function isValidPublicNewCustomer(data) {
+      return isValidCustomer(data)
+        && data.get('rewardPoints', null) == 100
+        && data.get('walletBalance', null) == 0
+        && data.get('source', '') == 'public_booking';
+    }
+
+    // An appointment created by an anonymous public-booking visitor must be a
+    // plain, unpaid, un-refunded Confirmed booking — it can never be created
+    // already Completed/Cancelled, already paid, or already carrying a wallet
+    // redemption (billing only ever happens inside the authenticated CRM).
+    function isValidPublicAppointment(data) {
+      return isValidAppointment(data)
+        && data.status == 'Confirmed'
+        && (data.get('source', '') == 'whatsapp' || data.get('source', '') == 'public_booking')
+        && (data.get('paid', false) == false)
+        && (data.get('refunded', false) == false)
+        && (data.get('walletRedeemed', 0) == 0)
+        && (data.get('invoiceAmount', 0) == 0);
+    }
+
+    // ---------- Public online booking ----------
+
+    function isValidBookingSettings(data) {
+      return data.enabled is bool
+        && isOptionalString(data.get('displayName', ''), 120)
+        && data.slotIntervalMinutes is number && data.slotIntervalMinutes >= 5 && data.slotIntervalMinutes <= 120
+        && data.advanceBookingDays is number && data.advanceBookingDays >= 1 && data.advanceBookingDays <= 180
+        && data.minNoticeMinutes is number && data.minNoticeMinutes >= 0 && data.minNoticeMinutes <= 1440
+        && data.workingHours is map
+        && data.publicServices is list && data.publicServices.size() <= 200
+        && data.publicStaff is list && data.publicStaff.size() <= 200;
+    }
+
+    // A minimal phone -> customerId index so the public booking page can
+    // check "does this mobile number already exist" without ever being
+    // granted read access to the real customer records (which would expose
+    // every client's name/phone/wallet to any visitor). See
+    // core/bookingConfig.js and services/publicBookingService.js for the full
+    // design rationale, including the residual trust trade-off of a public
+    // create-only write here.
+    function isValidPhoneIndex(data) {
+      return isNonEmptyString(data.customerId, 128);
+    }
+
+    // A slot lock is the ATOMIC double-booking guard: one document per staff
+    // member per 5-minute tick an appointment occupies (see
+    // core/scheduling.js `lockKeysForBooking`). Its document id is
+    // deterministic, so a second booking that tries to occupy an
+    // already-locked tick fails this `create` rule outright — the database
+    // itself rejects the race, not a stale client-side read. The documents
+    // carry zero customer PII (staff name / date / time / an opaque
+    // appointment id only), so they are safe to expose to public visitors —
+    // that is exactly the "is this staff member busy right now" information
+    // the booking page's slot picker needs to render.
+    function isValidSlotLock(data) {
+      return isNonEmptyString(data.appointmentId, 128)
+        && isNonEmptyString(data.staffName, 120)
+        && data.date is string && data.date.size() == 10
+        && data.time is string && data.time.size() == 5;
+    }
+
+    // ---------- Referral programme ----------
+
+    function isValidReferralSettings(data) {
+      return data.enabled is bool
+        && (data.rewardType == 'fixed' || data.rewardType == 'percent')
+        && data.rewardValue is number && data.rewardValue >= 0
+        && (data.get('maxRewardAmount', null) == null
+            || (data.maxRewardAmount is number && data.maxRewardAmount >= 0))
+        && data.minInvoiceAmount is number && data.minInvoiceAmount >= 0
+        && (data.rewardTrigger == 'invoice_paid' || data.rewardTrigger == 'appointment_completed')
+        && data.expiryDays is number && data.expiryDays >= 0 && data.expiryDays <= 3650
+        && data.maxRedemptionPercent is number
+        && data.maxRedemptionPercent >= 0 && data.maxRedemptionPercent <= 100;
+    }
+
+    function isValidReferralCode(data) {
+      return isNonEmptyString(data.code, 16)
+        && isNonEmptyString(data.customerId, 128)
+        && data.active is bool;
+    }
+
+    function isValidReferralStatus(status) {
+      return status == 'Pending' || status == 'Qualified' || status == 'Credited'
+        || status == 'Redeemed' || status == 'Expired' || status == 'Reversed';
+    }
+
+    function isValidReferral(data) {
+      return isNonEmptyString(data.referrerId, 128)
+        && isNonEmptyString(data.referredId, 128)
+        // Self-referral is impossible at the database level, not just in the app.
+        && data.referrerId != data.referredId
+        && isNonEmptyString(data.code, 16)
+        && isValidReferralStatus(data.status)
+        && data.rewardAmount is number && data.rewardAmount >= 0
+        && data.redeemedAmount is number && data.redeemedAmount >= 0
+        && data.reversedAmount is number && data.reversedAmount >= 0
+        && data.expiredAmount is number && data.expiredAmount >= 0
+        // Nothing may ever be redeemed beyond what the referral earned.
+        && data.redeemedAmount <= data.rewardAmount;
+    }
+
+    function isValidWalletTransaction(data) {
+      return isNonEmptyString(data.customerId, 128)
+        && data.source == 'REFERRAL'
+        && isNonEmptyString(data.type, 40)
+        && data.amount is number && data.amount >= 0
+        && data.balanceBefore is number && data.balanceBefore >= 0
+        && data.balanceAfter is number && data.balanceAfter >= 0
+        && (data.direction == 'credit' || data.direction == 'debit');
+    }
+
+    function isValidService(data) {
+      return isNonEmptyString(data.name, 120)
+        && data.price is number && data.price >= 0
+        && isNonEmptyString(data.duration, 20)
+        && isOptionalOrNull(data.get('category', null), 60)
+        && (data.get('active', null) == null || data.active is bool);
+    }
+
+    function isValidStaff(data) {
+      return isNonEmptyString(data.name, 120)
+        && isNonEmptyString(data.role, 120)
+        && isNonEmptyString(data.phone, 40);
+    }
+
+    function isValidAttendanceStatus(status) {
+      return status == 'Present' || status == 'Absent' || status == 'Late'
+        || status == 'Half Day' || status == 'Leave';
+    }
+
+    function isValidAttendance(data) {
+      return isNonEmptyString(data.staffId, 128)
+        && isNonEmptyString(data.staffName, 120)
+        && data.date is string && data.date.size() == 10
+        && isValidAttendanceStatus(data.status)
+        && isOptionalOrNull(data.get('checkIn', null), 5)
+        && isOptionalOrNull(data.get('checkOut', null), 5)
+        && isOptionalOrNull(data.get('notes', null), 300);
+    }
+
+    function isValidSalon(data) {
+      return isNonEmptyString(data.name, 120)
+        && isOptionalString(data.get('ownerEmail', ''), 120)
+        && isNonEmptyString(data.phone, 40)
+        && isNonEmptyString(data.address, 240)
+        && isOptionalString(data.get('ownerId', ''), 128);
+    }
+
+    function isValidAuditLog(data) {
+      return isNonEmptyString(data.action, 60)
+        && isNonEmptyString(data.actorUid, 128)
+        && data.actorUid == request.auth.uid
+        && isOptionalOrNull(data.get('targetSalonId', null), 128)
+        && isOptionalOrNull(data.get('note', null), 500)
+        && data.at is string;
+    }
+
+    // ---------- Users ----------
+    match /users/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- Salons (tenancy root) ----------
+    match /salons/{salonId} {
+      allow read: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
+      allow create: if isSignedIn()
+        && (isAdmin() || request.resource.data.ownerId == request.auth.uid)
+        && isValidSalon(request.resource.data);
+      // A super admin may additionally set `status` ('active' | 'suspended').
+      allow update: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid)
+        && isValidSalon(request.resource.data)
+        && (request.resource.data.get('status', 'active') == 'active'
+            || request.resource.data.get('status', 'active') == 'suspended')
+        && (isAdmin()
+            || request.resource.data.get('status', 'active')
+               == resource.data.get('status', 'active'));
+      allow delete: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid);
+
+      match /customers/{docId} {
+        // Public visitors can never read the customer list (name/phone/wallet
+        // for every client) — they can only ever create their OWN new record.
+        allow read: if canAccessSalon(salonId);
+        allow create: if (canAccessSalon(salonId) && isValidCustomer(request.resource.data))
+          || (isPublicBookingEnabled(salonId) && isValidPublicNewCustomer(request.resource.data));
+        allow update: if canAccessSalon(salonId)
+          && isValidCustomer(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /services/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidService(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /staff/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidStaff(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      // Attendance. Document id is deterministic (`{staffId}_{date}`), so the
+      // database key itself prevents a second record for the same staff
+      // member on the same day — a duplicate `create` fails outright.
+      match /attendance/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidAttendance(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+      match /appointments/{docId} {
+        // Public visitors can never read/update/delete any appointment — they
+        // can only create their OWN new Confirmed, unpaid booking. The CRM's
+        // own action handlers (status changes, billing, cancellation) still
+        // require an authenticated, salon-scoped session, exactly as before.
+        allow read: if canAccessSalon(salonId);
+        allow create: if (canAccessSalon(salonId) && isValidAppointment(request.resource.data))
+          || (isPublicBookingEnabled(salonId) && isValidPublicAppointment(request.resource.data));
+        allow update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
+        allow delete: if canAccessSalon(salonId);
+      }
+
+      // Public online-booking configuration (single `config` document) plus
+      // the public-safe services/staff snapshot the booking page reads.
+      match /bookingSettings/{docId} {
+        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.enabled == true);
+        allow list: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId) && isValidBookingSettings(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Phone -> customerId lookup index for the public booking page. The
+      // document id is the customer's normalized phone digits.
+      match /customerPhoneIndex/{phoneKey} {
+        allow get: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
+        allow list: if canAccessSalon(salonId);
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidPhoneIndex(request.resource.data);
+        allow update, delete: if false;
+      }
+
+      // Atomic per-staff, per-5-minute-tick booking locks (see
+      // isValidSlotLock above). Readable by anyone so the booking page can
+      // render live availability; only ever created (never updated), and
+      // released (deleted) only by the authenticated owner when an
+      // appointment is cancelled/rescheduled/deleted.
+      match /appointmentSlots/{lockKey} {
+        allow read: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidSlotLock(request.resource.data);
+        allow update: if false;
+        allow delete: if canAccessSalon(salonId);
+      }
+
+      // Referral programme configuration (single `config` document). Publicly
+      // readable: reward terms are marketing copy the salon wants shown on
+      // the booking page ("Refer a friend and earn..."), never sensitive.
+      match /referralSettings/{docId} {
+        allow get: if true;
+        allow list: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId)
+          && isValidReferralSettings(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Referral code registry. The document id IS the code, so uniqueness is
+      // enforced by the key; a code is retired (active:false), never deleted.
+      // A public visitor may look up ONE known, active code (to apply it on
+      // the booking page) but can never list the registry to enumerate codes.
+      match /referralCodes/{code} {
+        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.active == true);
+        allow list: if canAccessSalon(salonId);
+        allow create, update: if canAccessSalon(salonId)
+          && isValidReferralCode(request.resource.data);
+        allow delete: if false;
+      }
+
+      // Referral records. The document id is derived from the referred client,
+      // so one client can never accumulate a second referrer. A referral is
+      // always created in `Pending` with nothing credited yet — including one
+      // created by a public-booking visitor when a new customer applies a
+      // referral code while booking.
+      match /referrals/{docId} {
+        allow read: if canAccessSalon(salonId);
+        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidReferral(request.resource.data)
+          && request.resource.data.status == 'Pending'
+          && request.resource.data.rewardAmount == 0
+          && request.resource.data.redeemedAmount == 0;
+        allow update: if canAccessSalon(salonId)
+          && isValidReferral(request.resource.data)
+          // The two parties to a referral are fixed for its whole lifetime.
+          && request.resource.data.referrerId == resource.data.referrerId
+          && request.resource.data.referredId == resource.data.referredId;
+        allow delete: if false;
+      }
+
+      // Wallet ledger: append-only. Denying update/delete is what makes the
+      // referral money history a genuine audit trail.
+      match /walletTransactions/{txId} {
+        allow read: if canAccessSalon(salonId);
+        allow create: if canAccessSalon(salonId)
+          && isValidWalletTransaction(request.resource.data);
+        allow update, delete: if false;
+      }
+    }
+
+    // ---------- Reward transactions (audit ledger) ----------
+    match /rewardTransactions/{txId} {
+      allow read: if isSignedIn()
+        && (isAdmin() || resource.data.get('salonId', null) == null
+            || canAccessSalon(resource.data.salonId));
+      allow create: if isSignedIn()
+        && (isAdmin() || canAccessSalon(request.resource.data.get('salonId', '')));
+      allow update, delete: if false;
+    }
+    // ================= SUPER ADMIN CONSOLE =================
+    // Read-only, platform-wide access for the separate Super Admin app.
+    // COLLECTION GROUP queries are NOT authorized by the per-salon
+    // `match /salons/{salonId}/<col>/{id}` rules above -- a collectionGroup()
+    // query is matched only by a `match /{path=**}/<col>/{id}` rule. These
+    // grant super admins (and nobody else) the cross-salon reads the console
+    // needs, including the server-side count()/sum()/avg() aggregations that
+    // keep raw documents out of the browser. Writes are never granted here.
+    match /{path=**}/customers/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/appointments/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/services/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/staff/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/attendance/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/referrals/{docId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/walletTransactions/{docId} {
+      allow read: if isAdmin();
+    }
+
+    // Admin audit trail: append-only, super-admin only. Every sensitive
+    // console action (suspend/reactivate a salon) writes one row here and no
+    // one -- not even a super admin -- may rewrite or erase history.
+    match /adminAuditLogs/{logId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin() && isValidAuditLog(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    // ---------- Subscriptions ----------
+    // A new owner may create exactly ONE record, and only a ~30-day TRIAL.
+    // Everything else (plan, status, billing period, payments, events) is
+    // written by the payment server with the Admin SDK, which bypasses these
+    // rules — the browser can never grant itself a paid plan or extend a trial.
+    function isValidNewTrial(d) {
+      return d.ownerId == request.auth.uid
+        && d.salonId is string
+        && ownsSalon(d.salonId)
+        && d.planId == 'trial'
+        && d.status == 'TRIAL'
+        && d.trialEndsAt is timestamp
+        && d.trialEndsAt > request.time
+        && d.trialStartedAt is timestamp
+        && d.trialStartedAt <= request.time + duration.value(5, 'm')
+        && d.trialStartedAt >= request.time - duration.value(5, 'm')
+        && d.trialEndsAt == d.trialStartedAt + duration.value(30, 'd')
+        && d.startDate == d.trialStartedAt && d.endDate == d.trialEndsAt
+        && d.get('currentPeriodEnd', null) == null
+        && d.get('lastPaymentId', null) == null
+        && d.get('billingCycle', null) == null
+        && d.keys().hasOnly(['ownerId', 'ownerEmail', 'salonId', 'startDate', 'endDate', 'planId', 'billingCycle', 'status', 'trialStartedAt',
+             'trialEndsAt', 'currentPeriodStart', 'currentPeriodEnd', 'periodAmount', 'lastPaymentId',
+             'cancelAtPeriodEnd', 'createdAt', 'usage']);
+    }
+
+    function isValidUsage(u) {
+      return u is map
+        && u.keys().hasOnly(['staff', 'customer', 'branch'])
+        && u.get('staff', 0) is int && u.get('customer', 0) is int && u.get('branch', 0) is int;
+    }
+
+    // Plan catalog: readable by any signed-in user, edited by super admins.
+    match /plans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /subscriptions/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == uid && isValidNewTrial(request.resource.data);
+      // Owners may only refresh their informational usage counters.
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usage', 'usageUpdatedAt'])
+            && isValidUsage(request.resource.data.usage));
+      allow delete: if false;
+
+      match /payments/{paymentId} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+        allow write: if false;
+      }
+      match /events/{eventId} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+        allow write: if false;
+      }
+    }
+    // Super-admin cross-tenant queries (collection groups).
+    match /{path=**}/payments/{paymentId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/events/{eventId} {
+      allow read: if isAdmin();
+    }
+  }
+}

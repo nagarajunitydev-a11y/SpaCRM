@@ -6,7 +6,6 @@
   "outputDirectory": "public",
   "cleanUrls": false,
   "trailingSlash": false,
-
   "rewrites": [
     {
       "source": "/__/:path*",
@@ -17,8 +16,16 @@
       "destination": "/book.html"
     }
   ],
-
   "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        }
+      ]
+    },
     {
       "source": "/.well-known/assetlinks.json",
       "headers": [
@@ -93,6 +100,12 @@
           "value": "no-referrer"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/subscriptions",
+      "schedule": "30 20 * * *"
     }
   ]
 }

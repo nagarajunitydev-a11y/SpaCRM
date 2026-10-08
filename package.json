@@ -3,20 +3,26 @@
     "version": "2.2.0",
     "private": true,
     "type": "module",
-    "description": "Qvrix Luxe Salon & Spa CRM — modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
+    "description": "Qvrix Luxe Salon & Spa CRM \u00e2\u20ac\u201d modular PWA (vanilla ES modules, Firebase, Tailwind CDN). No build step, no runtime dependencies.",
     "scripts": {
         "serve": "python -m http.server 5500 --directory public",
         "build:css": "tailwindcss -i styles/tailwind-source.css -o public/styles/tailwind.css --minify",
         "check": "node scripts/syntax-check.mjs",
-        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/unit-revenue.mjs && node scripts/unit-referral.mjs && node scripts/unit-attendance.mjs && node scripts/e2e-revenue.mjs && node scripts/e2e-quick-billing.mjs && node scripts/e2e-attendance.mjs && node scripts/e2e-referral.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
+        "test": "npm run check && node scripts/unit-validate.mjs && node scripts/unit-branches.mjs && node scripts/unit-subscription.mjs && node scripts/unit-payments.mjs && node scripts/unit-revenue.mjs && node scripts/unit-referral.mjs && node scripts/unit-attendance.mjs && node scripts/unit-booking.mjs && node scripts/e2e-revenue.mjs && node scripts/e2e-quick-billing.mjs && node scripts/e2e-attendance.mjs && node scripts/e2e-referral.mjs && node scripts/e2e-public-booking.mjs && node scripts/e2e-smoke.mjs && node scripts/e2e-firebase-fallback.mjs",
         "deploy:rules": "firebase deploy --only firestore:rules",
         "deploy:hosting": "firebase deploy --only hosting",
-        "deploy:all": "firebase deploy --only hosting,firestore:rules"
+        "deploy:all": "firebase deploy --only hosting,firestore:rules",
+        "test:security": "firebase emulators:exec --config firebase.audit.json --project demo-spacrm-audit --only firestore \"node scripts/security-rules.mjs\"",
+        "test:release": "npm test && npm run test:security",
+        "test:trial": "firebase emulators:exec --config firebase.trial.json --project demo-spacrm-trial --only auth,firestore \"node scripts/e2e-trial.mjs\""
     },
     "dependencies": {
-        "firebase": "^12.18.0"
+        "firebase": "^12.18.0",
+        "firebase-admin": "^14.5.0"
     },
     "devDependencies": {
+        "@firebase/rules-unit-testing": "^5.0.2",
+        "firebase-tools": "^15.32.1",
         "tailwindcss": "^3.4.19"
     }
 }

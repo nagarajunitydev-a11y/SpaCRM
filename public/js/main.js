@@ -49,6 +49,14 @@ import renderServices, { renderServiceListBody } from './ui/views/services.js';
 import renderStaff from './ui/views/staff.js';
 import renderSuperAdmin from './ui/views/admin.js';
 import renderSalonSetup from './ui/views/salonSetup.js';
+import renderBranches from './ui/views/branches.js';
+import { findDuplicateName, activeBranches, isBranchActive } from './core/branches.js';
+import renderSubscription, { subscriptionBanner, onboardingCard, lockedFeatureView } from './ui/views/subscription.js';
+import renderCheckout from './ui/views/checkout.js';
+import renderAdminSubscriptions from './ui/views/adminSubscriptions.js';
+import * as subscriptionService from './services/subscriptionService.js';
+import { purchase as purchasePlan, PaymentsUnavailable } from './services/payment/paymentService.js';
+import { DEFAULT_PLANS, FEATURES } from './core/plans.js';
 import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
 import renderReferrals, {
     setReferralSearch,
@@ -122,9 +130,13 @@ function resolveSalonScope() {
     let target = null;
     if (isOwner && state.salonsLoaded && state.salonsList.length > 0) {
         const owned = state.salonsList;
+        // Only active branches can be worked in; fall back to the first
+        // active one (or, if every branch is inactive, the first branch so
+        // the owner can still open Branches and re-activate one).
+        const usable = activeBranches(owned);
         target = state.currentSalonId;
-        if (!owned.some((s) => s.id === target)) {
-            target = owned[0].id;
+        if (!usable.some((s) => s.id === target)) {
+            target = (usable[0] || owned[0]).id;
         }
     }
     if (target !== store.getState().currentSalonId) store.setState({ currentSalonId: target });
@@ -132,6 +144,13 @@ function resolveSalonScope() {
     const key = `${state.userRole}|${state.accountRole}|${state.currentUser ? state.currentUser.uid : 'anon'}|${target}|${state.salonsLoaded}`;
     if (key === lastSalonScopeKey) return;
     lastSalonScopeKey = key;
+
+    if (state.mode === 'firebase') {
+        // Do not display the previous branch while new snapshots are loading.
+        store.setState({ customersList: [], servicesList: [], staffList: [], appointmentsList: [],
+            attendanceList: [], referralsList: [], referralsLoaded: false, referralCodesList: [],
+            walletTransactionsList: [], transactionsList: [], referralSettings: null, bookingSettings: null });
+    }
 
     salonsRepository.resubscribeSalons();
     customersRepository.setSalon(target);
@@ -159,6 +178,7 @@ function maybeRunReferralMaintenance() {
     const salonId = state.currentSalonId;
     if (!salonId || referralMaintenanceDone.has(salonId)) return;
     if (state.userRole !== 'salon_owner') return;
+    if (state.access && !state.access.can('referral')) return;
     if (!state.referralsLoaded || (state.customersList || []).length === 0) return;
 
     referralMaintenanceDone.add(salonId);
@@ -227,7 +247,7 @@ function runSyncPublicCatalog() {
         setTimeout(runSyncPublicCatalog, 500);
         return;
     }
-    if (!state.currentSalonId) return;
+    if (!state.currentSalonId || (state.access && !state.access.can('onlineBooking'))) return;
     bookingSettingsRepository
         .syncPublicCatalog(
             scopedBySalon(state.servicesList, state.currentSalonId),
@@ -263,10 +283,14 @@ function renderOwnerTab(state) {
                 : renderQuickBillingForm(state, getDraft('quickBilling'));
         case 'appointments': return renderAppointments(state);
         case 'customers': return renderCustomers(state);
-        case 'referrals': return renderReferrals(state);
+        case 'referrals':
+            return !state.access || state.access.can('referral') ? renderReferrals(state) : lockedFeatureView(state, 'referral');
+        case 'subscription': return renderSubscription(state);
+        case 'checkout': return renderCheckout(state);
         case 'services': return renderServices(state);
         case 'staff': return renderStaff(state);
-        default: return renderDashboard(state);
+        case 'branches': return renderBranches(state);
+        default: return onboardingCard(state) + renderDashboard(state);
     }
 }
 
@@ -277,7 +301,7 @@ function buildView(state) {
         return renderLogin(state);
     }
     if (state.userRole === 'super_admin' && state.accountRole === 'super_admin') {
-        return renderSuperAdmin(state);
+        return state.activeTab === 'admin_subscriptions' ? renderAdminSubscriptions(state) : renderSuperAdmin(state);
     }
     if (state.needsSalon) {
         return renderSalonSetup(state);
@@ -297,12 +321,13 @@ function buildShell(state) {
 
     return `
         ${networkBanner(state)}
+        ${subscriptionBanner(state)}
         <div class="flex flex-1 min-h-0 w-full desktop-container">
             ${desktopSidebar(state)}
             <div class="flex-1 flex flex-col min-w-0">
                 ${appHeader(state)}
                 <main class="flex-1 overflow-y-auto p-5 pb-24 no-scrollbar">${viewHtml}</main>
-                ${isOwner && showNav ? `
+                ${isOwner && showNav && state.activeTab !== 'checkout' ? `
                     <button data-action="tab" data-tab="quickBilling" aria-label="Quick Billing" title="Quick Billing"
                         class="fixed bottom-24 right-4 z-40 lg:hidden w-14 h-14 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 flex items-center justify-center shadow-xl shadow-emerald-500/40 active:scale-95 transition touch-manipulation">
                         <i data-lucide="zap" class="w-6 h-6"></i>
@@ -378,6 +403,7 @@ function findRecord(type, id) {
         staff: () => (store.getState().staffList || []).find((r) => r.id === id),
         appointment: () => (store.getState().appointmentsList || []).find((r) => r.id === id),
         attendance: () => (store.getState().attendanceList || []).find((r) => r.id === id),
+        salon: () => (store.getState().salonsList || []).find((r) => r.id === id),
     };
     const get = lists[type];
     return get ? get() || null : null;
@@ -440,6 +466,8 @@ async function resolveAppointmentCustomer(data) {
  * roll back the booking/billing action the user actually performed.
  */
 async function runReferralSettlement(appointment) {
+    const access = store.getState().access;
+    if (access && !access.can('referral')) return { credited: false, reason: 'Plan excludes referrals' };
     try {
         const result = await referralService.settleAppointment(appointment);
         if (result && result.credited) {
@@ -538,6 +566,8 @@ function renderFieldErrors(form, errors) {
 function formContext(form) {
     return {
         signup: form.querySelector('[name="salonName"]') !== null,
+        branch: form.querySelector('[name="openTime"]') !== null,
+        isDuplicateName: (name) => !!findDuplicateName(store.getState().salonsList, name, form.querySelector('[name="id"]')?.value || null),
         // Validation of appointment date/time always compares against the
         // salon's current date/time (not the device's local clock).
         nowDateTime: currentSalonDateTime(currentSalon()),
@@ -619,7 +649,7 @@ function updatePaymentSummary(form) {
     // The owner can edit the discount fields inline in this same form, so the
     // live preview always reads their current (possibly unsaved) values —
     // not the customer's last-saved discount.
-    const discountConfig = { type: data.discountType || '', value: data.discountValue };
+    const discountConfig = { type: state.access && !state.access.can('customerDiscounts') ? '' : (data.discountType || ''), value: data.discountValue };
     const discount = discountAmountFor(discountConfig, invoiceAmount);
     const cap = settings.enabled ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings }) : 0;
 
@@ -817,7 +847,7 @@ function updateQuickBilling(form, changedName = null) {
     const settings = sanitizeSettings(state.referralSettings);
 
     const isOwner = state.userRole === 'salon_owner';
-    const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+    const discountType = state.access && !state.access.can('customerDiscounts') ? '' : (isOwner ? (data.discountType || '') : (customer?.discountType || ''));
     const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
     const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
     const discountText = discountLabel({ type: discountType, value: discountValue });
@@ -1095,6 +1125,11 @@ const actions = {
     async 'salon'(el) {
         const value = el.value;
         if (!value) return;
+        const target = (store.getState().salonsList || []).find((s) => s.id === value);
+        if (target && !isBranchActive(target)) {
+            showNotification('This branch is inactive. Activate it from Branches first.', 'error');
+            return;
+        }
         store.setState({ currentSalonId: value });
         syncSalonScope();
         authService.setUserSalon(value).catch((err) => console.warn('Salon persist failed:', err));
@@ -1184,7 +1219,7 @@ const actions = {
             showNotification(`Linked existing client "${customer.name}".`);
         } else {
             customer = await customersRepository.addCustomerQuick({ name });
-            referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
+            if (!store.getState().access || store.getState().access.can('referral')) referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
             showNotification(`New client "${customer.name}" added & linked.`);
         }
 
@@ -1358,6 +1393,136 @@ const actions = {
         store.setState({ dashboardTab: el.dataset.period });
     },
 
+    /* -------------------- Subscription & checkout -------------------- */
+
+    async 'select-plan'(el) {
+        const state = store.getState();
+        const planId = el.dataset.plan;
+        const plan = (state.plansCatalog || DEFAULT_PLANS)[planId];
+        if (!plan || !plan.paid) return;
+        store.setState({
+            checkout: { planId, billingCycle: state.billingCycle === 'annual' ? 'annual' : 'monthly', method: 'upi', step: 'select', message: '' },
+            activeTab: 'checkout',
+            isModalOpen: false,
+        });
+    },
+
+    async 'billing-cycle'(el) {
+        store.setState({ billingCycle: el.dataset.cycle === 'annual' ? 'annual' : 'monthly' });
+    },
+
+    async 'checkout-cycle'(el) {
+        const c = store.getState().checkout;
+        if (!c || c.step === 'processing') return;
+        const cycle = el.dataset.cycle === 'annual' ? 'annual' : 'monthly';
+        store.setState({ checkout: { ...c, billingCycle: cycle }, billingCycle: cycle });
+    },
+
+    async 'checkout-method'(el) {
+        const c = store.getState().checkout;
+        if (!c || c.step === 'processing') return;
+        store.setState({ checkout: { ...c, method: el.dataset.method } });
+    },
+
+    async 'checkout-reset'() {
+        const c = store.getState().checkout;
+        if (c) store.setState({ checkout: { ...c, step: 'select', message: '' } });
+    },
+
+    async 'confirm-payment'() {
+        const state = store.getState();
+        const c = state.checkout;
+        if (!c || c.step === 'processing') return; // guards double-click / duplicate submit
+        store.setState({ checkout: { ...c, step: 'processing', message: '' } });
+        try {
+            const result = await purchasePlan({
+                planId: c.planId,
+                billingCycle: c.billingCycle,
+                method: c.method,
+                salonId: state.currentSalonId || null,
+                user: { email: state.currentUser && state.currentUser.email },
+            });
+            store.setState({ checkout: { ...store.getState().checkout, step: result.status, message: result.message, orderId: result.orderId } });
+            if (result.status === 'SUCCESS') showNotification('Subscription activated!');
+        } catch (err) {
+            const unavailable = err instanceof PaymentsUnavailable;
+            store.setState({ checkout: { ...store.getState().checkout, step: unavailable ? 'UNAVAILABLE' : 'FAILED', message: err.message || 'Could not start the payment.' } });
+        }
+    },
+
+    async 'start-trial'() {
+        await subscriptionService.startTrial();
+        switchTab('dashboard');
+        showNotification('Your 30-day free trial has started.');
+    },
+
+    async 'view-receipt'(el) {
+        const row = (store.getState().subscriptionPayments || []).find((p) => p.id === el.dataset.id);
+        if (row) openModal('receipt', row);
+    },
+
+    async 'print-receipt'() {
+        window.print();
+    },
+
+    async 'admin-sub-tab'(el) {
+        store.setState({ adminSubTab: el.dataset.subTab });
+    },
+
+    async 'admin-payment-filter'(el) {
+        store.setState({ adminPaymentFilter: el.dataset.filter });
+    },
+
+    async 'admin-toggle-suspend'(el) {
+        const suspended = el.dataset.suspended === 'true';
+        await subscriptionService.setSubscriptionSuspended(el.dataset.id, !suspended);
+        showNotification(suspended ? 'Subscription reactivated.' : 'Subscription suspended.');
+    },
+
+    async 'admin-seed-plans'() {
+        for (const id of Object.keys(DEFAULT_PLANS)) await subscriptionService.savePlan(id, {});
+        showNotification('Default plans saved.');
+    },
+
+    async 'open-plan-editor'(el) {
+        openModal('plan-editor', { planId: el.dataset.plan });
+    },
+
+    /** "Add Branch": opens the form unless the plan's branch limit is reached. */
+    async 'add-branch'() {
+        const access = store.getState().access;
+        const gate = access ? access.canCreate('branch') : { ok: true };
+        if (!gate.ok) {
+            showNotification(gate.reason, 'error');
+            return;
+        }
+        openModal('salon');
+    },
+
+    async 'toggle-branch'(el) {
+        const state = store.getState();
+        const list = state.salonsList || [];
+        const branch = list.find((s) => s.id === el.dataset.id);
+        if (!branch) return;
+        const nextActive = !isBranchActive(branch);
+        if (!nextActive && activeBranches(list).length <= 1) {
+            showNotification('At least one branch must stay active.', 'error');
+            return;
+        }
+        await salonsRepository.setBranchActive(branch.id, nextActive);
+        showNotification(`${branch.name} ${nextActive ? 'activated' : 'deactivated'}.`);
+        syncSalonScope();
+    },
+
+    async 'switch-branch'(el) {
+        const branch = (store.getState().salonsList || []).find((s) => s.id === el.dataset.id);
+        if (!branch || !isBranchActive(branch)) return;
+        store.setState({ currentSalonId: branch.id, activeTab: 'dashboard' });
+        syncSalonScope();
+        authService.setUserSalon(branch.id).catch((err) => console.warn('Salon persist failed:', err));
+        showNotification(`Switched to ${branch.name}`);
+    },
+
     async 'manage-salon'(el) {
         store.setState({
             currentSalonId: el.dataset.id,
@@ -1404,7 +1569,7 @@ const actions = {
         closeModal();
 
         try {
-            await referralService.ensureReferralCode(created);
+            if (!store.getState().access || store.getState().access.can('referral')) await referralService.ensureReferralCode(created);
         } catch (err) {
             console.warn('[referral] Code allocation failed:', err);
         }
@@ -1767,12 +1932,12 @@ const actions = {
         // Owner edits the discount right here in this form; staff read the
         // client's saved discount. Same rules as 'collect-payment'.
         const isOwner = state.userRole === 'salon_owner';
-        const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+        const discountType = state.access && !state.access.can('customerDiscounts') ? '' : (isOwner ? (data.discountType || '') : (customer?.discountType || ''));
         const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
         const discount = discountAmountFor({ type: discountType, value: discountValue }, gross);
 
         if (customer && ((customer.discountType || '') !== discountType || num(customer.discountValue) !== discountValue)) {
-            await customersRepository.updateCustomer(customer.id, { discountType: discountType || '', discountValue: discountValue || '' }).catch((err) => {
+            await customersRepository.updateCustomer(customer.id, { discountType: discountType || '', discountValue: discountValue || 0 }).catch((err) => {
                 console.warn('[discount] Could not save client discount:', err);
             });
         }
@@ -1801,7 +1966,7 @@ const actions = {
         // Wallet leg runs first because it must be atomic (see 'collect-payment').
         const walletBalance = referralService.walletBalanceOf(customer);
         const settings = sanitizeSettings(state.referralSettings);
-        const requested = round2(num(data.walletRedeem));
+        const requested = state.access && !state.access.can('referral') ? 0 : round2(num(data.walletRedeem));
         let redemption = { redeemed: 0, balanceBefore: walletBalance, balanceAfter: walletBalance };
         if (requested > 0) {
             if (!customer) throw new Error('A client record is required to redeem referral rewards.');
@@ -1964,7 +2129,7 @@ const actions = {
             return;
         }
         // Make sure the client actually owns a code before the profile shows it.
-        referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
+        if (!store.getState().access || store.getState().access.can('referral')) referralService.ensureReferralCode(customer).catch((err) => console.warn('[referral] Code allocation failed:', err));
         openModal('customer-profile', { id: customer.id });
     },
 
@@ -2106,6 +2271,7 @@ const actions = {
     },
 
     async 'collect-payment'(form, event, data) {
+        const state = store.getState();
         const returnToCustomerProfileId = store.getState().modalRecord?.returnToCustomerProfileId || '';
         const appointment = findAppointment(data.id);
         if (!appointment) throw new Error('Appointment not found.');
@@ -2113,7 +2279,7 @@ const actions = {
         if (appointment.status === 'Cancelled') throw new Error('A cancelled appointment cannot be billed.');
 
         const invoiceAmount = round2(num(data.invoiceAmount));
-        const requested = round2(num(data.walletRedeem));
+        const requested = state.access && !state.access.can('referral') ? 0 : round2(num(data.walletRedeem));
         const customer = customersRepository.getCustomer(appointment.customerId);
         const balance = referralService.walletBalanceOf(customer);
 
@@ -2122,7 +2288,7 @@ const actions = {
         // whatever is in the form is this bill's discount, clamped so it can
         // never exceed the invoice amount.
         const isOwner = store.getState().userRole === 'salon_owner';
-        const discountType = isOwner ? (data.discountType || '') : (customer?.discountType || '');
+        const discountType = state.access && !state.access.can('customerDiscounts') ? '' : (isOwner ? (data.discountType || '') : (customer?.discountType || ''));
         const discountValue = discountType ? (isOwner ? num(data.discountValue) : num(customer?.discountValue)) : 0;
         const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
 
@@ -2229,15 +2395,43 @@ const actions = {
         }
     },
 
+    async 'submit-plan'(form, event, data) {
+        const optNum = (v) => (v === '' || v === undefined ? null : Math.max(0, Math.floor(Number(v))));
+        const patch = {
+            name: data.name || undefined,
+            tagline: data.tagline || '',
+            priceMonthly: Math.max(0, Math.round(Number(data.priceMonthly) || 0)),
+            priceAnnual: Math.max(0, Math.round(Number(data.priceAnnual) || 0)),
+            maxStaff: optNum(data.maxStaff),
+            maxCustomers: optNum(data.maxCustomers),
+            maxBranches: optNum(data.maxBranches),
+            features: Object.keys(FEATURES).filter((k) => data[`feature_${k}`] !== undefined),
+        };
+        await subscriptionService.savePlan(data.planId, patch);
+        showNotification('Plan saved.');
+        closeModal();
+    },
+
     async 'submit-salon'(form, event, data) {
-        await salonsRepository.addSalon({
+        const payload = {
             name: data.name,
             ownerEmail: data.email,
             phone: toIndianE164(data.phone),
             address: data.address,
             timezone: data.timezone || 'Asia/Kolkata',
-        });
-        showNotification('New salon branch provisioned!');
+        };
+        // Branch form carries working hours; the legacy super-admin form does not.
+        if (data.openTime !== undefined) {
+            payload.openTime = data.openTime;
+            payload.closeTime = data.closeTime;
+        }
+        if (data.id) {
+            await salonsRepository.updateSalon(data.id, payload);
+            showNotification('Branch updated.');
+        } else {
+            await salonsRepository.addSalon(payload);
+            showNotification('New salon branch provisioned!');
+        }
         closeModal();
         syncSalonScope();
     },
@@ -2350,6 +2544,8 @@ function attachDelegation() {
         const data = readFormData(form);
         const ctx = {
             signup: form.querySelector('[name="salonName"]') !== null,
+            branch: form.querySelector('[name="openTime"]') !== null,
+            isDuplicateName: (name) => !!findDuplicateName(store.getState().salonsList, name, form.querySelector('[name="id"]')?.value || null),
             nowDateTime: form.dataset.action === 'submit-appointment' ? currentSalonDateTime(currentSalon()) : undefined,
         };
         const errors = validateForm(form.dataset.action, data, ctx);
@@ -2493,6 +2689,9 @@ async function bootstrap() {
     store.subscribe(() => maybeRunReferralMaintenance());
     store.subscribe(() => maybeSyncPublicCatalog());
     store.subscribe(() => maybeOfferSetupTutorial());
+    // Subscription listeners + the central FeatureAccess snapshot (state.access).
+    store.subscribe(() => { subscriptionService.syncSubscription(); subscriptionService.refreshAccess(); });
+    subscriptionService.syncSubscription();
 
     attachDelegation();
     renderApp();

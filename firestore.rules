@@ -25,11 +25,51 @@ service cloud.firestore {
       return isAdmin() || ownsSalon(salonId);
     }
 
+    // Subscription documents are authoritative; browser usage/state is not.
+    function subscriptionLive(sub) {
+      return (sub.status == 'TRIAL' && sub.planId == 'trial'
+          && sub.trialEndsAt is timestamp && request.time < sub.trialEndsAt)
+        || (sub.planId in ['basic', 'standard', 'premium', 'business']
+          && sub.currentPeriodEnd is timestamp
+          && ((sub.status in ['ACTIVE', 'PAST_DUE', 'GRACE_PERIOD']
+                && request.time < sub.currentPeriodEnd + duration.value(3, 'd'))
+            || (sub.status == 'CANCELLED' && request.time < sub.currentPeriodEnd)));
+    }
+
+    function ownerHasFeature(ownerId, feature) {
+      let sub = get(/databases/$(database)/documents/subscriptions/$(ownerId)).data;
+      let defaults = feature == 'core'
+        || (feature in ['onlineBooking', 'referral', 'loyalty', 'customerDiscounts']
+            && sub.planId in ['trial', 'standard', 'premium', 'business'])
+        || (feature == 'multiBranch' && sub.planId == 'business');
+      let planPath = /databases/$(database)/documents/plans/$(sub.planId);
+      return subscriptionLive(sub)
+        && (feature == 'core' || (exists(planPath)
+          ? feature in get(planPath).data.features : defaults));
+    }
+
+    function salonHasFeature(salonId, feature) {
+      return ownerHasFeature(get(/databases/$(database)/documents/salons/$(salonId)).data.ownerId, feature);
+    }
+
+    function canWriteSalon(salonId) {
+      return isAdmin() || (ownsSalon(salonId) && salonHasFeature(salonId, 'core')
+        && get(/databases/$(database)/documents/salons/$(salonId)).data.get('status', 'active') != 'suspended');
+    }
+
+    function canUseFeature(salonId, feature) {
+      return isAdmin() || (canWriteSalon(salonId) && salonHasFeature(salonId, feature));
+    }
+
     // True once the salon owner has explicitly turned public online booking
     // on. This is the single gate every anonymous write in this file checks —
     // with it off, none of the public-booking rules below grant anything.
     function isPublicBookingEnabled(salonId) {
       return exists(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config)
+        // A deactivated branch never accepts public bookings.
+        && get(/databases/$(database)/documents/salons/$(salonId)).data.get('active', true) != false
+        && get(/databases/$(database)/documents/salons/$(salonId)).data.get('status', 'active') != 'suspended'
+        && salonHasFeature(salonId, 'onlineBooking')
         && get(/databases/$(database)/documents/salons/$(salonId)/bookingSettings/config).data.enabled == true;
     }
 
@@ -92,6 +132,25 @@ service cloud.firestore {
         && (data.get('discountValue', null) == null
             || (data.discountValue is number && data.discountValue >= 0
                 && (data.get('discountType', '') != 'percentage' || data.discountValue <= 100)));
+    }
+
+    function customerBenefitsAllowed(salonId, data) {
+      return (data.get('discountValue', 0) == 0 || canUseFeature(salonId, 'customerDiscounts'))
+        && (data.get('walletBalance', 0) == 0 || canUseFeature(salonId, 'referral'));
+    }
+
+    function customerBenefitChangesAllowed(salonId) {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return (!changed.hasAny(['discountType', 'discountValue'])
+          || request.resource.data.get('discountValue', 0) == 0 || canUseFeature(salonId, 'customerDiscounts'))
+        && (!changed.hasAny(['walletBalance', 'referredBy', 'referredByCode', 'referralCode'])
+          || canUseFeature(salonId, 'referral'))
+        && (!changed.hasAny(['rewardPoints']) || canUseFeature(salonId, 'loyalty'));
+    }
+
+    function invoiceBenefitsAllowed(salonId, data) {
+      return (data.get('discountApplied', 0) == 0 || canUseFeature(salonId, 'customerDiscounts'))
+        && (data.get('walletRedeemed', 0) == 0 || canUseFeature(salonId, 'referral'));
     }
 
     // A customer created by an anonymous public-booking visitor must start
@@ -246,7 +305,12 @@ service cloud.firestore {
         && isNonEmptyString(data.phone, 40)
         && isNonEmptyString(data.address, 240)
         && isOptionalOrNull(data.get('timezone', null), 64)
-        && isOptionalString(data.get('ownerId', ''), 128);
+        && isOptionalString(data.get('ownerId', ''), 128)
+        // Multi-branch fields (all optional so legacy single-branch salons
+        // remain valid): working hours, active flag, subscription plan.
+        && isOptionalOrNull(data.get('openTime', null), 5)
+        && isOptionalOrNull(data.get('closeTime', null), 5)
+        && data.get('active', true) is bool;
     }
 
     function isValidAuditLog(data) {
@@ -258,10 +322,83 @@ service cloud.firestore {
         && data.at is string;
     }
 
+    // ---------- Subscriptions ----------
+    // A new owner may create exactly ONE record, and only a ~30-day TRIAL.
+    // Everything else (plan, status, billing period, payments, events) is
+    // written by the payment server with the Admin SDK, which bypasses these
+    // rules — the browser can never grant itself a paid plan or extend a trial.
+    function isValidNewTrial(d) {
+      return d.ownerId == request.auth.uid
+        && d.salonId is string
+        && ownsSalon(d.salonId)
+        && d.planId == 'trial'
+        && d.status == 'TRIAL'
+        && d.trialEndsAt is timestamp
+        && d.trialEndsAt > request.time
+        && d.trialStartedAt is timestamp
+        && d.trialStartedAt <= request.time + duration.value(5, 'm')
+        && d.trialStartedAt >= request.time - duration.value(5, 'm')
+        && d.trialEndsAt == d.trialStartedAt + duration.value(30, 'd')
+        && d.startDate == d.trialStartedAt && d.endDate == d.trialEndsAt
+        && d.get('currentPeriodEnd', null) == null
+        && d.get('lastPaymentId', null) == null
+        && d.get('billingCycle', null) == null
+        && d.keys().hasOnly(['ownerId', 'ownerEmail', 'salonId', 'startDate', 'endDate', 'planId', 'billingCycle', 'status', 'trialStartedAt',
+             'trialEndsAt', 'currentPeriodStart', 'currentPeriodEnd', 'periodAmount', 'lastPaymentId',
+             'cancelAtPeriodEnd', 'createdAt', 'usage']);
+    }
+
+    function isValidUsage(u) {
+      return u is map
+        && u.keys().hasOnly(['staff', 'customer', 'branch'])
+        && u.get('staff', 0) is int && u.get('customer', 0) is int && u.get('branch', 0) is int;
+    }
+
+    // Plan catalog: readable by any signed-in user, edited by super admins.
+    match /plans/{planId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /subscriptions/{uid} {
+      allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+      allow create: if isSignedIn() && request.auth.uid == uid && isValidNewTrial(request.resource.data);
+      // Owners may only refresh their informational usage counters.
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == uid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usage', 'usageUpdatedAt'])
+            && isValidUsage(request.resource.data.usage));
+      allow delete: if false;
+
+      match /payments/{paymentId} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+        allow write: if false;
+      }
+      match /events/{eventId} {
+        allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
+        allow write: if false;
+      }
+    }
+    // Super-admin cross-tenant queries (collection groups).
+    match /{path=**}/payments/{paymentId} {
+      allow read: if isAdmin();
+    }
+    match /{path=**}/events/{eventId} {
+      allow read: if isAdmin();
+    }
+    // paymentOrders / webhookEvents: server-only (no client rule => denied).
+
     // ---------- Users ----------
     match /users/{uid} {
       allow read: if isSignedIn() && (request.auth.uid == uid || isAdmin());
-      allow write: if isSignedIn() && request.auth.uid == uid;
+      allow create: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'salon_owner'
+        && request.resource.data.keys().hasOnly(['role', 'email', 'displayName', 'createdAt']);
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email', 'displayName', 'salonId'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['salonId'])
+          || ownsSalon(request.resource.data.salonId));
+      allow delete: if false;
     }
 
     // ---------- Salons (tenancy root) ----------
@@ -273,6 +410,7 @@ service cloud.firestore {
       // A super admin may additionally set `status` ('active' | 'suspended').
       allow update: if isSignedIn() && (isAdmin() || resource.data.ownerId == request.auth.uid)
         && isValidSalon(request.resource.data)
+        && (isAdmin() || request.resource.data.ownerId == resource.data.ownerId)
         && (request.resource.data.get('status', 'active') == 'active'
             || request.resource.data.get('status', 'active') == 'suspended')
         && (isAdmin()
@@ -284,29 +422,31 @@ service cloud.firestore {
         // Public visitors can never read the customer list (name/phone/wallet
         // for every client) — they can only ever create their OWN new record.
         allow read: if canAccessSalon(salonId);
-        allow create: if (canAccessSalon(salonId) && isValidCustomer(request.resource.data))
+        allow create: if (canWriteSalon(salonId) && isValidCustomer(request.resource.data)
+            && customerBenefitsAllowed(salonId, request.resource.data))
           || (isPublicBookingEnabled(salonId) && isValidPublicNewCustomer(request.resource.data));
-        allow update: if canAccessSalon(salonId)
-          && isValidCustomer(request.resource.data);
-        allow delete: if canAccessSalon(salonId);
+        allow update: if canWriteSalon(salonId)
+          && isValidCustomer(request.resource.data) && customerBenefitChangesAllowed(salonId);
+        allow delete: if canWriteSalon(salonId);
       }
       match /services/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidService(request.resource.data);
-        allow delete: if canAccessSalon(salonId);
+        allow create, update: if canWriteSalon(salonId) && isValidService(request.resource.data);
+        allow delete: if canWriteSalon(salonId);
       }
       match /staff/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidStaff(request.resource.data);
-        allow delete: if canAccessSalon(salonId);
+        allow create, update: if canWriteSalon(salonId) && isValidStaff(request.resource.data);
+        allow delete: if canWriteSalon(salonId);
       }
       // Attendance. Document id is deterministic (`{staffId}_{date}`), so the
       // database key itself prevents a second record for the same staff
       // member on the same day — a duplicate `create` fails outright.
       match /attendance/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidAttendance(request.resource.data);
-        allow delete: if canAccessSalon(salonId);
+        allow create, update: if canWriteSalon(salonId) && isValidAttendance(request.resource.data)
+          && docId == request.resource.data.staffId + '_' + request.resource.data.date;
+        allow delete: if canWriteSalon(salonId);
       }
 match /appointments/{docId} {
         // Booking is authenticated unless public booking is enabled for the
@@ -314,18 +454,21 @@ match /appointments/{docId} {
         // the same document guards as every other collection. Updates still
         // require an authenticated, salon-scoped session, exactly as before.
         allow read: if canAccessSalon(salonId);
-        allow create: if (canAccessSalon(salonId) && isValidAppointment(request.resource.data))
+        allow create: if (canWriteSalon(salonId) && isValidAppointment(request.resource.data)
+            && invoiceBenefitsAllowed(salonId, request.resource.data))
           || (isPublicBookingEnabled(salonId) && isValidPublicAppointment(request.resource.data));
-        allow update: if canAccessSalon(salonId) && isValidAppointment(request.resource.data);
-        allow delete: if canAccessSalon(salonId);
+        allow update: if canWriteSalon(salonId) && isValidAppointment(request.resource.data)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['discountApplied', 'walletRedeemed', 'paid'])
+            || invoiceBenefitsAllowed(salonId, request.resource.data));
+        allow delete: if canWriteSalon(salonId);
       }
 
       // Public online-booking configuration (single `config` document) plus
       // the public-safe services/staff snapshot the booking page reads.
       match /bookingSettings/{docId} {
-        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.enabled == true);
+        allow get: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
         allow list: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId) && isValidBookingSettings(request.resource.data);
+        allow create, update: if canUseFeature(salonId, 'onlineBooking') && isValidBookingSettings(request.resource.data);
         allow delete: if false;
       }
 
@@ -334,8 +477,10 @@ match /appointments/{docId} {
       match /customerPhoneIndex/{phoneKey} {
         allow get: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
         allow list: if canAccessSalon(salonId);
-        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
-          && isValidPhoneIndex(request.resource.data);
+        allow create: if (canWriteSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidPhoneIndex(request.resource.data)
+          && phoneKey.matches('^[0-9]{10}$')
+          && getAfter(/databases/$(database)/documents/salons/$(salonId)/customers/$(request.resource.data.customerId)).data.phone == '+91' + phoneKey;
         allow update, delete: if false;
       }
 
@@ -346,19 +491,22 @@ match /appointments/{docId} {
       // appointment is cancelled/rescheduled/deleted.
       match /appointmentSlots/{lockKey} {
         allow read: if canAccessSalon(salonId) || isPublicBookingEnabled(salonId);
-        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
-          && isValidSlotLock(request.resource.data);
+        allow create: if (canWriteSalon(salonId) || isPublicBookingEnabled(salonId))
+          && isValidSlotLock(request.resource.data)
+          && getAfter(/databases/$(database)/documents/salons/$(salonId)/appointments/$(request.resource.data.appointmentId)).data.staffName == request.resource.data.staffName
+          && getAfter(/databases/$(database)/documents/salons/$(salonId)/appointments/$(request.resource.data.appointmentId)).data.date == request.resource.data.date
+          && getAfter(/databases/$(database)/documents/salons/$(salonId)/appointments/$(request.resource.data.appointmentId)).data.time == request.resource.data.time;
         allow update: if false;
-        allow delete: if canAccessSalon(salonId);
+        allow delete: if canWriteSalon(salonId);
       }
 
       // Referral programme configuration (single `config` document). Publicly
       // readable: reward terms are marketing copy the salon wants shown on
       // the booking page ("Refer a friend and earn..."), never sensitive.
       match /referralSettings/{docId} {
-        allow get: if true;
+        allow get: if canAccessSalon(salonId) || (isPublicBookingEnabled(salonId) && salonHasFeature(salonId, 'referral'));
         allow list: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId)
+        allow create, update: if canUseFeature(salonId, 'referral')
           && isValidReferralSettings(request.resource.data);
         allow delete: if false;
       }
@@ -368,9 +516,9 @@ match /appointments/{docId} {
       // A public visitor may look up ONE known, active code (to apply it on
       // the booking page) but can never list the registry to enumerate codes.
       match /referralCodes/{code} {
-        allow get: if canAccessSalon(salonId) || (resource != null && resource.data.active == true);
+        allow get: if canAccessSalon(salonId) || (isPublicBookingEnabled(salonId) && salonHasFeature(salonId, 'referral') && resource != null && resource.data.active == true);
         allow list: if canAccessSalon(salonId);
-        allow create, update: if canAccessSalon(salonId)
+        allow create, update: if canUseFeature(salonId, 'referral')
           && isValidReferralCode(request.resource.data);
         allow delete: if false;
       }
@@ -382,12 +530,12 @@ match /appointments/{docId} {
       // referral code while booking.
       match /referrals/{docId} {
         allow read: if canAccessSalon(salonId);
-        allow create: if (canAccessSalon(salonId) || isPublicBookingEnabled(salonId))
+        allow create: if (canUseFeature(salonId, 'referral') || (isPublicBookingEnabled(salonId) && salonHasFeature(salonId, 'referral')))
           && isValidReferral(request.resource.data)
           && request.resource.data.status == 'Pending'
           && request.resource.data.rewardAmount == 0
           && request.resource.data.redeemedAmount == 0;
-        allow update: if canAccessSalon(salonId)
+        allow update: if canUseFeature(salonId, 'referral')
           && isValidReferral(request.resource.data)
           // The two parties to a referral are fixed for its whole lifetime.
           && request.resource.data.referrerId == resource.data.referrerId
@@ -399,7 +547,7 @@ match /appointments/{docId} {
       // referral money history a genuine audit trail.
       match /walletTransactions/{txId} {
         allow read: if canAccessSalon(salonId);
-        allow create: if canAccessSalon(salonId)
+        allow create: if canUseFeature(salonId, 'referral')
           && isValidWalletTransaction(request.resource.data);
         allow update, delete: if false;
       }
@@ -408,10 +556,9 @@ match /appointments/{docId} {
     // ---------- Reward transactions (audit ledger) ----------
     match /rewardTransactions/{txId} {
       allow read: if isSignedIn()
-        && (isAdmin() || resource.data.get('salonId', null) == null
-            || canAccessSalon(resource.data.salonId));
+        && (isAdmin() || canAccessSalon(resource.data.get('salonId', '')));
       allow create: if isSignedIn()
-        && (isAdmin() || canAccessSalon(request.resource.data.get('salonId', '')));
+        && canUseFeature(request.resource.data.get('salonId', ''), 'loyalty');
       allow update, delete: if false;
     }
     // ================= SUPER ADMIN CONSOLE =================

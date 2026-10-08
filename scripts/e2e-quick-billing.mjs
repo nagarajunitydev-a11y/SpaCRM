@@ -193,7 +193,13 @@ async function main() {
     await addService('Precision Haircut');
     await waitFor(`(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-selected-services]'); return el && el.innerText.includes('Subtotal') && el.innerText.includes('245'); })()`);
     const selectedText = await evaluate(`document.querySelector('${qbFormSelector} [data-quickbilling-selected-services]').innerText`);
-    assert(selectedText.includes('Signature Facial') && (selectedText.match(/Precision Haircut/g) || []).length === 2, 'two independently selectable Haircut lines appear alongside the facial');
+    assert(await evaluate(`(() => {
+        const selects = [...document.querySelectorAll('${qbFormSelector} [data-action="quick-billing-edit-service"]')];
+        const labels = selects.map(el => el.selectedOptions[0]?.textContent);
+        const lineIds = selects.map(el => el.dataset.lineId);
+        return labels.includes('Signature Facial') && labels.filter(label => label === 'Precision Haircut').length === 2
+            && new Set(lineIds).size === 3;
+    })()`), 'two independently selectable Haircut lines appear alongside the facial');
     assert(selectedText.includes('₹245'), 'subtotal is ₹245 for the repeated-service bill (95 + 75 + 75)');
     assert(await evaluate(`(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-summary]'); return el && el.innerText.includes('₹245'); })()`), 'live summary includes every repeated service occurrence');
 
@@ -307,9 +313,9 @@ async function main() {
         `(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-selected-services]'); const h = document.querySelector('${qbFormSelector} [name="selectedServices"]'); return { ok: el && el.innerText.includes('Balayage & Gloss') && el.innerText.includes('255'), dump: JSON.stringify({ hidden: h && h.value, text: el && el.innerText }) }; })()`,
     );
     assert(afterAdd.ok, 'adding a service updates the subtotal to ₹255 (95 + 160)');
-    await click('[data-action="quick-billing-remove-service"][data-name="Balayage & Gloss"]');
+    await click('[data-action="quick-billing-remove-service"][aria-label="Remove Balayage & Gloss"]');
     const afterRemove = await pollWithDebug(
-        `(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-selected-services]'); const h = document.querySelector('${qbFormSelector} [name="selectedServices"]'); return { ok: el && !el.innerText.includes('Balayage & Gloss') && el.innerText.includes('95') && !el.innerText.includes('255'), dump: JSON.stringify({ hidden: h && h.value, text: el && el.innerText }) }; })()`,
+        `(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-selected-services]'); const h = document.querySelector('${qbFormSelector} [name="selectedServices"]'); return { ok: el && !el.querySelector('[aria-label="Remove Balayage & Gloss"]') && el.innerText.includes('95') && !el.innerText.includes('255'), dump: JSON.stringify({ hidden: h && h.value, text: el && el.innerText }) }; })()`,
     );
     assert(afterRemove.ok, 'removing a service drops it and restores the ₹95 subtotal');
     assert(await evaluate(`(() => { const el = document.querySelector('${qbFormSelector} [data-quickbilling-summary]'); return el && el.innerText.includes('₹95'); })()`), 'live summary follows the removal (₹95)');

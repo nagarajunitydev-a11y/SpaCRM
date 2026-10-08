@@ -8,8 +8,8 @@ import { store } from './store.js';
 import { clearDraft } from './draft.js';
 
 export const TABS = {
-    salonOwner: ['dashboard', 'appointments', 'customers', 'referrals', 'services', 'staff'],
-    superAdmin: ['admin_salons'],
+    salonOwner: ['dashboard', 'appointments', 'customers', 'referrals', 'services', 'staff', 'branches', 'subscription', 'checkout'],
+    superAdmin: ['admin_salons', 'admin_subscriptions'],
 };
 
 export function switchTab(tab) {

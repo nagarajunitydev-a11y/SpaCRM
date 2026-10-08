@@ -23,6 +23,8 @@ import {
     where as fbWhere,
     orderBy as fbOrderBy,
     runTransaction as fbRunTransaction,
+    collectionGroup as fbCollectionGroup,
+    Timestamp as FbTimestamp,
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 /** True when a snapshot actually exists (`exists` is a method in the modular SDK). */
@@ -251,6 +253,55 @@ export async function deleteDocument(segments, id) {
     return { id };
 }
 
+/** Firestore Timestamp (or anything with toMillis) -> epoch ms; numbers pass through. */
+export function toMillis(v) {
+    if (v == null) return null;
+    if (typeof v === 'number') return v;
+    if (typeof v.toMillis === 'function') return v.toMillis();
+    return null;
+}
+
+/** Epoch ms -> Firestore Timestamp (for fields security rules compare as timestamps). */
+export function tsFromMillis(ms) {
+    return FbTimestamp.fromMillis(ms);
+}
+
+/** Subscribe to one document. `onData(row|null)`. Returns unsubscribe. */
+export function listenDocument(segments, id, onData, onError) {
+    const fb = getFirebase();
+    if (!fb || !id || segments.some((s) => !s || typeof s !== 'string')) return () => {};
+    try {
+        return onSnapshot(docRef(...segments, id), (snap) => {
+            try { onData(mapDoc(snap)); } catch (err) { console.error('listenDocument callback failed:', err); }
+        }, (err) => {
+            console.warn(`Firestore listen failed (${segments.join('/')}/${id}):`, err);
+            if (onError) onError(err);
+        });
+    } catch (err) {
+        if (onError) onError(err);
+        return () => {};
+    }
+}
+
+/** Subscribe to every collection with this id, across all parents (super admin views). */
+export function listenCollectionGroup(name, onData, onError) {
+    const fb = getFirebase();
+    if (!fb) return () => {};
+    try {
+        return onSnapshot(fbCollectionGroup(fb.db, name), (snap) => {
+            try {
+                onData(snap.docs.map((d) => ({ ...mapDoc(d), _path: d.ref.path })));
+            } catch (err) { console.error('listenCollectionGroup callback failed:', err); }
+        }, (err) => {
+            console.warn(`Firestore group listen failed (${name}):`, err);
+            if (onError) onError(err);
+        });
+    } catch (err) {
+        if (onError) onError(err);
+        return () => {};
+    }
+}
+
 export default {
     mapDoc,
     colRef,
@@ -265,4 +316,8 @@ export default {
     deleteDocument,
     runAtomic,
     createIfAbsent,
+    toMillis,
+    tsFromMillis,
+    listenDocument,
+    listenCollectionGroup,
 };

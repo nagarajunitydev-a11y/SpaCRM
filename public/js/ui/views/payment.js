@@ -122,12 +122,13 @@ export function renderPaymentForm(state) {
     const settings = sanitizeSettings(state.referralSettings);
     const invoiceAmount = defaultInvoiceAmount(appointment, services);
     const walletBalance = round2(Math.max(0, num(customer && customer.walletBalance)));
-    const canEditDiscount = state.userRole === 'salon_owner';
-    const discountType = customer?.discountType || '';
+    const discountsAllowed = !state.access || state.access.can('customerDiscounts');
+    const canEditDiscount = discountsAllowed && state.userRole === 'salon_owner';
+    const discountType = discountsAllowed ? (customer?.discountType || '') : '';
     const discountValue = customer?.discountValue || '';
     const discount = discountAmountFor({ type: discountType, value: discountValue }, invoiceAmount);
     const discountText = discountLabel({ type: discountType, value: discountValue });
-    const cap = settings.enabled
+    const cap = settings.enabled && (!state.access || state.access.can('referral'))
         ? maxRedeemable({ walletBalance, invoiceAmount: round2(invoiceAmount - discount), settings })
         : 0;
 

@@ -26,6 +26,19 @@ export function logoMark(size = 'w-10 h-10', iconClass = 'w-8 h-8') {
     `;
 }
 
+/** Compact plan / trial indicator in the header; opens the Subscription page. */
+function planPill(state) {
+    const a = state.access;
+    if (!a || a.unrestricted) return '';
+    const label = a.isTrial ? `Trial · ${a.trialDaysLeft}d`
+        : a.locked ? 'Upgrade'
+        : a.plan ? a.plan.name : 'Plan';
+    const warn = a.locked || (a.isTrial && a.trialDaysLeft <= 3);
+    return `<button data-action="tab" data-tab="subscription" aria-label="Subscription: ${escAttr(label)}" title="Subscription" class="h-10 px-2.5 rounded-xl ${warn ? 'bg-rose-500/15 text-rose-300' : 'bg-brand-500/15 text-brand-300'} flex items-center gap-1.5 text-[11px] font-bold transition active:scale-95 touch-manipulation">
+        <i data-lucide="crown" class="w-4 h-4"></i><span class="hidden sm:inline">${esc(label)}</span>
+    </button>`;
+}
+
 /** App header (role label, salon selector, logout). */
 export function appHeader(state, { onLogoutLabel } = {}) {
     const isOwner = state.userRole === 'salon_owner';
@@ -36,7 +49,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             <div class="flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 max-w-[46vw]">
                 <i data-lucide="store" class="w-4 h-4 text-brand-500 mr-1.5 shrink-0"></i>
                 <select data-action="salon" class="bg-transparent font-medium text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 text-ellipsis" aria-label="Select salon">
-                    ${(state.salonsList || []).map((s) => `
+                    ${(state.salonsList || []).filter((s) => s.active !== false || s.id === state.currentSalonId).map((s) => `
                         <option value="${escAttr(s.id)}" ${s.id === state.currentSalonId ? 'selected' : ''} class="bg-slate-900">${esc(s.name)}</option>
                     `).join('')}
                 </select>
@@ -55,6 +68,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             </div>
             <div class="flex items-center space-x-2 shrink-0">
                 ${salonSelector}
+                ${isOwner ? planPill(state) : ''}
                 ${isOwner ? `
                 <button data-action="open-help-menu" aria-label="Help & guided tours" title="Help & guided tours" class="w-10 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center transition active:scale-95 touch-manipulation">
                     <i data-lucide="circle-help" class="w-5 h-5"></i>
@@ -79,12 +93,14 @@ export function bottomNav(state) {
         { tab: 'referrals', label: 'Referrals', icon: 'gift' },
         { tab: 'services', label: 'Services', icon: 'sparkles' },
         { tab: 'staff', label: 'Staff', icon: 'user-check' },
+        { tab: 'branches', label: 'Branches', icon: 'git-branch' },
     ];
 
     const items = isOwner
         ? ownerItems
         : [
               { tab: 'admin_salons', label: 'All Salons', icon: 'building-2' },
+              { tab: 'admin_subscriptions', label: 'Subscriptions', icon: 'credit-card' },
               { action: 'logout', label: 'Sign Out', icon: 'log-out', logout: true },
           ];
 
@@ -117,12 +133,15 @@ export function desktopSidebar(state) {
         { tab: 'referrals', label: 'Referrals', icon: 'gift' },
         { tab: 'services', label: 'Services', icon: 'sparkles' },
         { tab: 'staff', label: 'Staff', icon: 'user-check' },
+        { tab: 'branches', label: 'Branches', icon: 'git-branch' },
+        { tab: 'subscription', label: 'Subscription', icon: 'crown' },
     ];
 
     const items = isOwner
         ? ownerItems
         : [
               { tab: 'admin_salons', label: 'All Salons', icon: 'building-2' },
+              { tab: 'admin_subscriptions', label: 'Subscriptions', icon: 'credit-card' },
           ];
 
     return `
@@ -139,7 +158,7 @@ export function desktopSidebar(state) {
                     <div class="mt-4 flex items-center bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-[11px] text-slate-300">
                         <i data-lucide="store" class="w-3.5 h-3.5 text-brand-500 mr-2 shrink-0"></i>
                         <select data-action="salon" class="bg-transparent font-medium text-slate-200 focus:outline-none cursor-pointer w-full min-w-0 text-ellipsis" aria-label="Select salon">
-                            ${(state.salonsList || []).map((s) => `
+                            ${(state.salonsList || []).filter((s) => s.active !== false || s.id === state.currentSalonId).map((s) => `
                                 <option value="${escAttr(s.id)}" ${s.id === state.currentSalonId ? 'selected' : ''} class="bg-slate-900">${esc(s.name)}</option>
                             `).join('')}
                         </select>

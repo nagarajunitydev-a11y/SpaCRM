@@ -7,7 +7,7 @@ A modern, offline-capable Progressive Web App (PWA) for salon and spa management
 ## Quick Facts
 
 - **No build step** — vanilla ES modules, Tailwind CDN
-- **No runtime dependencies** — only Firebase SDK
+- **No runtime dependencies in the browser** — only the Firebase SDK (the `api/` payment functions use `firebase-admin`)
 - **Offline-first** — works completely offline with Firestore local cache
 - **Multi-platform** — Web PWA + Android TWA (Trusted Web Activity)
 - **Atomic transactions** — referral wallet, payment redemption, and booking operations
@@ -39,6 +39,37 @@ A modern, offline-capable Progressive Web App (PWA) for salon and spa management
 - Referral wallet balance management
 - Revenue analytics (daily, monthly)
 - Payment method tracking and refund reversal
+
+### 🏢 Multi-Branch
+- Owners manage branches from the **Branches** tab: add, edit, activate/deactivate and switch. **Add Branch** stays available after the first branch is created.
+- A branch is a `salons/{branchId}` document; customers, services, staff, appointments, billing, referral wallets, attendance and booking settings live under it, so branch data is isolated by path.
+- Required fields: name (unique per owner, case-insensitive), phone, address, opening/closing time.
+- Plan limits (`core/branches.js`): Basic = 1 branch, Pro = 3, Premium = unlimited. Deactivated branches still count toward the limit. Only a super admin can change a salon's plan (Plan dropdown on the All Salons screen).
+- Existing single-branch salons need no migration: missing `plan`/`active`/hours fields default to Basic / active / unset.
+- Deactivated branches disappear from the switcher and stop accepting public bookings; their data is kept.
+
+### 💎 Subscriptions & Payments
+Plans: **Free Trial** (30 days, no card, Standard-level), **Basic** ₹399/mo · ₹3,990/yr, **Standard** ₹799/mo · ₹7,990/yr (most popular), **Premium** ₹1,499/mo · ₹14,990/yr, **Business** ₹2,999/mo · ₹29,990/yr (multiple branches, unlimited staff/customers). Prices, limits and features live in `core/plans.js` and can be overridden by a super admin (Subscriptions → Plans), stored in Firestore `plans/{planId}`.
+
+How it fits together:
+- `core/subscriptionState.js` — status state machine (`TRIAL / ACTIVE / PAST_DUE / GRACE_PERIOD / EXPIRED / SUSPENDED / CANCELLED`) and idempotent payment transitions (`PENDING / SUCCESS / FAILED / CANCELLED / REFUNDED`). Shared by browser and server.
+- `core/featureAccess.js` — **FeatureAccessService**: the single `can(feature)` / `canCreate('staff'|'customer'|'branch')` the UI and repositories ask. `state.access` holds the live snapshot.
+- `services/subscriptionService.js` — **SubscriptionService**: listeners, automatic 30-day trial, access refresh.
+- `services/payment/` — browser **PaymentGateway** abstraction (`razorpayGateway.js`) and `paymentService.js`.
+- `api/` (Vercel Functions) — `create-order`, `verify`, `cancel`, `webhook`, plus a daily cron. Gateway modules live in `api/_lib/gateways/`; switch gateways with `PAYMENT_GATEWAY`.
+- Firestore: `subscriptions/{ownerUid}` with `payments/` and `events/` subcollections, `plans/{planId}`. Browsers can only create a ~30-day TRIAL once and update usage counters; everything else is written by the server (see `firestore.rules`).
+
+Security properties: the amount is computed server-side from the plan catalog; a plan is activated only after the gateway signature is verified **and** the payment is fetched from the gateway (or a signed webhook arrives); repeated callbacks/refreshes are no-ops; failures and cancellations never change an active subscription; card/UPI details are entered on the gateway's own page and never stored.
+
+Setup (once):
+1. Create a Razorpay account, copy **test** keys, and add a webhook to `https://<domain>/api/subscription/webhook` for `payment.captured`, `payment.failed`, `order.paid`, `refund.processed`.
+2. Set the variables from `.env.example` in Vercel (including a Firebase service account) and redeploy.
+3. `npm run deploy:rules` to publish the new Firestore rules.
+4. Local testing of payments needs the API routes: use `vercel dev` (the plain `npm run serve` has no `/api`, so checkout shows "Payments unavailable").
+
+Renewals are prepaid: each period is one payment and the owner is reminded in-app (banner from 7 days before) — there is no automatic card/UPI auto-debit. Downgrades take effect once the paid period ends; upgrades start immediately with credit for unused time. Expired accounts become **view-only** — no data is ever deleted.
+
+Demo mode has no billing (everything unlocked). Append `?demoPlan=trial|basic|standard|premium|business|expired` to the URL to preview a plan's gating.
 
 ### 🎁 Public Booking
 - Public, no-login booking page
@@ -167,8 +198,25 @@ public/
    npm test
    ```
 
+### Running in the Browser with Firestore (real backend)
+
+By default the app opens in demo mode. To run it against the real Firebase project (Auth + Firestore):
+
+1. Start the dev server: `npm run serve`
+2. Open **http://127.0.0.1:5500/?firebase=1** in a browser.
+
+The `?firebase=1` flag makes `public/js/firebase-config.dev.js` inject the web config for project `crmapp-1299dddb`. Without the flag, the app stays in demo mode (this keeps the e2e tests unaffected).
+
+Verify it worked: the browser console shows `[AUTH] Auth state changed: user is null` and there is no "running in demo mode" warning. Then sign in or choose **Create New Account**.
+
+Notes:
+- Use `127.0.0.1` (or `localhost`) exactly as listed under Firebase Console → Authentication → Settings → **Authorized domains**. Otherwise sign-in fails with `auth/unauthorized-domain`.
+- Firestore access is governed by `firestore.rules`. After editing it, run `npm run deploy:rules`.
+- Data is cached offline in IndexedDB. Use a single tab per browser profile (single-tab persistence).
+- To use a different Firebase project, edit the config object in `public/js/firebase-config.dev.js`.
+
 ### Demo Mode
-To test without Firebase configuration, set `DEMO_MODE = true` in `public/js/config.js`.
+To test without Firebase configuration, just open `http://127.0.0.1:5500/` (no `?firebase=1`).
 
 ## Development Workflow
 

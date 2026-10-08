@@ -288,6 +288,7 @@ async function main() {
     await click(customer, '[data-action="pick-staff"][data-name="Victoria Sterling"]');
 
     const farDate = new Date(); farDate.setDate(farDate.getDate() + 3);
+    if (farDate.getDay() === 0) farDate.setDate(farDate.getDate() + 1); // demo salon is closed Sundays
     const dateStr = farDate.toISOString().slice(0, 10);
     await evaluate(customer, `(() => {
         const el = document.querySelector('[data-action="pick-date"]');

@@ -307,6 +307,23 @@ export function validateForm(formKey, data, ctx = {}) {
         check(errors, 'email', salonEmail, [required('Owner email is required.'), email('Enter a valid email address.')]);
         check(errors, 'phone', v('phone'), [required('Phone number is required.'), indianPhone('Enter a valid 10-digit Indian mobile number (e.g. 98765 43210).')]);
         check(errors, 'address', v('address'), [required('Location address is required.')]);
+        // Multi-branch form (opted in by the form carrying open/close fields):
+        // working hours are required and must form a valid range, and the
+        // name must be unique among the owner's branches (`isDuplicateName`
+        // is supplied by the caller so this module stays free of store/repo
+        // imports).
+        if (ctx.branch) {
+            if (!isBlank(v('name')) && typeof ctx.isDuplicateName === 'function' && ctx.isDuplicateName(v('name'))) {
+                errors.name = 'A branch with this name already exists.';
+            }
+            const open = v('openTime');
+            const close = v('closeTime');
+            check(errors, 'openTime', open, [required('Opening time is required.'), timeValid('Enter a valid opening time.')]);
+            check(errors, 'closeTime', close, [required('Closing time is required.'), timeValid('Enter a valid closing time.')]);
+            if (!errors.openTime && !errors.closeTime && String(open) >= String(close)) {
+                errors.closeTime = 'Closing time must be after opening time.';
+            }
+        }
         // Optional IANA timezone; when present it must look like one.
         const timezone = v('timezone');
         if (!isBlank(timezone) && !/^[A-Za-z_\-+]+\/[A-Za-z_\-+]+$/.test(String(timezone)) && String(timezone) !== 'UTC') {

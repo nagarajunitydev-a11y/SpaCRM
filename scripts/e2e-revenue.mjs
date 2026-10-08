@@ -70,18 +70,23 @@ const revenueExpr = `
         .filter((el) => el.textContent.trim() === 'Est. Revenue')
         .map((el) => el.nextElementSibling.textContent.trim())[0] || null`;
 
+let bookingSequence = 0;
 async function bookAppointment(customer, serviceIndex) {
     await click('[data-action="tab"][data-tab="appointments"]');
     await waitFor(`document.querySelector('[data-action="modal"][data-modal="appointment"]') !== null`);
     await click('[data-action="modal"][data-modal="appointment"]');
     await waitFor(`document.querySelector('form[data-action="submit-appointment"]') !== null`);
-    await evaluate(`(() => {
+    const bookingTime = `${10 + bookingSequence++ * 2}:00`;
+    await evaluate(`(async () => {
         const f = document.querySelector('form[data-action="submit-appointment"]');
         f.querySelector('[name="customerName"]').value = ${JSON.stringify(customer)};
         f.querySelector('[name="customerName"]').dispatchEvent(new Event('input', { bubbles: true }));
-        // Date & time are no longer user-pickable: the booking is stamped
-        // automatically with today's salon time, so it stays in the
-        // dashboard's "Today" period by construction.
+        const { currentSalonDateTime } = await import('/js/core/utils.js');
+        const { store } = await import('/js/core/store.js');
+        const state = store.getState();
+        const salon = state.salonsList.find(row => row.id === state.currentSalonId);
+        f.querySelector('[name="date"]').value = currentSalonDateTime(salon).date;
+        f.querySelector('[name="time"]').value = ${JSON.stringify(bookingTime)};
         f.querySelector('[name="serviceName"]').selectedIndex = ${serviceIndex};
         f.querySelector('[name="staffName"]').selectedIndex = 1;
         return true;

@@ -52,6 +52,9 @@ export const store = createStore({
     resetDone: false, // true once a new password has been saved via the reset link
     accountRole: 'salon_owner', // persistent role from the user profile (Firestore)
     currentUser: null,
+    trialStarting: false,
+    trialError: null,
+    subscriptionError: null,
     userRole: 'guest', // 'guest' | 'salon_owner' | 'super_admin'
     currentSalonId: null, // the active salon the tenant repos are scoped to
     salonsLoaded: false, // true once the owner's salons have been fetched

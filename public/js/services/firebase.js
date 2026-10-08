@@ -60,6 +60,14 @@ export async function initFirebase() {
         // second Firebase App / Firestore instance.
         const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
         const auth = fbGetAuth(app);
+        // Explicit local test mode, restricted to disposable demo projects.
+        const useEmulators = ['localhost', '127.0.0.1'].includes(location.hostname)
+            && new URLSearchParams(location.search).get('firebaseEmulators') === '1'
+            && firebaseConfig.projectId.startsWith('demo-');
+        if (useEmulators) {
+            const { connectAuthEmulator } = await import('https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js');
+            connectAuthEmulator(auth, 'http://127.0.0.1:9098', { disableWarnings: true });
+        }
 
         // Persist the signed-in session in local storage so it survives the
         // Google OAuth redirect round-trip and every reload. This is the
@@ -82,6 +90,10 @@ export async function initFirebase() {
             db = getFirestore(app);
         }
 
+        if (useEmulators) {
+            const { connectFirestoreEmulator } = await import('https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js');
+            connectFirestoreEmulator(db, '127.0.0.1', 8085);
+        }
         fb = { app, auth, db };
         store.setState({ mode: 'firebase' });
 

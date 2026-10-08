@@ -10,7 +10,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const dirs = [join(root, 'public', 'js'), join(root, 'public')];
+const dirs = [join(root, 'public'), join(root, 'api'), join(root, 'scripts')];
 
 const files = [];
 const seen = new Set();

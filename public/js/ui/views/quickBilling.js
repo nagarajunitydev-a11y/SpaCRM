@@ -313,7 +313,7 @@ export function renderQuickBillingForm(state, draft = null) {
     const services = scopedBySalon(state.servicesList, state.currentSalonId);
     const staff = scopedBySalon(state.staffList, state.currentSalonId);
     const customers = scopedBySalon(state.customersList, state.currentSalonId);
-    const isOwner = state.userRole === 'salon_owner';
+    const isOwner = state.userRole === 'salon_owner' && (!state.access || state.access.can('customerDiscounts'));
     const now = currentDateTime();
 
     // A full app re-render (any store change) rebuilds the whole view, so an
