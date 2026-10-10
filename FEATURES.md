@@ -1,6 +1,6 @@
 # Features Documentation
 
-Deep-dive into SpaCRM's major features with workflows, data models, and implementation details.
+Deep-dive into Qvrix GlowOS's major features with workflows, data models, and implementation details.
 
 ## Table of Contents
 

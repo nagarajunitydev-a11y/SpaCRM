@@ -1,4 +1,4 @@
-# SPACRM pre-release subscription and feature verification
+# Qvrix GlowOS pre-release subscription and feature verification
 
 Audit date: 8 October 2026 (Asia/Calcutta). **Overall status: NOT READY.**
 

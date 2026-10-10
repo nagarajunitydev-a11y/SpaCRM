@@ -136,7 +136,7 @@ function render() {
     const overlay = document.createElement('div');
     overlay.setAttribute('role', 'dialog');
     overlay.setAttribute('aria-modal', 'true');
-    overlay.setAttribute('aria-label', 'SPACRM guided tour');
+    overlay.setAttribute('aria-label', 'Qvrix GlowOS guided tour');
     overlay.className = 'fixed inset-0 z-[998]';
     overlay.innerHTML = `
         ${spotlightHtml}

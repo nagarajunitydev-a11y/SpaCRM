@@ -1,4 +1,4 @@
-# SpaCRM Architecture Guide
+# Qvrix GlowOS Architecture Guide
 
 Comprehensive overview of the system design, data flow, patterns, and design decisions.
 
@@ -16,7 +16,7 @@ Comprehensive overview of the system design, data flow, patterns, and design dec
 
 ## System Overview
 
-SpaCRM is a **layered, modular architecture** with clear separation of concerns:
+Qvrix GlowOS is a **layered, modular architecture** with clear separation of concerns:
 
 ```
 ┌──────────────────────────────────────────────────────┐

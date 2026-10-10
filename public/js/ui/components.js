@@ -21,7 +21,7 @@ export function iconEl(name, cls = 'w-4 h-4') {
 export function logoMark(size = 'w-10 h-10', iconClass = 'w-8 h-8') {
     return `
         <div class="${escAttr(size)} shrink-0 flex items-center justify-center">
-            <img src="/logo.png" alt="Qvrix Luxe" class="${escAttr(iconClass)} object-contain">
+            <img src="/logo.png" alt="Qvrix GlowOS" class="${escAttr(iconClass)} object-contain">
         </div>
     `;
 }
@@ -62,7 +62,7 @@ export function appHeader(state, { onLogoutLabel } = {}) {
             <div class="flex items-center space-x-2.5 min-w-0">
                 ${logoMark()}
                 <div class="min-w-0">
-                    <h1 class="font-bold text-xs text-slate-100 tracking-tight truncate">Qvrix Luxe</h1>
+                    <h1 class="font-bold text-xs text-slate-100 tracking-tight truncate">Qvrix GlowOS</h1>
                     <p class="text-[9px] text-brand-400 font-semibold uppercase tracking-wider truncate">${esc(roleLabel)}</p>
                 </div>
             </div>
@@ -150,7 +150,7 @@ export function desktopSidebar(state) {
                 <div class="flex items-center space-x-3">
                     ${logoMark('w-11 h-11', 'w-9 h-9')}
                     <div class="min-w-0">
-                        <h1 class="font-bold text-sm text-slate-100 tracking-tight">Qvrix Luxe</h1>
+                        <h1 class="font-bold text-sm text-slate-100 tracking-tight">Qvrix GlowOS</h1>
                         <p class="text-[10px] text-brand-400 font-semibold uppercase tracking-wider">${esc(state.userRole === 'super_admin' ? 'Super Admin' : 'Salon Owner')}</p>
                     </div>
                 </div>

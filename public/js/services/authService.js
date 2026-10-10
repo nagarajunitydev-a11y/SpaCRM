@@ -350,7 +350,7 @@ function actionCodeContinueUrl() {
 
 /**
  * Production continue URL for password-reset links, derived from the
- * injected Firebase config's authDomain (the canonical production SPACRM
+ * injected Firebase config's authDomain (the canonical production Qvrix GlowOS
  * host). Used only as a fallback when the current host is not whitelisted
  * for action links. Only the host is ever used or logged — never keys.
  */
@@ -398,7 +398,7 @@ export async function sendPasswordResetEmail(email) {
         // Firebase refuses to send when the continue-URL host is not
         // whitelisted (local IPs, preview URLs) — no email goes out at all.
         // Retry once against the production auth domain so the reset email is
-        // still delivered with a production SPACRM reset link.
+        // still delivered with a production Qvrix GlowOS reset link.
         if (code === 'auth/unauthorized-continue-uri') {
             const fallback = productionContinueUrl();
             if (fallback && fallback !== settings.url) {

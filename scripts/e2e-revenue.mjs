@@ -146,8 +146,8 @@ async function main() {
     // sign-in succeeded.
     // A cold Chrome start under full-suite load can take a while before the
     // demo session renders; allow well past the default wait here.
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`, 20000);
-    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="Qvrix GlowOS guided tour"]') !== null`, 20000);
+    if (await evaluate(`document.querySelector('[aria-label="Qvrix GlowOS guided tour"]') !== null`)) {
         await click('[data-tutorial-action="skip"]');
         await click('[data-action="tab"][data-tab="dashboard"]');
     }

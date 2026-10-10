@@ -20,8 +20,8 @@ plugins {
 
 def twaManifest = [
     applicationId: 'com.luxeglow.crm',
-    name: 'Qvrix Luxe - Salon & Spa CRM',
-    launcherName: 'Qvrix Luxe',
+    name: 'Qvrix GlowOS',
+    launcherName: 'Qvrix GlowOS',
 ]
 
 android {
@@ -40,7 +40,7 @@ android {
         ?: System.getenv('SPACRM_PRODUCTION_URL')
         ?: 'https://spacrm-ishari.vercel.app/').toString().trim()
     if (!(productionUrl ==~ /^https:\/\/.+/)) {
-        throw new GradleException('SPACRM production URL must use HTTPS.')
+        throw new GradleException('Qvrix GlowOS production URL must use HTTPS.')
     }
 
     defaultConfig {

@@ -4,7 +4,7 @@ Comprehensive testing strategy with unit tests, e2e tests, and test coverage.
 
 ## Test Overview
 
-SpaCRM includes a complete test suite with 600+ automated tests:
+Qvrix GlowOS includes a complete test suite with 600+ automated tests:
 
 | Test Type | Count | Purpose |
 |-----------|-------|---------|

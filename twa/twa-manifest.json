@@ -1,8 +1,8 @@
 {
   "packageId": "com.luxeglow.crm",
   "host": "spacrm-ishari.vercel.app",
-  "name": "Qvrix Luxe - Salon & Spa CRM",
-  "launcherName": "Qvrix Luxe",
+  "name": "Qvrix GlowOS",
+  "launcherName": "Qvrix GlowOS",
   "display": "standalone",
   "themeColor": "#0F0A12",
   "themeColorDark": "#000000",

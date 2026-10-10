@@ -93,7 +93,7 @@ public class LauncherActivity extends Activity {
         errorPanel.setPadding(48, 48, 48, 48);
         errorPanel.setVisibility(View.GONE);
         TextView title = new TextView(this);
-        title.setText("Unable to load SPACRM"); title.setTextColor(Color.WHITE); title.setTextSize(18); title.setGravity(Gravity.CENTER);
+        title.setText("Unable to load Qvrix GlowOS"); title.setTextColor(Color.WHITE); title.setTextSize(18); title.setGravity(Gravity.CENTER);
         errorDetail = new TextView(this);
         errorDetail.setTextColor(Color.parseColor("#94A3B8")); errorDetail.setTextSize(13); errorDetail.setGravity(Gravity.CENTER); errorDetail.setPadding(0, 16, 0, 24);
         Button retry = new Button(this); retry.setText("Retry"); retry.setOnClickListener(v -> loadHome());
@@ -121,8 +121,8 @@ public class LauncherActivity extends Activity {
                 removeLegacyPwaCacheOnce();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) { if (request.isForMainFrame()) showError("Check your internet connection and try again."); }
-            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) { if (request.isForMainFrame() && response.getStatusCode() >= 400) showError("The SPACRM service is temporarily unavailable."); }
-            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, android.net.http.SslError error) { handler.cancel(); showError("A secure connection to SPACRM could not be established."); }
+            @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) { if (request.isForMainFrame() && response.getStatusCode() >= 400) showError("The Qvrix GlowOS service is temporarily unavailable."); }
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, android.net.http.SslError error) { handler.cancel(); showError("A secure connection to Qvrix GlowOS could not be established."); }
         });
         webView.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
@@ -154,7 +154,7 @@ public class LauncherActivity extends Activity {
 
     private boolean blockUntrustedNavigation(Uri uri) {
         if (isAllowedUrl(uri)) return false;
-        showError("For your security, this app only opens the configured HTTPS SPACRM site.");
+        showError("For your security, this app only opens the configured HTTPS Qvrix GlowOS site.");
         return true;
     }
 
@@ -186,9 +186,9 @@ public class LauncherActivity extends Activity {
                 "(async()=>{try{if('serviceWorker' in navigator){"
                         + "const registrations=await navigator.serviceWorker.getRegistrations();"
                         + "await Promise.all(registrations.map((registration)=>registration.unregister()));}}"
-                        + "catch(e){console.warn('SPACRM service worker migration failed',e);}"
+                        + "catch(e){console.warn('Qvrix GlowOS service worker migration failed',e);}"
                         + "try{if('caches' in window){const keys=await caches.keys();await Promise.all(keys.map((key)=>caches.delete(key)));}}"
-                        + "catch(e){console.warn('SPACRM cache migration failed',e);}"
+                        + "catch(e){console.warn('Qvrix GlowOS cache migration failed',e);}"
                         + "finally{window.location.reload();}})()",
                 null);
     }

@@ -156,8 +156,8 @@ async function main() {
         return true;
     })()`);
     await evaluate(`document.querySelector('form[data-action="email-auth"]').requestSubmit()`);
-    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="SPACRM guided tour"]') !== null`, 20000);
-    if (await evaluate(`document.querySelector('[aria-label="SPACRM guided tour"]') !== null`)) {
+    await waitFor(`document.body.innerText.includes('Your Salon at a Glance') || document.querySelector('[aria-label="Qvrix GlowOS guided tour"]') !== null`, 20000);
+    if (await evaluate(`document.querySelector('[aria-label="Qvrix GlowOS guided tour"]') !== null`)) {
         await click('[data-tutorial-action="skip"]');
         await click('[data-action="tab"][data-tab="dashboard"]');
     }

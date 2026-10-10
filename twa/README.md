@@ -1,8 +1,8 @@
-# SPACRM Android wrapper
+# Qvrix GlowOS Android wrapper
 
 This Android project is deliberately a thin native shell. It ships a WebView and
 native loading, offline, upload, download, and navigation handling only; it does
-not package the SPACRM web application or its business logic.
+not package the Qvrix GlowOS web application or its business logic.
 
 ## Production URL
 
@@ -33,4 +33,4 @@ Use a physical device or emulator with Android Platform Tools available:
 adb install -r app\build\outputs\apk\release\app-release.apk
 ```
 
-The WebView only permits HTTPS navigation to the configured SPACRM origin.
+The WebView only permits HTTPS navigation to the configured Qvrix GlowOS origin.

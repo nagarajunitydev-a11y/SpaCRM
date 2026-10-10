@@ -1,4 +1,4 @@
-# SpaCRM - Qvrix Luxe Salon & Spa CRM
+# Qvrix GlowOS
 
 A modern, offline-capable Progressive Web App (PWA) for salon and spa management with advanced features including customer management, appointment scheduling, referral programs, and public online booking.
 
@@ -336,7 +336,7 @@ Atomic Firestore transactions ensure multi-document consistency:
 
 ## License
 
-Proprietary — Qvrix Luxe
+Proprietary — Qvrix GlowOS
 
 ## Support
 

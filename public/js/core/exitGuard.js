@@ -15,7 +15,7 @@
  * open, Back closes that first (matches how the visible X / backdrop tap
  * already works, and stops a stray Back press from skipping straight past
  * an in-progress form/payment/booking to a full app exit). Only when
- * nothing is open does Back show the "Exit SPACRM?" confirmation.
+ * nothing is open does Back show the "Exit Qvrix GlowOS?" confirmation.
  */
 
 import { isAndroidTwa } from './platform.js';

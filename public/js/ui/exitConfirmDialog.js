@@ -1,6 +1,6 @@
 /**
  * exitConfirmDialog.js
- * Standalone "Do you want to exit SPACRM?" confirmation, used by the
+ * Standalone "Do you want to exit Qvrix GlowOS?" confirmation, used by the
  * Android/mobile Back-button exit guard (core/exitGuard.js).
  *
  * Deliberately rendered straight onto `document.body` — NOT into the SPA's
@@ -31,7 +31,7 @@ export function showExitConfirmDialog() {
         const overlay = document.createElement('div');
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-label', 'Exit SPACRM');
+        overlay.setAttribute('aria-label', 'Exit Qvrix GlowOS');
         overlay.className = 'fixed inset-0 bg-black/85 backdrop-blur-sm z-[999] flex items-center justify-center p-6';
         overlay.innerHTML = `
             <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 max-w-xs w-full shadow-2xl text-center space-y-4">
@@ -39,8 +39,8 @@ export function showExitConfirmDialog() {
                     <i data-lucide="log-out" class="w-6 h-6"></i>
                 </div>
                 <div>
-                    <p class="text-base font-extrabold text-slate-100">Exit SPACRM?</p>
-                    <p class="text-xs text-slate-400 mt-1.5">Do you want to exit SPACRM?</p>
+                    <p class="text-base font-extrabold text-slate-100">Exit Qvrix GlowOS?</p>
+                    <p class="text-xs text-slate-400 mt-1.5">Do you want to exit Qvrix GlowOS?</p>
                 </div>
                 <div class="flex gap-2.5">
                     <button type="button" data-exit-choice="cancel" class="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition active:scale-95 touch-manipulation">Cancel</button>

@@ -52,7 +52,7 @@ export const razorpayGateway = {
                 order_id: order.orderId,
                 amount: order.amountMinor,
                 currency: order.currency,
-                name: 'Qvrix Luxe',
+                name: 'Qvrix GlowOS',
                 description: order.description,
                 prefill: { email: user.email || '', name: user.name || '' },
                 theme: { color: '#db2777' },
