@@ -636,7 +636,16 @@ function formContext(form) {
         // Validation of appointment date/time always compares against the
         // salon's current date/time (not the device's local clock).
         nowDateTime: currentSalonDateTime(currentSalon()),
+        originalDateTime: appointmentOriginalDateTime(form),
     };
+}
+
+/** Saved date/time of the appointment being edited, or null for a new booking. */
+function appointmentOriginalDateTime(form) {
+    if (form.dataset.action !== 'submit-appointment') return null;
+    const id = form.querySelector('[name="id"]')?.value;
+    const rec = id ? findAppointment(id) : null;
+    return rec ? { date: rec.date, time: rec.time } : null;
 }
 
 function syncFormValidity(form, changedName = null) {
@@ -669,7 +678,10 @@ function syncFormValidity(form, changedName = null) {
 }
 
 function syncAllFormButtons(root = appEl) {
-    root.querySelectorAll('form[data-action]').forEach((form) => {
+    // querySelectorAll only searches descendants, so include `root` itself
+    // when a single form is passed in.
+    const forms = root.matches?.('form[data-action]') ? [root] : root.querySelectorAll('form[data-action]');
+    forms.forEach((form) => {
         syncFormValidity(form);
     });
 }
@@ -2638,13 +2650,7 @@ function attachDelegation() {
         if (!handler) return;
 
         const data = readFormData(form);
-        const ctx = {
-            signup: form.querySelector('[name="salonName"]') !== null,
-            branch: form.querySelector('[name="openTime"]') !== null,
-            isDuplicateName: (name) => !!findDuplicateName(store.getState().salonsList, name, form.querySelector('[name="id"]')?.value || null),
-            nowDateTime: form.dataset.action === 'submit-appointment' ? currentSalonDateTime(currentSalon()) : undefined,
-        };
-        const errors = validateForm(form.dataset.action, data, ctx);
+        const errors = validateForm(form.dataset.action, data, formContext(form));
         if (Object.keys(errors).length > 0) {
             renderFieldErrors(form, errors);
             return;

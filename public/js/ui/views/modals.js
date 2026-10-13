@@ -8,7 +8,7 @@
 
 import { esc, escAttr } from '../../core/sanitize.js';
 import { formField, textInput, phoneInput, selectControl, dateTimeInput } from '../components.js';
-import { ATTENDANCE_STATUSES } from '../../core/validate.js';
+import { ATTENDANCE_STATUSES, APPOINTMENT_PAST_GRACE_MINUTES, hmToMinutes } from '../../core/validate.js';
 import { PREDEFINED_SERVICES } from '../../core/predefinedServices.js';
 import { TUTORIAL_ORDER, TUTORIALS } from '../../core/tutorialContent.js';
 import { REWARD_TIERS } from '../../core/rewards.js';
@@ -214,10 +214,16 @@ function renderForm(state, type) {
         // remains independent and continues to timestamp walk-ins automatically.
         const salon = (state.salonsList || []).find((s) => s.id === state.currentSalonId) || null;
         const salonNow = currentSalonDateTime(salon);
+        // A draft left open for a while carries a time that has since passed;
+        // re-stamp new bookings so the form doesn't open already invalid.
+        const draftIsStale = !rec && !!pre.date && !!pre.time && (pre.date < salonNow.date
+            || (pre.date === salonNow.date && hmToMinutes(pre.time) < hmToMinutes(salonNow.time) - APPOINTMENT_PAST_GRACE_MINUTES));
+        const stampDate = draftIsStale ? salonNow.date : (pre.date || salonNow.date);
+        const stampTime = draftIsStale ? salonNow.time : (pre.time || salonNow.time);
         const appointmentStamp = {
-            date: pre.date || salonNow.date,
-            time: pre.time || salonNow.time,
-            label: [pre.date || salonNow.date, pre.time || salonNow.time].join(' · '),
+            date: stampDate,
+            time: stampTime,
+            label: [stampDate, stampTime].join(' · '),
         };
         const selectedLineItems = appointmentLineItems(pre);
         const selectedServices = selectedLineItems.map((line) => {

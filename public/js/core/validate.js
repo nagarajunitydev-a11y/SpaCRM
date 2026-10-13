@@ -64,6 +64,15 @@ export function isValidDate(value) {
     return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
+/** Minutes an appointment time may lag behind "now" and still be bookable. */
+export const APPOINTMENT_PAST_GRACE_MINUTES = 15;
+
+/** Convert a HH:MM string to minutes since midnight. */
+export function hmToMinutes(value) {
+    const [h, m] = String(value).split(':').map(Number);
+    return h * 60 + m;
+}
+
 function nowHM() {
     const d = new Date();
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -137,15 +146,24 @@ export function validateForm(formKey, data, ctx = {}) {
         // booking modal auto-stamps the salon's current date/time, so a salon
         // in a different timezone than the device must never be judged against
         // the device's local today.
+        const time = v('time');
+        check(errors, 'time', time, [required('Time is required.'), timeValid('Enter a valid time (e.g. 14:30).')]);
+
+        // Editing a booking without touching its schedule (e.g. changing the
+        // status of a past appointment) must not be blocked by the past-time rule.
+        const original = ctx && ctx.originalDateTime;
+        const scheduleUnchanged = !!original && String(date) === String(original.date) && String(time) === String(original.time);
+
         const refDate = ctx && ctx.nowDateTime ? ctx.nowDateTime.date : todayStr();
-        if (!errors.date && String(date) < refDate) {
+        if (!errors.date && !scheduleUnchanged && String(date) < refDate) {
             errors.date = 'Date must be today or later.';
         }
 
-        const time = v('time');
-        check(errors, 'time', time, [required('Time is required.'), timeValid('Enter a valid time (e.g. 14:30).')]);
+        // The modal pre-fills the current minute, so allow a short grace
+        // window — otherwise the form silently turns invalid a minute later.
         const refTime = ctx && ctx.nowDateTime ? ctx.nowDateTime.time : nowHM();
-        if (!errors.time && String(date) === refDate && String(time) < refTime) {
+        if (!errors.time && !scheduleUnchanged && String(date) === refDate
+            && hmToMinutes(time) < hmToMinutes(refTime) - APPOINTMENT_PAST_GRACE_MINUTES) {
             errors.time = 'This time has already passed today.';
         }
 
