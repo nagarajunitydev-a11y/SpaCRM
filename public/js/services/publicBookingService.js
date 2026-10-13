@@ -41,6 +41,7 @@ import {
     lockKeysForBooking,
     availableSlotsForStaff,
     availableSlotsAnyStaff,
+    noSlotsReason,
     ANY_STAFF,
 } from '../core/scheduling.js';
 import { normalizePhoneDigits, toIndianE164 } from '../core/validate.js';
@@ -210,6 +211,23 @@ export async function fetchAvailableSlots({ salonId, settings, date, durationMin
         return availableSlotsForStaff({ ...common, staffName }).map((time) => ({ time, staffName }));
     }
     return availableSlotsAnyStaff({ ...common, staffList });
+}
+
+/**
+ * Why `fetchAvailableSlots` returned nothing for these inputs (see
+ * core/scheduling.js noSlotsReason), using the same local-date "today" rules.
+ */
+export function explainNoSlots({ settings, date, durationMinutes, staffName, staffList, now = new Date() }) {
+    return noSlotsReason({
+        workingHours: settings.workingHours,
+        date,
+        durationMinutes,
+        staffName,
+        staffList,
+        isToday: date === localDateStr(now),
+        nowMinutes: now.getHours() * 60 + now.getMinutes(),
+        minNoticeMinutes: settings.minNoticeMinutes,
+    });
 }
 
 /* ------------------------------------------------------------------ */
@@ -471,6 +489,7 @@ export default {
     resolveReferralCode,
     fetchSlotLocks,
     fetchAvailableSlots,
+    explainNoSlots,
     getIdempotencyToken,
     clearIdempotencyToken,
     submitPublicBooking,

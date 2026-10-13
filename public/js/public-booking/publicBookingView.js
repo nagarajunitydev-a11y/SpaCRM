@@ -173,6 +173,26 @@ function slotButton(slot, activeTime) {
     `;
 }
 
+const WEEKDAY_NAMES = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+
+/** The customer-facing reason a date/staff/services combination has no times. */
+function noSlotsMessage(state) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(state.date || '');
+    const weekday = m ? WEEKDAY_NAMES[new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])).getDay()] : '';
+    const staffLabel = state.staffChoice && state.staffChoice !== ANY_STAFF ? state.staffChoice : 'Our team';
+    switch (state.slotsStatus) {
+        case 'closed': return `The salon is closed${weekday ? ` on ${weekday}` : ' on this date'}. Please pick another date.`;
+        case 'out-of-range': return 'This date is outside the online booking window. Please pick another date.';
+        case 'no-staff': return 'No staff are available for online booking right now. Please contact the salon to book.';
+        case 'no-duration': return 'The selected services can’t be booked online yet. Please contact the salon to book.';
+        case 'too-long': return 'The selected services take longer than the salon’s opening hours on this date. Try fewer services or another date.';
+        case 'today-passed': return 'There are no more bookable times today. Please pick another date.';
+        case 'disabled': return 'Online booking is currently unavailable. Please contact the salon to book.';
+        case 'fully-booked': return `${staffLabel} is fully booked on this date. Try another date${state.staffChoice !== ANY_STAFF ? ' or staff member' : ''}.`;
+        default: return 'No available times on this date. Try another date or staff member.';
+    }
+}
+
 export function renderStepSchedule(state) {
     const staff = state.settings.publicStaff || [];
     const today = state.today;
@@ -196,8 +216,15 @@ export function renderStepSchedule(state) {
         slotsBlock = `<p class="text-[11px] text-slate-500 text-center py-6">Choose a staff member and date to see available times.</p>`;
     } else if (state.slotsLoading) {
         slotsBlock = `<p class="text-[11px] text-slate-500 text-center py-6 flex items-center justify-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i>Checking availability…</p>`;
+    } else if (state.slotsStatus === 'error') {
+        slotsBlock = `
+            ${emptyState('We couldn’t load availability. Check your connection and try again.')}
+            <div class="flex justify-center mt-2">
+                <button type="button" data-action="retry-slots" class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[11px] font-semibold rounded-xl transition active:scale-95 touch-manipulation">Try again</button>
+            </div>
+        `;
     } else if (state.availableSlots.length === 0) {
-        slotsBlock = emptyState('No available times on this date. Try another date or staff member.');
+        slotsBlock = emptyState(noSlotsMessage(state));
     } else {
         slotsBlock = `<div class="grid grid-cols-4 gap-2">${state.availableSlots.map((s) => slotButton(s, state.time)).join('')}</div>`;
     }

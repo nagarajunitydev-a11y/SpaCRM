@@ -75,16 +75,18 @@ function linkActions(link) {
                     class="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[11px] font-semibold rounded-xl transition active:scale-95 touch-manipulation">
                     <i data-lucide="external-link" class="w-3.5 h-3.5"></i><span>Open Link</span>
                 </a>
-                <a href="${escUrl(`https://wa.me/?text=${shareText}`)}" target="_blank" rel="noopener noreferrer"
+                <button type="button" data-action="share-booking-whatsapp" data-share-url="${escAttr(escUrl(`https://wa.me/?text=${shareText}`))}"
                     class="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-semibold rounded-xl transition active:scale-95 touch-manipulation">
                     <i data-lucide="message-circle" class="w-3.5 h-3.5"></i><span>WhatsApp</span>
-                </a>
+                </button>
                 <button type="button" data-action="toggle-booking-qr"
                     class="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[11px] font-semibold rounded-xl transition active:scale-95 touch-manipulation">
                     <i data-lucide="qr-code" class="w-3.5 h-3.5"></i><span>QR Code</span>
                 </button>
             </div>
             <div id="booking-link-qr" class="hidden mt-3 bg-white rounded-2xl p-3 flex items-center justify-center"></div>
+            <!-- Filled by the WhatsApp share check when settings aren't ready (see main.js). -->
+            <div id="booking-readiness-issues" role="alert" class="hidden mt-3"></div>
         </div>
     `;
 }

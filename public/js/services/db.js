@@ -13,6 +13,7 @@ import {
     collection,
     doc as fbDoc,
     getDoc as fbGetDoc,
+    getDocFromServer as fbGetDocFromServer,
     getDocs,
     onSnapshot,
     setDoc as fbSetDoc,
@@ -160,6 +161,19 @@ export async function getDocument(segments, id) {
         console.warn(`Firestore read failed (${segments.join('/')}/${id}):`, err);
         return null;
     }
+}
+
+/**
+ * Fetch a single document straight from the Firestore server, bypassing the
+ * offline cache, so the result is what is actually persisted. Unlike
+ * getDocument this THROWS when the server cannot be reached or the read is
+ * denied — callers that must not act on unverified data need to know.
+ */
+export async function getDocumentFromServer(segments, id) {
+    const fb = getFirebase();
+    if (!fb) return null;
+    const snapshot = await fbGetDocFromServer(docRef(...segments, id));
+    return mapDoc(snapshot);
 }
 
 /** Add a document to a collection. Returns the new document row. */
@@ -310,6 +324,7 @@ export default {
     listenCollection,
     getCollection,
     getDocument,
+    getDocumentFromServer,
     addDocument,
     setDocument,
     updateDocument,

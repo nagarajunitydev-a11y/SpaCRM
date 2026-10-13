@@ -228,8 +228,21 @@ async function main() {
     const openHref = await evaluate(owner, `document.querySelector('a[href*="/book/"]')?.getAttribute('href')`);
     assert(openHref === link, 'Open Link button targets the exact same URL as the copy button');
 
-    const waHref = await evaluate(owner, `document.querySelector('a[href*="wa.me"]')?.getAttribute('href')`);
-    assert(waHref && waHref.includes(encodeURIComponent(link)), 'WhatsApp share link embeds the booking link');
+    const waHref = await evaluate(owner, `document.querySelector('[data-action="share-booking-whatsapp"]')?.dataset.shareUrl`);
+    assert(waHref && waHref.startsWith('https://wa.me/') && waHref.includes(encodeURIComponent(link)), 'WhatsApp share link embeds the booking link');
+
+    // Record every window the WhatsApp button opens instead of really opening one.
+    await evaluate(owner, `(() => {
+        window.__waOpens = [];
+        window.open = () => { const w = { closed: false, opener: {}, location: { href: '' }, close() { this.closed = true; } }; window.__waOpens.push(w); return w; };
+        return true;
+    })()`);
+    const waSentExpr = `window.__waOpens.some((w) => !w.closed && w.location.href.startsWith('https://wa.me/'))`;
+    await click(owner, '[data-action="share-booking-whatsapp"]');
+    await waitFor(owner, `!document.getElementById('booking-readiness-issues').classList.contains('hidden')`);
+    assert(!(await evaluate(owner, waSentExpr)), 'WhatsApp link is NOT sent while online booking is switched off');
+    assert(await bodyHas(owner, 'Online Booking is switched off'), 'the blocked share explains which setting needs completing');
+    assert(await evaluate(owner, `!!document.querySelector('[data-action="booking-fix"][data-fix="settings"]')`), 'the blocked share offers a shortcut to the relevant settings');
 
     await click(owner, '[data-action="toggle-booking-qr"]');
     await pause(200);
@@ -256,6 +269,25 @@ async function main() {
     await evaluate(owner, `document.querySelector('form[data-action="submit-booking-settings"]').requestSubmit()`);
     await pause(300);
     assert(await bodyHas(owner, 'Booking link settings saved'), 'settings save confirmation shown');
+
+    console.log('\n[2b] Owner: WhatsApp booking link is gated on complete, saved settings');
+    // Entered in the form but NOT saved: the link must not go out.
+    await evaluate(owner, `(() => { const el = document.querySelector('form[data-action="submit-booking-settings"] [name="enabled"]'); el.checked = true; return true; })()`);
+    await evaluate(owner, `window.__waOpens = []`);
+    await click(owner, '[data-action="share-booking-whatsapp"]');
+    await waitFor(owner, `!document.getElementById('booking-readiness-issues').classList.contains('hidden')`);
+    assert(!(await evaluate(owner, waSentExpr)), 'WhatsApp link is NOT sent when settings are entered but not saved');
+    assert(await bodyHas(owner, 'unsaved changes'), 'the blocked share says the settings must be saved first');
+
+    // Saving valid settings enables sending.
+    await evaluate(owner, `document.querySelector('form[data-action="submit-booking-settings"]').requestSubmit()`);
+    await pause(300);
+    await evaluate(owner, `window.__waOpens = []`);
+    await click(owner, '[data-action="share-booking-whatsapp"]');
+    await waitFor(owner, waSentExpr);
+    const sentUrl = await evaluate(owner, `window.__waOpens.find((w) => !w.closed).location.href`);
+    assert(sentUrl.includes(encodeURIComponent(link)), 'after saving valid settings the WhatsApp message carries the booking link');
+    assert(await evaluate(owner, `document.getElementById('booking-readiness-issues').classList.contains('hidden')`), 'no readiness problems are shown once settings are complete');
 
     /* ================================================================ */
     console.log('\n[3] Customer: open the public booking page for a disabled salon');
@@ -471,6 +503,7 @@ async function main() {
     await waitFor(customer, bodyHasExpr(customer, 'Date & Time'));
     await click(customer, '[data-action="pick-staff"][data-name="Julian Vance"]');
     const dbDate = new Date(farDate); dbDate.setDate(dbDate.getDate() + 2);
+    if (dbDate.getDay() === 0) dbDate.setDate(dbDate.getDate() + 1); // demo salon is closed Sundays
     const dbDateStr = dbDate.toISOString().slice(0, 10);
     await evaluate(customer, `(() => {
         const el = document.querySelector('[data-action="pick-date"]');

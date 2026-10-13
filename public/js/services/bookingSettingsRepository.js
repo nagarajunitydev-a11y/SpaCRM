@@ -15,7 +15,7 @@
 
 import { store } from '../core/store.js';
 import { isDemoMode } from './firebase.js';
-import { listenCollection, setDocument, updateDocument } from './db.js';
+import { listenCollection, setDocument, updateDocument, getDocumentFromServer } from './db.js';
 import { sanitizeBookingSettings, toPublicServices, toPublicStaff, DEFAULT_BOOKING_SETTINGS } from '../core/bookingConfig.js';
 
 export const SETTINGS_DOC_ID = 'config';
@@ -75,6 +75,19 @@ export function setSalon(salonId) {
     );
 }
 
+/**
+ * The active salon's booking settings exactly as persisted (raw document, or
+ * null when never saved), read from the Firestore server rather than the
+ * local cache or in-memory state. Throws when the server can't be reached.
+ */
+export async function fetchPersistedSettings() {
+    const state = store.getState();
+    if (isDemoMode()) return state.bookingSettingsDocExists ? { ...getSettings() } : null;
+    const salonId = state.currentSalonId;
+    if (!salonId) throw new Error('No salon selected.');
+    return getDocumentFromServer(['salons', salonId, COLLECTION], SETTINGS_DOC_ID);
+}
+
 /** Persist settings for the active salon. Values are sanitized before write. */
 export async function saveSettings(patch) {
     const salonId = store.getState().currentSalonId;
@@ -128,4 +141,5 @@ export default {
     setSalon,
     saveSettings,
     syncPublicCatalog,
+    fetchPersistedSettings,
 };

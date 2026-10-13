@@ -38,6 +38,10 @@ const store = createStore({
     time: '',
     slotsLoading: false,
     availableSlots: [],
+    // Why availableSlots is empty: '' (not searched yet / has slots) or one of
+    // closed | no-staff | no-duration | too-long | today-passed |
+    // fully-booked | out-of-range | disabled | error.
+    slotsStatus: '',
     draft: { customerName: '', customerPhone: '', customerEmail: '', referralCode: '', notes: '' },
     referralApplied: false,
     submitting: false,
@@ -122,12 +126,18 @@ let slotRequestId = 0;
 async function refreshSlots() {
     const state = store.getState();
     if (!state.staffChoice || !state.date || state.selectedServices.length === 0) {
-        store.setState({ availableSlots: [] });
+        ++slotRequestId; // drop any in-flight result for the old selection
+        store.setState({ slotsLoading: false, availableSlots: [], slotsStatus: '' });
+        return;
+    }
+    if (!isBookableDate(state.date, state.settings, state.today)) {
+        ++slotRequestId;
+        store.setState({ slotsLoading: false, availableSlots: [], slotsStatus: 'out-of-range', time: '' });
         return;
     }
 
     const requestId = ++slotRequestId;
-    store.setState({ slotsLoading: true, availableSlots: [] });
+    store.setState({ slotsLoading: true, availableSlots: [], slotsStatus: '' });
 
     try {
         // Fetch the public configuration for every availability calculation.
@@ -135,13 +145,26 @@ async function refreshSlots() {
         // changes without caching an obsolete weekly schedule in the client.
         const settings = await bookingService.fetchBookingSettings(state.salonId);
         if (requestId !== slotRequestId) return;
-        if (!settings || settings.enabled !== true) {
-            store.setState({ slotsLoading: false, availableSlots: [], time: '' });
+        if (!settings) {
+            // getDocument returns null for a failed read as well as a missing
+            // document; either way availability could not be determined, so
+            // say so rather than presenting it as "no times on this date".
+            store.setState({ slotsLoading: false, availableSlots: [], slotsStatus: 'error', time: '' });
+            return;
+        }
+        if (settings.enabled !== true) {
+            store.setState({ settings, slotsLoading: false, availableSlots: [], slotsStatus: 'disabled', time: '' });
             return;
         }
         const services = settings.publicServices || [];
         const staffList = settings.publicStaff || [];
         const durationMinutes = totalDurationMinutes(state.selectedServices, services);
+        if (durationMinutes <= 0) {
+            // submitPublicBooking rejects a zero-duration selection, so never
+            // offer times the customer could not actually book.
+            store.setState({ settings, slotsLoading: false, availableSlots: [], slotsStatus: 'no-duration', time: '' });
+            return;
+        }
 
         const slots = await bookingService.fetchAvailableSlots({
             salonId: state.salonId,
@@ -153,16 +176,20 @@ async function refreshSlots() {
         });
 
         if (requestId !== slotRequestId) return; // a newer request superseded this one
+        const current = store.getState();
         store.setState({
             settings,
             slotsLoading: false,
             availableSlots: slots,
-            time: slots.some((s) => s.time === state.time) ? state.time : '',
+            slotsStatus: slots.length > 0 ? '' : bookingService.explainNoSlots({
+                settings, date: state.date, durationMinutes, staffName: state.staffChoice, staffList,
+            }),
+            time: slots.some((s) => s.time === current.time) ? current.time : '',
         });
     } catch (err) {
         if (requestId !== slotRequestId) return;
         console.warn('[booking] Could not load slots:', err);
-        store.setState({ slotsLoading: false, availableSlots: [] });
+        store.setState({ slotsLoading: false, availableSlots: [], slotsStatus: 'error' });
     }
 }
 
@@ -218,12 +245,11 @@ const actions = {
     },
 
     async 'pick-date'(el) {
-        const value = el.value;
-        if (!isBookableDate(value, store.getState().settings, store.getState().today)) {
-            store.setState({ date: value, time: '', availableSlots: [] });
-            return;
-        }
-        store.setState({ date: value, time: '' });
+        store.setState({ date: el.value, time: '' });
+        await refreshSlots();
+    },
+
+    async 'retry-slots'() {
         await refreshSlots();
     },
 
@@ -301,6 +327,7 @@ const actions = {
             date: '',
             time: '',
             availableSlots: [],
+            slotsStatus: '',
             draft: { customerName: '', customerPhone: '', customerEmail: '', referralCode: state.draft.referralCode, notes: '' },
             formError: '',
             confirmation: null,

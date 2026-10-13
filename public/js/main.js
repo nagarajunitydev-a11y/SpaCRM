@@ -76,7 +76,7 @@ import {
     renderWalletBlock,
 } from './ui/views/quickBilling.js';
 import { ANY_STAFF, totalDurationMinutes, withDuration, hasConflict, rangeForDate, timeToMinutes } from './core/scheduling.js';
-import { sanitizeBookingSettings } from './core/bookingConfig.js';
+import { sanitizeBookingSettings, bookingReadinessIssues } from './core/bookingConfig.js';
 import { round2, num, sanitizeSettings, maxRedeemable, REWARD_TYPES } from './core/referral.js';
 import { splitPayment, invoiceNoFor } from './core/wallet.js';
 import { serviceAmountFor } from './core/revenue.js';
@@ -394,6 +394,71 @@ function readFormData(form) {
         data[key] = typeof value === 'string' ? value.trim() : value;
     }
     return data;
+}
+
+/** Booking Link settings form values -> a bookingSettingsRepository.saveSettings patch. */
+function bookingSettingsPatchFromForm(data) {
+    const workingHours = {};
+    for (const key of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
+        workingHours[key] = {
+            closed: data[`closed_${key}`] === 'on' || data[`closed_${key}`] === true,
+            start: data[`start_${key}`] || '10:00',
+            end: data[`end_${key}`] || '19:00',
+        };
+    }
+    return {
+        enabled: data.enabled === 'on' || data.enabled === true,
+        displayName: data.displayName || '',
+        slotIntervalMinutes: Number(data.slotIntervalMinutes),
+        advanceBookingDays: Number(data.advanceBookingDays),
+        minNoticeMinutes: Number(data.minNoticeMinutes),
+        workingHours,
+    };
+}
+
+/**
+ * Problems that would make the shared booking link unusable, checked against
+ * the settings as persisted on the Firestore server (never the in-memory
+ * copy), the live services/staff catalog, and any unsaved edits still in the
+ * open settings form. Throws when the persisted settings can't be verified.
+ */
+async function bookingLinkReadinessIssues(form) {
+    const saved = await bookingSettingsRepository.fetchPersistedSettings();
+    const state = store.getState();
+    return bookingReadinessIssues(saved, {
+        catalogServices: scopedBySalon(state.servicesList, state.currentSalonId),
+        catalogStaff: scopedBySalon(state.staffList, state.currentSalonId),
+        draft: form ? bookingSettingsPatchFromForm(readFormData(form)) : undefined,
+    });
+}
+
+const BOOKING_FIX_LABELS = { settings: 'Review settings', services: 'Open Services', staff: 'Open Staff' };
+
+/** Show (or clear, with []) the booking-link readiness problems in the Booking Link panel. */
+function showBookingReadinessIssues(issues) {
+    const panel = appEl.querySelector('#booking-readiness-issues');
+    if (!panel) {
+        if (issues.length) showNotification(issues.map((i) => i.message).join(' '), 'error');
+        return;
+    }
+    if (!issues.length) {
+        panel.classList.add('hidden');
+        panel.innerHTML = '';
+        return;
+    }
+    const fixes = [...new Set(issues.map((i) => i.fix).filter((f) => BOOKING_FIX_LABELS[f]))];
+    panel.innerHTML = `
+        <div class="bg-rose-500/10 border border-rose-500/30 rounded-xl p-3">
+            <p class="text-[11px] font-bold text-rose-300 mb-1.5">Booking link not sent. Complete these first:</p>
+            <ul class="list-disc pl-4 space-y-1 text-[11px] text-rose-200">
+                ${issues.map((i) => `<li>${esc(i.message)}</li>`).join('')}
+            </ul>
+            ${fixes.length ? `<div class="flex flex-wrap gap-2 mt-2.5">${fixes.map((f) => `
+                <button type="button" data-action="booking-fix" data-fix="${escAttr(f)}"
+                    class="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-200 text-[11px] font-semibold rounded-xl transition active:scale-95 touch-manipulation">${esc(BOOKING_FIX_LABELS[f])}</button>`).join('')}</div>` : ''}
+        </div>
+    `;
+    panel.classList.remove('hidden');
 }
 
 function findRecord(type, id) {
@@ -2214,6 +2279,52 @@ const actions = {
         }
     },
 
+    /**
+     * WhatsApp share of the booking link, gated on the salon's booking
+     * settings being complete AND persisted: re-verified from the Firestore
+     * server on every click, so a broken link is never sent.
+     */
+    async 'share-booking-whatsapp'(el) {
+        const shareUrl = el.dataset.shareUrl || '';
+        if (!shareUrl.startsWith('https://wa.me/')) return;
+        // Open the tab now, inside the click gesture, so popup blockers allow
+        // it; it is only pointed at WhatsApp once the re-check passes.
+        const win = window.open('', '_blank');
+        let issues;
+        try {
+            issues = await bookingLinkReadinessIssues(el.closest('form'));
+        } catch (err) {
+            console.warn('[booking] Could not verify booking settings:', err);
+            issues = [{ code: 'unverified', message: 'Could not confirm your saved booking settings with the server. Check your connection and try again.', fix: '' }];
+        }
+        if (issues.length) {
+            if (win) win.close();
+            showBookingReadinessIssues(issues);
+            return;
+        }
+        showBookingReadinessIssues([]);
+        if (win) {
+            win.opener = null;
+            win.location.href = shareUrl;
+        } else {
+            window.open(shareUrl, '_blank', 'noopener,noreferrer');
+        }
+    },
+
+    async 'booking-fix'(el) {
+        const fix = el.dataset.fix;
+        if (fix === 'services' || fix === 'staff') {
+            closeModal();
+            switchTab(fix);
+            return;
+        }
+        const field = appEl.querySelector('form[data-action="submit-booking-settings"] [name="enabled"]');
+        if (field) {
+            field.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            field.focus({ preventScroll: true });
+        }
+    },
+
     async 'toggle-booking-qr'() {
         const container = appEl.querySelector('#booking-link-qr');
         if (!container) return;
@@ -2247,22 +2358,7 @@ const actions = {
     },
 
     async 'submit-booking-settings'(form, event, data) {
-        const workingHours = {};
-        for (const key of ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']) {
-            workingHours[key] = {
-                closed: data[`closed_${key}`] === 'on' || data[`closed_${key}`] === true,
-                start: data[`start_${key}`] || '10:00',
-                end: data[`end_${key}`] || '19:00',
-            };
-        }
-        await bookingSettingsRepository.saveSettings({
-            enabled: data.enabled === 'on' || data.enabled === true,
-            displayName: data.displayName || '',
-            slotIntervalMinutes: Number(data.slotIntervalMinutes),
-            advanceBookingDays: Number(data.advanceBookingDays),
-            minNoticeMinutes: Number(data.minNoticeMinutes),
-            workingHours,
-        });
+        await bookingSettingsRepository.saveSettings(bookingSettingsPatchFromForm(data));
         await bookingSettingsRepository.syncPublicCatalog(
             scopedBySalon(store.getState().servicesList, store.getState().currentSalonId),
             scopedBySalon(store.getState().staffList, store.getState().currentSalonId),

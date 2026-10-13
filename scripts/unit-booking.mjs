@@ -25,6 +25,7 @@ import {
     slotLockKey,
     ticksForSpan,
     lockKeysForBooking,
+    noSlotsReason,
     ANY_STAFF,
 } from '../public/js/core/scheduling.js';
 
@@ -37,6 +38,7 @@ import {
     sanitizeBookingSettings,
     localDateStr,
     isBookableDate,
+    bookingReadinessIssues,
 } from '../public/js/core/bookingConfig.js';
 
 let pass = 0;
@@ -271,6 +273,52 @@ console.log('\n[11] Bookable date window');
     t(isBookableDate('2099-01-01', { advanceBookingDays: 30 }, today) === false, 'a date far beyond the advance window is not bookable');
     t(isBookableDate('garbage', {}, today) === false, 'a malformed date string is never bookable');
     t(localDateStr(new Date(2026, 7, 23)) === '2026-08-23', 'localDateStr formats without a timezone shift');
+}
+
+console.log('\n[12] Spelled-out duration units');
+t(parseDurationMinutes('60 min') === 60, '"60 min" -> 60');
+t(parseDurationMinutes('45 mins') === 45, '"45 mins" -> 45');
+t(parseDurationMinutes('1 hr') === 60, '"1 hr" -> 60');
+t(parseDurationMinutes('1 hour 30 minutes') === 90, '"1 hour 30 minutes" -> 90');
+t(parseDurationMinutes('2hrs 15mins') === 135, '"2hrs 15mins" -> 135');
+t(totalDurationMinutes(['A', 'B'], [{ name: 'A', duration: '1 hr' }, { name: 'B', duration: '30 min' }]) === 90, 'multi-service total adds spelled-out durations');
+
+console.log('\n[13] Why a date has no slots');
+{
+    const wh = { ...DEFAULT_WORKING_HOURS }; // Mon-Sat 10:00-19:00, Sun closed
+    const staffList = [{ name: 'Ava' }];
+    const base = { workingHours: wh, durationMinutes: 60, staffName: 'Ava', staffList };
+    t(noSlotsReason({ ...base, date: '2026-10-18' }) === 'closed', 'a closed weekday (Sunday) reports closed');
+    t(noSlotsReason({ ...base, date: '2026-10-19', staffName: ANY_STAFF, staffList: [] }) === 'no-staff', '"Any Available" with no published staff reports no-staff');
+    t(noSlotsReason({ ...base, date: '2026-10-19', durationMinutes: 600 }) === 'too-long', 'services longer than opening hours report too-long');
+    t(noSlotsReason({ ...base, date: '2026-10-19', isToday: true, nowMinutes: 18 * 60 + 30, minNoticeMinutes: 60 }) === 'today-passed', 'late in the day with min notice reports today-passed');
+    t(noSlotsReason({ ...base, date: '2026-10-19' }) === 'fully-booked', 'an open day with staff and time reports fully-booked');
+    // The reason must agree with slot generation: a fully booked day really has no slots.
+    const fullDay = [{ staffName: 'Ava', date: '2026-10-19', time: '10:00', durationMinutes: 540, status: 'Confirmed' }];
+    t(availableSlotsForStaff({ ...base, date: '2026-10-19', slotIntervalMinutes: 30, existingAppointments: fullDay }).length === 0, 'fully-booked scenario genuinely yields zero slots');
+    t(availableSlotsAnyStaff({ ...base, date: '2026-10-19', slotIntervalMinutes: 30, staffList: [{ name: 'Ava' }, { name: 'Ben' }], existingAppointments: fullDay }).every((s) => s.staffName === 'Ben'), '"Any Available" falls back to a free staff member when one is fully booked');
+}
+
+console.log('\n[14] Booking-link readiness (gate for WhatsApp sharing)');
+{
+    const services = [{ id: 's1', name: 'Cut', price: 500, duration: '45m' }];
+    const staff = [{ id: 'st1', name: 'Ava', role: 'Stylist' }];
+    const good = { ...DEFAULT_BOOKING_SETTINGS, enabled: true, publicServices: services, publicStaff: staff };
+    const codes = (saved, ctx) => bookingReadinessIssues(saved, ctx).map((i) => i.code);
+    t(codes(null)[0] === 'not-saved', 'never-saved settings block sharing');
+    t(codes(good).length === 0, 'complete saved settings allow sharing');
+    t(codes({ ...good, enabled: false }).includes('disabled'), 'disabled online booking blocks sharing');
+    const allClosed = Object.fromEntries(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'].map((d) => [d, { closed: true, start: '10:00', end: '19:00' }]));
+    t(codes({ ...good, workingHours: allClosed }).includes('no-hours'), 'no open day blocks sharing');
+    t(codes({ ...good, publicStaff: [] }).includes('no-staff'), 'no published staff blocks sharing');
+    t(codes({ ...good, publicServices: [] }).includes('no-services'), 'no published services blocks sharing');
+    t(codes({ ...good, publicServices: [{ ...services[0], duration: '' }] }).includes('no-duration'), 'a service without a valid duration blocks sharing');
+    t(codes(good, { draft: { enabled: true, displayName: '', slotIntervalMinutes: 30, advanceBookingDays: 30, minNoticeMinutes: 60, workingHours: DEFAULT_WORKING_HOURS } }).length === 0, 'a form identical to the saved settings is not "unsaved"');
+    t(codes(good, { draft: { ...good, slotIntervalMinutes: 15 } }).includes('unsaved'), 'entered-but-unsaved changes block sharing');
+    const closedSunOtherTimes = { ...DEFAULT_WORKING_HOURS, sun: { closed: true, start: '08:00', end: '12:00' } };
+    t(!codes({ ...good, workingHours: closedSunOtherTimes }, { draft: { ...good, workingHours: DEFAULT_WORKING_HOURS } }).includes('unsaved'), 'a closed day\'s (unsubmitted) times never count as unsaved');
+    t(codes(good, { catalogServices: services, catalogStaff: [...staff, { id: 'st2', name: 'Ben' }] }).includes('stale-catalog'), 'a staff change not yet published blocks sharing');
+    t(codes(good, { catalogServices: services, catalogStaff: staff }).length === 0, 'a published catalog matching the live one passes');
 }
 
 t(ANY_STAFF === 'Any Available Staff', 'ANY_STAFF sentinel is stable');

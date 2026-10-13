@@ -36,8 +36,9 @@ export function parseDurationMinutes(duration) {
     const colon = raw.match(/^(\d+):([0-5]\d)$/);
     if (colon) return Number(colon[1]) * 60 + Number(colon[2]);
 
-    // "1h30m", "1h", "90m", "45"
-    const hm = raw.match(/^(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m)?$/);
+    // "1h30m", "1h", "90m", "45", plus the spelled-out units owners commonly
+    // type into the free-text Duration field ("60 min", "1 hr 30 mins").
+    const hm = raw.match(/^(?:(\d+(?:\.\d+)?)\s*(?:h|hr|hrs|hour|hours))?\s*(?:(\d+(?:\.\d+)?)\s*(?:m|min|mins|minute|minutes))?$/);
     if (hm && (hm[1] || hm[2])) {
         const hours = hm[1] ? Number(hm[1]) : 0;
         const minutes = hm[2] ? Number(hm[2]) : 0;
@@ -245,6 +246,35 @@ export function pickAnyAvailableStaff({ staffList, existingAppointments, date, s
 
 export const ANY_STAFF = 'Any Available Staff';
 
+/**
+ * Why a slot search produced no start times, so the booking page can tell a
+ * customer the real reason instead of one generic "no times" message:
+ *   'closed'       - the salon is closed (or misconfigured) that weekday
+ *   'no-staff'     - "Any Available" was chosen but no staff are published
+ *   'too-long'     - the selected services don't fit inside the day's hours
+ *   'today-passed' - every remaining start time today is inside min notice
+ *   'fully-booked' - the day is open but every start time is taken
+ * Pure: takes the same inputs as availableSlotsForStaff/AnyStaff.
+ */
+export function noSlotsReason({
+    workingHours,
+    date,
+    durationMinutes,
+    staffName,
+    staffList,
+    isToday = false,
+    nowMinutes = 0,
+    minNoticeMinutes = 0,
+}) {
+    const range = rangeForDate(workingHours, date);
+    if (!range) return 'closed';
+    if ((!staffName || staffName === ANY_STAFF) && (staffList || []).length === 0) return 'no-staff';
+    const duration = Math.max(0, num(durationMinutes));
+    if (range.start + duration > range.end) return 'too-long';
+    if (isToday && nowMinutes + Math.max(0, num(minNoticeMinutes)) + duration > range.end) return 'today-passed';
+    return 'fully-booked';
+}
+
 /* ------------------------------------------------------------------ */
 /* Slot locks — the atomic double-booking guard                        */
 /* ------------------------------------------------------------------ */
@@ -311,6 +341,7 @@ export default {
     availableSlotsAnyStaff,
     pickAnyAvailableStaff,
     ANY_STAFF,
+    noSlotsReason,
     LOCK_GRANULARITY_MINUTES,
     slugifyStaffName,
     slotLockKey,
