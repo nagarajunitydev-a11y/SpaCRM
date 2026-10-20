@@ -93,8 +93,9 @@ export function effectiveStatus(sub, now) {
     if (!Number.isFinite(end)) return SUB_STATUS.EXPIRED;
     if (now < end) return s === SUB_STATUS.GRACE_PERIOD ? SUB_STATUS.ACTIVE : s;
     // Period over.
-    if (s === SUB_STATUS.CANCELLED) return SUB_STATUS.EXPIRED;
-    return now < end + GRACE_DAYS * DAY_MS ? SUB_STATUS.GRACE_PERIOD : SUB_STATUS.EXPIRED;
+    if (s === SUB_STATUS.CANCELLED || sub.cancelAtPeriodEnd) return SUB_STATUS.EXPIRED;
+    const graceDays = Number.isInteger(sub.graceDays) && sub.graceDays >= 0 && sub.graceDays <= 30 ? sub.graceDays : GRACE_DAYS;
+    return now < end + graceDays * DAY_MS ? SUB_STATUS.GRACE_PERIOD : SUB_STATUS.EXPIRED;
 }
 
 /** Plan id whose entitlements apply now, or null when access is locked. */
@@ -246,8 +247,13 @@ export function applyPaymentCancelled(sub, payment, now) {
 /** Gateway refund. A full refund of the current period's payment ends access. */
 export function applyRefund(sub, payment, now, refundedAmount) {
     if (payment.status === PAY_STATUS.REFUNDED) return { duplicate: true, sub, payment, events: [] };
-    if (payment.status !== PAY_STATUS.SUCCESS) return { duplicate: true, sub, payment, events: [] };
     const amount = Number.isFinite(refundedAmount) ? refundedAmount : payment.amount;
+    if (payment.status !== PAY_STATUS.SUCCESS) return {
+        duplicate: false, sub,
+        payment: { ...payment, status: PAY_STATUS.REFUNDED, refundedAmount: Math.min(amount, payment.amount), refundedAt: now,
+            requiresReview: amount < payment.amount },
+        events: [event('PAYMENT_REFUNDED', now, payment.planId, 'Refund received before activation')],
+    };
     const full = amount >= payment.amount;
     const nextPayment = {
         ...payment,

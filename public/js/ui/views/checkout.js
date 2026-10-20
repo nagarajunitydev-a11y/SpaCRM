@@ -10,6 +10,7 @@ import { esc, escAttr } from '../../core/sanitize.js';
 import { DEFAULT_PLANS, planPrice, annualSavings, formatINR } from '../../core/plans.js';
 import { quotePurchase } from '../../core/subscriptionState.js';
 import { PAYMENT_METHODS } from '../../services/payment/index.js';
+import { isNativePaymentContext } from '../../core/platform.js';
 
 function resultPanel(c) {
     const cfg = {
@@ -36,6 +37,7 @@ function resultPanel(c) {
 }
 
 export function renderCheckout(state) {
+    if (isNativePaymentContext()) return '<p data-checkout-blocked class="text-xs text-slate-400">Subscription purchases are not available in this Android app. Existing subscriptions remain available.</p>';
     const c = state.checkout;
     const plans = state.plansCatalog || DEFAULT_PLANS;
     const plan = c && plans[c.planId];
@@ -43,7 +45,10 @@ export function renderCheckout(state) {
         return `<div class="text-center py-12 text-xs text-slate-400">Choose a plan first.<br><button data-action="tab" data-tab="subscription" class="mt-3 px-4 py-2 bg-brand-600 text-white rounded-xl font-semibold">View plans</button></div>`;
     }
     const cycle = c.billingCycle === 'annual' ? 'annual' : 'monthly';
-    const quote = quotePurchase(state.subscription, c.planId, cycle, plans, Date.now());
+    const automatic = c.renewalMode === 'automatic';
+    const existingAuto = !!state.subscription?.autoRenew;
+    const quote = automatic ? { ok: true, plan, kind: 'automatic', price: planPrice(plan, cycle), credit: 0, amount: planPrice(plan, cycle) }
+        : quotePurchase(state.subscription, c.planId, cycle, plans, Date.now());
     const busy = c.step === 'processing';
     const showResult = ['SUCCESS', 'PENDING', 'FAILED', 'CANCELLED', 'UNAVAILABLE'].includes(c.step);
 
@@ -69,7 +74,7 @@ export function renderCheckout(state) {
             ${quote.credit > 0 ? `<div class="flex justify-between"><span class="text-emerald-400">Credit for unused time on current plan</span><span class="text-emerald-400">− ${esc(formatINR(quote.credit))}</span></div>` : ''}
             ${quote.kind === 'renewal' ? '<p class="text-[10px] text-slate-500">Renewal — your new period starts when the current one ends.</p>' : ''}
             ${cycle === 'annual' ? `<p class="text-[10px] text-emerald-400">You save ${esc(formatINR(annualSavings(plan)))} compared with paying monthly.</p>` : ''}
-            <div class="flex justify-between border-t border-slate-800 pt-2 text-sm font-extrabold"><span class="text-slate-100">Total today</span><span data-checkout-total class="text-brand-300">${esc(formatINR(quote.amount))}</span></div>
+            <div class="flex justify-between border-t border-slate-800 pt-2 text-sm font-extrabold"><span class="text-slate-100">${automatic ? 'Recurring amount' : 'Total today'}</span><span data-checkout-total class="text-brand-300">${esc(formatINR(quote.amount))}</span></div>
         </div>` : `<p data-checkout-blocked class="text-xs text-amber-300">${esc(quote.error)}</p>`;
 
     return `
@@ -83,17 +88,25 @@ export function renderCheckout(state) {
                         <h3 class="text-xs font-bold text-slate-100">1 · Billing cycle</h3>
                         <div class="flex gap-2">${cycleBtn('monthly', 'Monthly')}${cycleBtn('annual', 'Annual', annualSavings(plan) > 0 ? `<span class="block text-[10px] font-bold text-emerald-400">Save ${esc(formatINR(annualSavings(plan)))}</span>` : '')}</div>
                     </section>
-                    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2" role="radiogroup" aria-label="Payment method">
+                    <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                        <h3 class="text-xs font-bold text-slate-100">Renewal</h3>
+                        ${existingAuto ? '<p class="text-xs text-slate-300">Automatic renewal is enabled. Plan changes take effect at the next billing cycle. Cancel automatic renewal from your subscription page before making a manual payment.</p>' : `
+                        <div class="flex gap-2">
+                            ${['manual', 'automatic'].map((mode) => `<button data-action="checkout-renewal" data-mode="${mode}" aria-pressed="${c.renewalMode === mode || (!c.renewalMode && mode === 'manual')}" ${busy ? 'disabled' : ''} class="flex-1 p-3 rounded-xl border text-xs font-bold ${mode === (c.renewalMode || 'manual') ? 'border-brand-500 text-brand-300' : 'border-slate-800 text-slate-300'}">${mode === 'automatic' ? 'Automatic renewal' : 'Manual renewal'}</button>`).join('')}
+                        </div>`}
+                        ${automatic ? `<p class="text-xs text-slate-300">${existingAuto ? 'Your current paid plan stays unchanged until its end date.' : 'Authorise recurring billing now. Your first plan charge starts after your existing trial or paid period; the gateway may perform a refundable mandate-authorisation charge.'} Renews every ${cycle === 'annual' ? 'year' : 'month'} at ${esc(formatINR(quote.amount))}, for up to ${cycle === 'annual' ? '10 yearly' : '120 monthly'} charges. Cancel automatic renewal at any time. No card or banking credentials are stored by Qvrix GlowOS.</p>` : '<p class="text-xs text-slate-400">One payment only. Renew manually when your plan ends.</p>'}
+                    </section>
+                    ${!automatic ? `<section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-2" role="radiogroup" aria-label="Payment method">
                         <h3 class="text-xs font-bold text-slate-100">2 · Payment method</h3>
                         ${PAYMENT_METHODS.map(methodBtn).join('')}
-                    </section>
+                    </section>` : ''}
                 </div>
                 <aside class="lg:col-span-2">
                     <section class="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 lg:sticky lg:top-0">
                         <h3 class="text-xs font-bold text-slate-100">3 · Confirm</h3>
                         ${summary}
                         <button data-action="confirm-payment" ${busy || !quote.ok ? 'disabled' : ''} class="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white text-[13px] font-bold rounded-xl shadow-lg shadow-brand-600/30 active:scale-[0.98] touch-manipulation disabled:opacity-40 disabled:cursor-not-allowed">
-                            ${busy ? 'Processing…' : quote.ok ? `Pay ${esc(formatINR(quote.amount))} securely` : 'Unavailable'}
+                            ${busy ? 'Processing…' : automatic ? (existingAuto ? 'Schedule plan change' : 'Agree and authorise automatic renewal') : quote.ok ? `Pay ${esc(formatINR(quote.amount))} securely` : 'Unavailable'}
                         </button>
                         <p class="text-[10px] text-slate-500 flex items-start gap-1.5"><i data-lucide="shield-check" class="w-3.5 h-3.5 shrink-0 text-emerald-400"></i><span>Payments are processed by our gateway on its secure page. Card, UPI and bank details are never seen or stored by us. Your plan activates only after the payment is verified.</span></p>
                     </section>

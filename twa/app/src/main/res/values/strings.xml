@@ -15,6 +15,7 @@
      limitations under the License.
 -->
 <resources>
+  <string name="loading_screen_description">Qvrix GlowOS is loading</string>
   
 
   <!--
@@ -34,7 +35,7 @@
         \"relation\": [\"delegate_permission/common.handle_all_urls\"],
         \"target\": {
             \"namespace\": \"web\",
-            \"site\": \"https://spacrm-ishari.vercel.app\"
+            \"site\": \"https://spacrm-two.vercel.app\"
         }
     }]
     

@@ -27,12 +27,16 @@ service cloud.firestore {
 
     // Subscription documents are authoritative; browser usage/state is not.
     function subscriptionLive(sub) {
+      let grace = sub.get('graceDays', 3);
+      let validGrace = grace is int && grace >= 0 && grace <= 30 ? grace : 3;
       return (sub.status == 'TRIAL' && sub.planId == 'trial'
           && sub.trialEndsAt is timestamp && request.time < sub.trialEndsAt)
         || (sub.planId in ['basic', 'standard', 'premium', 'business']
           && sub.currentPeriodEnd is timestamp
           && ((sub.status in ['ACTIVE', 'PAST_DUE', 'GRACE_PERIOD']
-                && request.time < sub.currentPeriodEnd + duration.value(3, 'd'))
+                && ((sub.get('cancelAtPeriodEnd', false) == false
+                      && request.time < sub.currentPeriodEnd + duration.value(validGrace, 'd'))
+                    || request.time < sub.currentPeriodEnd))
             || (sub.status == 'CANCELLED' && request.time < sub.currentPeriodEnd)));
     }
 

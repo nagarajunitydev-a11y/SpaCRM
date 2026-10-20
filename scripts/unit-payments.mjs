@@ -68,7 +68,7 @@ const UID = 'owner1';
 const trialSub = () => ({ ...newTrial(UID, NOW - 5 * DAY_MS) });
 
 async function setup(sub = trialSub()) {
-    const seed = { 'salons/s1': { ownerId: UID }, 'salons/other': { ownerId: 'someoneElse' } };
+    const seed = { [`users/${UID}`]: { role: 'salon_owner' }, 'salons/s1': { ownerId: UID }, 'salons/other': { ownerId: 'someoneElse' } };
     if (sub) seed[`subscriptions/${UID}`] = sub;
     const db = makeDb(seed);
     const gw = makeGateway();
@@ -246,7 +246,7 @@ const verify = (h, orderId, payId) => h.verifyPayment({ uid: UID, body: { orderI
     try { await g.createOrder({ amountMinor: 100, currency: 'INR' }); } catch (e) { threw = e instanceof GatewayNotConfigured; }
     t(threw, 'no keys configured -> GatewayNotConfigured (never a fake success)');
     const calls = [];
-    const g2 = createGateway({ RAZORPAY_KEY_ID: 'k', RAZORPAY_KEY_SECRET: 's' }, async (url, init) => { calls.push([url, init]); return { ok: true, json: async () => ({ id: 'order_Z', amount: 5000, currency: 'INR' }) }; });
+    const g2 = createGateway({ RAZORPAY_KEY_ID: 'rzp_test_fixture', RAZORPAY_KEY_SECRET: 's' }, async (url, init) => { calls.push([url, init]); return { ok: true, json: async () => ({ id: 'order_Z', amount: 5000, currency: 'INR' }) }; });
     const ord = await g2.createOrder({ amountMinor: 5000, currency: 'INR', receipt: 'r', notes: {} });
     t(ord.id === 'order_Z' && calls[0][0] === 'https://api.razorpay.com/v1/orders' && /^Basic /.test(calls[0][1].headers.Authorization), 'createOrder POSTs to the Razorpay Orders API with basic auth');
 }

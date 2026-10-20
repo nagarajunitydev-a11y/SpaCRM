@@ -4,6 +4,7 @@ import { buildHandlers, json, failure } from '../_lib/http.js';
 export async function POST(request) {
     try {
         const rawBody = await request.text();
+        if (Buffer.byteLength(rawBody) > 262144) return json(413, { error: 'Webhook body too large.' });
         const r = await buildHandlers().webhook({
             rawBody,
             signature: request.headers.get('x-razorpay-signature'),

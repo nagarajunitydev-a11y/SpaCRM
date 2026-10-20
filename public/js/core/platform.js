@@ -9,6 +9,12 @@
 const ANDROID_TWA_KEY = 'platform';
 const ANDROID_TWA_VALUE = 'android';
 
+/** Native checkout stays disabled until Play Billing or enrolled alternative billing is implemented. */
+export function isNativePaymentContext() {
+    return isAndroidTwa() || (typeof window !== 'undefined' && !!window.AndroidNative)
+        || (typeof navigator !== 'undefined' && /QvrixGlowOSAndroid|;\s*wv\)/i.test(navigator.userAgent || ''));
+}
+
 let cachedIsAndroidTwa = null;
 
 /**

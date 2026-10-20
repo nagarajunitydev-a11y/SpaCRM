@@ -20,6 +20,8 @@
  */
 
 import { mergePlans, formatINR } from '../../public/js/core/plans.js';
+import { billingError, checkoutRequest, hash, requireOwner, validId } from './checkoutRequests.js';
+import { createRecurringHandlers, configuredGrace } from './recurringHandlers.js';
 import {
     PAY_STATUS, quotePurchase, applyPaymentSuccess, applyPaymentFailure,
     applyPaymentCancelled, applyRefund, receiptNumberFor, effectiveStatus, SUB_STATUS,
@@ -32,7 +34,8 @@ const evPath = (uid, id) => `subscriptions/${uid}/events/${id}`;
 const ok = (body, status = 200) => ({ status, body });
 const fail = (status, error, code) => ({ status, body: { error, ...(code ? { code } : {}) } });
 
-export function createHandlers({ db, gateway, now = () => Date.now(), currency = 'INR' }) {
+export function createHandlers({ db, gateway, now = () => Date.now(), currency = 'INR', graceDays = configuredGrace() }) {
+    const recurring = createRecurringHandlers({ db, gateway, now, currency, graceDays });
     async function loadPlans() {
         return mergePlans(await db.list('plans'));
     }
@@ -42,16 +45,19 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
     }
 
     /** Apply a reducer result inside the transaction; returns the outcome. */
-    async function transition(uid, orderId, reducer) {
+    async function transition(uid, orderId, reducer, paymentId = null) {
         return db.transaction(async (tx) => {
             const payment = await tx.get(payPath(uid, orderId));
             if (!payment) return { missing: true };
             const sub = await tx.get(subPath(uid));
+            const claim = paymentId ? await tx.get(`paymentClaims/${paymentId}`) : null;
+            if (claim && (claim.uid !== uid || claim.orderId !== orderId)) throw billingError('Payment was already processed for another order.', 409, 'PAYMENT_ALREADY_USED');
             const res = reducer(sub, payment);
             if (!res.duplicate) {
                 tx.set(payPath(uid, orderId), res.payment);
                 if (res.sub) tx.set(subPath(uid), res.sub);
                 writeEvents(tx, uid, orderId, res.events);
+                if (paymentId) tx.set(`paymentClaims/${paymentId}`, { uid, orderId });
             }
             return { duplicate: res.duplicate, payment: res.payment, sub: res.sub };
         });
@@ -74,19 +80,33 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                 err.code = 'AMOUNT_MISMATCH';
                 throw err;
             }
-            return applyPaymentSuccess(sub, payment, t, {
+            if (![PAY_STATUS.SUCCESS, PAY_STATUS.REFUNDED].includes(payment.status)
+                && ((sub?.autoRenew) || ('quotedLastPaymentId' in payment && (sub?.lastPaymentId || null) !== payment.quotedLastPaymentId))) {
+                return { duplicate: false, sub, payment: { ...payment, status: PAY_STATUS.SUCCESS,
+                    requiresReview: true, gatewayPaymentId: info.paymentId, paidAt: t,
+                    receiptNumber: receiptNumberFor(t, orderId), failureReason: null },
+                events: [{ type: 'PAYMENT_REVIEW_REQUIRED', at: t, planId: payment.planId, detail: 'Subscription changed after checkout was quoted.' }] };
+            }
+            const result = applyPaymentSuccess(sub, payment, t, {
                 receiptNumber: receiptNumberFor(t, orderId),
                 gatewayPaymentId: info.paymentId,
                 method: info.method,
             });
-        });
+            if (result.sub && !result.duplicate) Object.assign(result.sub, { graceDays,
+                renewalMode: 'manual', autoRenew: false, gatewaySubscriptionId: null, mandateStatus: null,
+                nextChargeAt: null, scheduledPlanId: null, scheduledBillingCycle: null, scheduledChangeAt: null });
+            return result;
+        }, info.paymentId);
     }
 
-    return {
+    const handlers = {
+        ...recurring,
         /* ---------------------------------------------------------- */
         /** POST create-order — price comes from the server catalog.   */
         async createOrder({ uid, email, body }) {
             const { planId, billingCycle, salonId = null } = body || {};
+            const owned = await requireOwner(db, uid, salonId);
+            if (owned?.autoRenew) return fail(409, 'Cancel automatic renewal before making a manual payment.', 'AUTO_RENEW_EXISTS');
             const plans = await loadPlans();
             const sub = await db.get(subPath(uid));
             const t = now();
@@ -98,58 +118,68 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                 if (!salon || salon.ownerId !== uid) return fail(403, 'That salon does not belong to your account.');
             }
 
-            const order = await gateway.createOrder({
-                amountMinor: quote.amount * 100,
-                currency,
-                receipt: `sub_${uid.slice(0, 10)}_${t}`.slice(0, 40),
-                notes: { uid, planId, billingCycle, salonId: salonId || '' },
-            });
+            gateway.publicKey(); // Reject missing/live-disabled keys before reserving a checkout.
+            return ok(await checkoutRequest({ db, uid, key: body?.idempotencyKey,
+                fingerprint: JSON.stringify({ planId, billingCycle, salonId, mode: 'manual' }), now: t, execute: async () => {
+                const order = await gateway.createOrder({
+                    amountMinor: quote.amount * 100,
+                    currency,
+                    receipt: `sub_${uid.slice(0, 10)}_${t}`.slice(0, 40),
+                    notes: { uid, planId, billingCycle, salonId: salonId || '' },
+                });
+                if (order.amountMinor !== Math.round(quote.amount * 100) || order.currency !== currency) throw new Error('Provider order amount mismatch. Reconciliation required.');
 
-            const payment = {
-                orderId: order.id,
-                subscriptionId: uid,
-                ownerId: uid,
-                salonId,
-                planId,
-                billingCycle,
-                kind: quote.kind,
-                amount: quote.amount,
-                credit: quote.credit,
-                currency,
-                paymentGateway: gateway.id,
-                status: PAY_STATUS.PENDING,
-                gatewayPaymentId: null,
-                method: null,
-                receiptNumber: null,
-                createdAt: t,
-                paidAt: null,
-                failureReason: null,
-            };
-            await db.set(payPath(uid, order.id), payment);
-            await db.set(`paymentOrders/${order.id}`, { uid, createdAt: t });
+                const payment = {
+                    orderId: order.id,
+                    subscriptionId: uid,
+                    ownerId: uid,
+                    salonId,
+                    planId,
+                    billingCycle,
+                    kind: quote.kind,
+                    amount: quote.amount,
+                    credit: quote.credit,
+                    currency,
+                    paymentGateway: gateway.id,
+                    status: PAY_STATUS.PENDING,
+                    gatewayPaymentId: null,
+                    method: null,
+                    receiptNumber: null,
+                    createdAt: t,
+                    paidAt: null,
+                    failureReason: null,
+                    quotedLastPaymentId: sub?.lastPaymentId || null,
+                };
+                if (!validId(order.id)) throw new Error('Invalid provider order reference.');
+                await db.transaction(async (tx) => {
+                    tx.set(payPath(uid, order.id), payment);
+                    tx.set(`paymentOrders/${order.id}`, { uid, createdAt: t });
+                });
 
-            return ok({
-                orderId: order.id,
-                amountMinor: order.amountMinor,
-                currency,
-                gateway: gateway.id,
-                keyId: gateway.publicKey(),
-                kind: quote.kind,
-                credit: quote.credit,
-                description: `${quote.plan.name} — ${billingCycle === 'annual' ? 'annual' : 'monthly'}`,
-                prefill: { email: email || '' },
-            });
+                return {
+                    orderId: order.id,
+                    amountMinor: order.amountMinor,
+                    currency,
+                    gateway: gateway.id,
+                    keyId: gateway.publicKey(),
+                    kind: quote.kind,
+                    credit: quote.credit,
+                    description: `${quote.plan.name} — ${billingCycle === 'annual' ? 'annual' : 'monthly'}`,
+                    prefill: { email: email || '' },
+                };
+            } }));
         },
 
         /* ---------------------------------------------------------- */
         /** POST verify — called by the browser after checkout returns. */
         async verifyPayment({ uid, body }) {
             const { orderId, paymentId, signature } = body || {};
-            if (!orderId || !paymentId || !signature) return fail(400, 'Missing payment details.');
+            if (!validId(orderId) || !validId(paymentId) || typeof signature !== 'string') return fail(400, 'Missing payment details.');
             const payment = await db.get(payPath(uid, orderId));
             if (!payment) return fail(404, 'Order not found.');
             // Already applied (refresh / double click / webhook got there first).
             if (payment.status === PAY_STATUS.SUCCESS) {
+                if (payment.requiresReview) return ok({ status: 'PENDING', reviewRequired: true, message: 'Payment received. Support review is required because your subscription changed during checkout.' }, 202);
                 return ok({ status: PAY_STATUS.SUCCESS, duplicate: true, subscription: publicSub(await db.get(subPath(uid))) });
             }
             if (!gateway.verifyCheckoutSignature(orderId, paymentId, signature)) {
@@ -158,6 +188,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
             // Never trust the browser: ask the gateway what actually happened.
             let gp = await gateway.fetchPayment(paymentId);
             if (gp.orderId !== orderId) return fail(400, 'Payment does not belong to this order.', 'ORDER_MISMATCH');
+            if (gp.amountMinor !== Math.round(payment.amount * 100) || gp.currency !== payment.currency) return fail(409, 'Paid amount does not match the order.', 'AMOUNT_MISMATCH');
             if (gp.status === 'authorized') {
                 await gateway.capturePayment(paymentId, gp.amountMinor, gp.currency);
                 gp = await gateway.fetchPayment(paymentId);
@@ -167,6 +198,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                     const r = await activate(uid, orderId, {
                         paymentId, amountMinor: gp.amountMinor, currency: gp.currency, method: gp.method,
                     });
+                    if (r.payment?.requiresReview) return ok({ status: 'PENDING', reviewRequired: true, message: 'Payment received. Support review is required because your subscription changed during checkout.' }, 202);
                     return ok({ status: PAY_STATUS.SUCCESS, duplicate: !!r.duplicate, subscription: publicSub(r.sub || await db.get(subPath(uid))) });
                 } catch (err) {
                     if (err.code === 'AMOUNT_MISMATCH') return fail(409, err.message, err.code);
@@ -184,7 +216,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
         /** POST cancel — the owner closed checkout without paying.    */
         async cancelOrder({ uid, body }) {
             const { orderId } = body || {};
-            if (!orderId) return fail(400, 'Missing order id.');
+            if (!validId(orderId)) return fail(400, 'Missing order id.');
             const r = await transition(uid, orderId, (sub, p) => applyPaymentCancelled(sub, p, now()));
             if (r.missing) return fail(404, 'Order not found.');
             return ok({ status: r.payment.status, duplicate: !!r.duplicate });
@@ -197,12 +229,16 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
             let json;
             try { json = JSON.parse(rawBody); } catch { return fail(400, 'Malformed webhook body.'); }
 
-            const dedupeId = String(eventId || `${json.event}_${json.created_at || ''}_${rawBody.length}`).replace(/[/\s]/g, '_');
+            const dedupeId = hash(rawBody); // Hash signed bytes, not an unsigned delivery header or body length.
             if (await db.get(`webhookEvents/${dedupeId}`)) return ok({ received: true, duplicate: true });
 
             const ev = gateway.parseWebhook(json);
             if (ev) {
-                if (ev.kind === 'PAYMENT_CAPTURED' || ev.kind === 'PAYMENT_FAILED') {
+                if (ev.kind === 'RECURRING') {
+                    await db.set(`webhookInbox/${dedupeId}`, { event: ev, processed: false, createdAt: now() });
+                    await recurring.recurringEvent(ev);
+                    await db.set(`webhookInbox/${dedupeId}`, { event: ev, processed: true, createdAt: now() });
+                } else if (ev.kind === 'PAYMENT_CAPTURED' || ev.kind === 'PAYMENT_FAILED') {
                     const map = ev.orderId ? await db.get(`paymentOrders/${ev.orderId}`) : null;
                     if (map) {
                         if (ev.kind === 'PAYMENT_CAPTURED') {
@@ -220,13 +256,21 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                         } else {
                             await transition(map.uid, ev.orderId, (sub, p) => applyPaymentFailure(sub, p, now(), ev.reason));
                         }
+                    } else if (ev.kind === 'PAYMENT_FAILED' && ev.invoiceId) {
+                        const invoice = await gateway.fetchInvoice(ev.invoiceId);
+                        if (invoice.subscription_id) await recurring.recurringFailure(invoice.subscription_id, ev.paymentId);
+                    } else if (!ev.invoiceId) {
+                        // A webhook may beat the local order transaction.
+                        // Retry rather than acknowledging an unbound payment.
+                        throw billingError('Payment mapping not ready.', 503, 'RETRY_WEBHOOK');
                     }
                 } else if (ev.kind === 'REFUND') {
                     const gp = await gateway.fetchPayment(ev.paymentId);
                     const map = gp.orderId ? await db.get(`paymentOrders/${gp.orderId}`) : null;
                     if (map) {
-                        await transition(map.uid, gp.orderId, (sub, p) => applyRefund(sub, p, now(), ev.refundAmountMinor / 100));
-                    }
+                        await transition(map.uid, map.orderId || gp.orderId, (sub, p) => applyRefund(sub, p, now(),
+                            Number.isFinite(gp.refundedAmountMinor) ? gp.refundedAmountMinor / 100 : ev.refundAmountMinor / 100));
+                    } else throw billingError('Refund mapping not ready.', 503, 'RETRY_WEBHOOK');
                 }
             }
             await db.set(`webhookEvents/${dedupeId}`, { at: now(), event: json.event || null });
@@ -240,25 +284,26 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
             const rows = await db.list('subscriptions');
             let changed = 0;
             for (const sub of rows) {
-                const eff = effectiveStatus(sub, t);
-                const want = eff === SUB_STATUS.ACTIVE ? sub.status : eff;
-                if (eff === 'NONE' || want === sub.status) continue;
-                if (sub.status === SUB_STATUS.SUSPENDED) continue;
-                const marker = sub.currentPeriodEnd || sub.trialEndsAt || 0;
-                await db.set(`subscriptions/${sub.id}`, { ...stripId(sub), status: want, updatedAt: t });
-                await db.set(evPath(sub.id, `${want}_${marker}`), {
-                    type: `STATUS_${want}`, at: t, planId: sub.planId, detail: `${sub.status} -> ${want}`,
+                const didChange = await db.transaction(async (tx) => {
+                    const fresh = await tx.get(subPath(sub.id));
+                    if (!fresh || fresh.status === SUB_STATUS.SUSPENDED) return false;
+                    const eff = effectiveStatus(fresh, t);
+                    const want = eff === SUB_STATUS.ACTIVE ? fresh.status : eff;
+                    if (eff === 'NONE' || want === fresh.status) return false;
+                    const marker = fresh.currentPeriodEnd || fresh.trialEndsAt || 0;
+                    tx.set(subPath(sub.id), { ...fresh, status: want, updatedAt: t });
+                    tx.set(evPath(sub.id, `${want}_${marker}`), { type: `STATUS_${want}`, at: t, planId: fresh.planId, detail: `${fresh.status} -> ${want}` });
+                    return true;
                 });
-                changed += 1;
+                if (didChange) changed += 1;
             }
             return ok({ scanned: rows.length, changed });
         },
     };
-}
-
-function stripId(o) {
-    const { id, ...rest } = o;
-    return rest;
+    return Object.fromEntries(Object.entries(handlers).map(([name, handler]) => [name, async (...args) => {
+        try { return await handler(...args); }
+        catch (error) { if (error.httpStatus) return fail(error.httpStatus, error.message, error.code); throw error; }
+    }]));
 }
 
 export { formatINR };

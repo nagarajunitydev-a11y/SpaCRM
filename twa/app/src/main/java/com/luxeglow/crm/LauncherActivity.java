@@ -14,6 +14,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -35,21 +37,26 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 
-/** Thin HTTPS-only container for hosted SPACRM. No web CRM assets are bundled. */
+/** Thin HTTPS-only container for hosted Qvrix GlowOS. No web CRM assets are bundled. */
 public class LauncherActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 41;
     private static final String CACHE_MIGRATION_PREFERENCES = "spacrm_wrapper";
-    private static final String CACHE_MIGRATION_KEY = "web_cache_migration_v1";
+    private static final String CACHE_MIGRATION_KEY = "web_cache_migration_v2";
     private WebView webView;
-    private ProgressBar progress;
+    private ImageView loadingScreen;
     private LinearLayout errorPanel;
     private TextView errorDetail;
     private ValueCallback<Uri[]> pendingFileChooser;
     private Uri homeUri;
+    private boolean pageLoadFailed;
+    private boolean refreshOnResume;
+    private boolean returningFromExternalActivity;
+    private final Handler loadHandler = new Handler(Looper.getMainLooper());
+    private final Runnable loadTimeout = () -> showError("Loading took too long. Check your connection and retry.");
     private final OnBackInvokedCallback backCallback = this::handleBackNavigation;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -85,8 +92,14 @@ public class LauncherActivity extends Activity {
         root.setBackgroundColor(Color.parseColor("#020617"));
         webView = new WebView(this);
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
-        progress = new ProgressBar(this);
-        root.addView(progress, new FrameLayout.LayoutParams(56, 56, Gravity.CENTER));
+        loadingScreen = new ImageView(this);
+        loadingScreen.setImageResource(R.drawable.loading_screen);
+        // Keep the supplied artwork and lettering intact on different screens.
+        loadingScreen.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        loadingScreen.setBackgroundColor(Color.parseColor("#020617"));
+        loadingScreen.setContentDescription(getString(R.string.loading_screen_description));
+        loadingScreen.setClickable(true);
+        root.addView(loadingScreen, new FrameLayout.LayoutParams(-1, -1));
         errorPanel = new LinearLayout(this);
         errorPanel.setOrientation(LinearLayout.VERTICAL);
         errorPanel.setGravity(Gravity.CENTER);
@@ -106,19 +119,26 @@ public class LauncherActivity extends Activity {
     private void configureWebView() {
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setDatabaseEnabled(true);
+        settings.setUserAgentString(settings.getUserAgentString() + " QvrixGlowOSAndroid/1");
         // The CRM is hosted. Bypass WebView's HTTP cache while retaining DOM
-        // storage, cookies, IndexedDB and the service worker's offline cache.
+        // storage, cookies and IndexedDB. Legacy PWA shell caches are removed below.
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE); settings.setAllowFileAccess(false); settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW); settings.setMediaPlaybackRequiresUserGesture(false);
         settings.setLoadWithOverviewMode(true); settings.setUseWideViewPort(true); settings.setSupportMultipleWindows(false);
         CookieManager cookies = CookieManager.getInstance(); cookies.setAcceptCookie(true); cookies.setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return blockUntrustedNavigation(request.getUrl()); }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return request.isForMainFrame() && blockUntrustedNavigation(request.getUrl()); }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return blockUntrustedNavigation(Uri.parse(url)); }
-            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) { progress.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE); }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                pageLoadFailed = false;
+                loadingScreen.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE);
+                loadHandler.removeCallbacks(loadTimeout);
+                loadHandler.postDelayed(loadTimeout, 30000);
+            }
             @Override public void onPageFinished(WebView view, String url) {
-                progress.setVisibility(View.GONE);
-                removeLegacyPwaCacheOnce();
+                loadHandler.removeCallbacks(loadTimeout);
+                loadingScreen.setVisibility(View.GONE);
+                if (!pageLoadFailed && isAllowedUrl(Uri.parse(url))) removeLegacyPwaCacheOnce();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) { if (request.isForMainFrame()) showError("Check your internet connection and try again."); }
             @Override public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse response) { if (request.isForMainFrame() && response.getStatusCode() >= 400) showError("The Qvrix GlowOS service is temporarily unavailable."); }
@@ -130,8 +150,11 @@ public class LauncherActivity extends Activity {
                 pendingFileChooser = callback;
                 Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT); pick.addCategory(Intent.CATEGORY_OPENABLE); pick.setType("*/*");
                 pick.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, params.getMode() == FileChooserParams.MODE_OPEN_MULTIPLE);
-                try { startActivityForResult(Intent.createChooser(pick, "Select file"), FILE_CHOOSER_REQUEST); }
-                catch (ActivityNotFoundException e) { pendingFileChooser.onReceiveValue(null); pendingFileChooser = null; }
+                try {
+                    returningFromExternalActivity = true;
+                    startActivityForResult(Intent.createChooser(pick, "Select file"), FILE_CHOOSER_REQUEST);
+                }
+                catch (ActivityNotFoundException e) { returningFromExternalActivity = false; pendingFileChooser.onReceiveValue(null); pendingFileChooser = null; }
                 return true;
             }
         });
@@ -147,6 +170,17 @@ public class LauncherActivity extends Activity {
     /** Lets trusted, same-origin JS ask the Activity to close after the user confirms Exit. */
     private final class ExitBridge {
         @JavascriptInterface
+        public void cacheMigrationComplete(boolean success) {
+            if (!success) return; // Retry on the next successful page load.
+            runOnUiThread(() -> {
+                if (pageLoadFailed || webView.getUrl() == null || !isAllowedUrl(Uri.parse(webView.getUrl()))) return;
+                getSharedPreferences(CACHE_MIGRATION_PREFERENCES, MODE_PRIVATE)
+                        .edit().putBoolean(CACHE_MIGRATION_KEY + ":" + homeUri.getHost(), true).apply();
+                webView.reload();
+            });
+        }
+
+        @JavascriptInterface
         public void exitApp() {
             runOnUiThread(LauncherActivity.this::finish);
         }
@@ -154,6 +188,21 @@ public class LauncherActivity extends Activity {
 
     private boolean blockUntrustedNavigation(Uri uri) {
         if (isAllowedUrl(uri)) return false;
+        // Keep external websites, contact links and payment-app handoffs outside
+        // the WebView, which exposes the native exit bridge only to our origin.
+        String scheme = uri.getScheme();
+        if (scheme != null && (scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http")
+                || scheme.equalsIgnoreCase("mailto") || scheme.equalsIgnoreCase("tel")
+                || scheme.equalsIgnoreCase("sms") || scheme.equalsIgnoreCase("upi"))) {
+            try {
+                returningFromExternalActivity = true;
+                startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE));
+            } catch (ActivityNotFoundException e) {
+                returningFromExternalActivity = false;
+                android.widget.Toast.makeText(this, "No app is available to open this link.", android.widget.Toast.LENGTH_SHORT).show();
+            }
+            return true;
+        }
         showError("For your security, this app only opens the configured HTTPS Qvrix GlowOS site.");
         return true;
     }
@@ -179,17 +228,16 @@ public class LauncherActivity extends Activity {
      */
     private void removeLegacyPwaCacheOnce() {
         SharedPreferences preferences = getSharedPreferences(CACHE_MIGRATION_PREFERENCES, MODE_PRIVATE);
-        if (preferences.getBoolean(CACHE_MIGRATION_KEY, false)) return;
-        preferences.edit().putBoolean(CACHE_MIGRATION_KEY, true).apply();
+        if (preferences.getBoolean(CACHE_MIGRATION_KEY + ":" + homeUri.getHost(), false)) return;
         webView.clearCache(true); // WebView HTTP/resource cache only.
         webView.evaluateJavascript(
                 "(async()=>{try{if('serviceWorker' in navigator){"
                         + "const registrations=await navigator.serviceWorker.getRegistrations();"
                         + "await Promise.all(registrations.map((registration)=>registration.unregister()));}}"
-                        + "catch(e){console.warn('Qvrix GlowOS service worker migration failed',e);}"
+                        + "catch(e){console.warn('Qvrix GlowOS service worker migration failed',e);return false;}"
                         + "try{if('caches' in window){const keys=await caches.keys();await Promise.all(keys.map((key)=>caches.delete(key)));}}"
-                        + "catch(e){console.warn('Qvrix GlowOS cache migration failed',e);}"
-                        + "finally{window.location.reload();}})()",
+                        + "catch(e){console.warn('Qvrix GlowOS cache migration failed',e);return false;}"
+                        + "return true;})().then(ok=>window.AndroidNative.cacheMigrationComplete(ok))",
                 null);
     }
 
@@ -202,10 +250,14 @@ public class LauncherActivity extends Activity {
 
     private void loadHome() {
         if (!isOnline()) { showError("You appear to be offline. Connect to the internet and retry."); return; }
-        errorPanel.setVisibility(View.GONE); progress.setVisibility(View.VISIBLE); webView.loadUrl(homeUri.toString());
+        errorPanel.setVisibility(View.GONE); loadingScreen.setVisibility(View.VISIBLE); webView.loadUrl(homeUri.toString());
     }
 
-    private void showError(String message) { progress.setVisibility(View.GONE); errorDetail.setText(message); errorPanel.setVisibility(View.VISIBLE); }
+    private void showError(String message) {
+        pageLoadFailed = true;
+        loadHandler.removeCallbacks(loadTimeout);
+        loadingScreen.setVisibility(View.GONE); errorDetail.setText(message); errorPanel.setVisibility(View.VISIBLE);
+    }
 
     private void download(String url, String userAgent, String disposition, String mimeType) {
         Uri uri = Uri.parse(url);
@@ -236,8 +288,20 @@ public class LauncherActivity extends Activity {
     public void onBackPressed() { handleBackNavigation(); }
     @Override protected void onSaveInstanceState(Bundle outState) { webView.saveState(outState); super.onSaveInstanceState(outState); }
     @Override protected void onPause() { CookieManager.getInstance().flush(); webView.onPause(); super.onPause(); }
-    @Override protected void onResume() { super.onResume(); webView.onResume(); hideSystemUI(); }
+    @Override protected void onStop() { super.onStop(); refreshOnResume = true; }
+    @Override protected void onResume() {
+        super.onResume(); webView.onResume(); hideSystemUI();
+        if (refreshOnResume && !returningFromExternalActivity && pendingFileChooser == null
+                && !pageLoadFailed && isOnline()) {
+            // The web app refreshes only at an idle landing screen; forms,
+            // checkout, uploads and navigation elsewhere are left intact.
+            webView.evaluateJavascript("window.dispatchEvent(new Event('qvrix:foreground'))", null);
+        }
+        refreshOnResume = false;
+        returningFromExternalActivity = false;
+    }
     @Override protected void onDestroy() {
+        loadHandler.removeCallbacks(loadTimeout);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         }

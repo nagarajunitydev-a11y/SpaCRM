@@ -23,7 +23,7 @@ import { mergePlans, DEFAULT_PLANS } from '../core/plans.js';
 import { buildAccess } from '../core/featureAccess.js';
 import { newTrial, effectiveStatus, SUB_STATUS, DAY_MS } from '../core/subscriptionState.js';
 
-const DATE_FIELDS = ['startDate', 'endDate', 'trialStartedAt', 'trialEndsAt', 'currentPeriodStart', 'currentPeriodEnd', 'createdAt', 'updatedAt', 'usageUpdatedAt', 'paidAt', 'failedAt', 'cancelledAt', 'refundedAt', 'periodStart', 'periodEnd', 'at'];
+const DATE_FIELDS = ['startDate', 'endDate', 'trialStartedAt', 'trialEndsAt', 'currentPeriodStart', 'currentPeriodEnd', 'createdAt', 'updatedAt', 'usageUpdatedAt', 'paidAt', 'failedAt', 'cancelledAt', 'refundedAt', 'periodStart', 'periodEnd', 'at', 'nextChargeAt', 'scheduledChangeAt'];
 
 /** Firestore row -> plain record with epoch-ms dates. */
 export function normalizeRow(row) {

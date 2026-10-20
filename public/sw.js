@@ -25,6 +25,7 @@ const APP_SHELL = [
     '/js/core/sanitize.js',
     '/js/core/store.js',
     '/js/core/router.js',
+    '/js/core/androidRefresh.js',
     '/js/core/utils.js',
     '/js/core/rewards.js',
     '/js/core/revenue.js',

@@ -1,6 +1,6 @@
 {
   "packageId": "com.luxeglow.crm",
-  "host": "spacrm-ishari.vercel.app",
+  "host": "spacrm-two.vercel.app",
   "name": "Qvrix GlowOS",
   "launcherName": "Qvrix GlowOS",
   "display": "standalone",
@@ -13,15 +13,15 @@
   "backgroundColor": "#020617",
   "enableNotifications": true,
   "startUrl": "/",
-  "iconUrl": "https://spacrm-ishari.vercel.app/icons/icon-512.png",
-  "maskableIconUrl": "https://spacrm-ishari.vercel.app/icons/icon-512.png",
+  "iconUrl": "https://spacrm-two.vercel.app/icons/icon-512.png",
+  "maskableIconUrl": "https://spacrm-two.vercel.app/icons/icon-512.png",
   "splashScreenFadeOutDuration": 300,
   "signingKey": {
     "path": "D:\\Projects\\VSCode\\SpaCRM\\twa\\keys\\luxeglow-release.keystore",
     "alias": "luxeglow"
   },
-  "appVersionName": "1.0.2",
-  "appVersionCode": 3,
+  "appVersionName": "1.0.5",
+  "appVersionCode": 6,
   "shortcuts": [],
   "generatorApp": "bubblewrap-cli",
   "fallbackType": "customtabs",
@@ -38,5 +38,5 @@
   "additionalTrustedOrigins": [],
   "retainedBundles": [],
   "displayOverride": [],
-  "appVersion": "1.0.2"
+  "appVersion": "1.0.5"
 }

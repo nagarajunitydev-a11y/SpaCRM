@@ -1,6 +1,6 @@
 # API Reference
 
-Quick reference for the most important APIs in SpaCRM.
+Quick reference for the most important APIs in Qvrix GlowOS.
 
 ## Table of Contents
 

@@ -10,6 +10,7 @@ import { getFirestore, Timestamp } from 'firebase-admin/firestore';
 const DATE_FIELDS = new Set([
     'createdAt', 'paidAt', 'failedAt', 'cancelledAt', 'refundedAt', 'at', 'trialStartedAt', 'trialEndsAt',
     'currentPeriodStart', 'currentPeriodEnd', 'periodStart', 'periodEnd', 'updatedAt', 'usageUpdatedAt',
+    'nextChargeAt', 'scheduledChangeAt', 'lastEventAt',
 ]);
 
 export class AdminNotConfigured extends Error {

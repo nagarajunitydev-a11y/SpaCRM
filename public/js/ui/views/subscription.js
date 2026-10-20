@@ -7,6 +7,7 @@
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
+import { isNativePaymentContext } from '../../core/platform.js';
 import { sectionHeader } from '../components.js';
 import { DEFAULT_PLANS, PLAN_IDS, FEATURES, planPrice, annualSavings, formatINR } from '../../core/plans.js';
 import { lockInfo } from '../../core/featureAccess.js';
@@ -183,7 +184,7 @@ function currentPlanCard(state) {
     const planName = a.unrestricted ? 'Demo (all features)' : (plan ? plan.name : 'No active plan');
     let line = '';
     if (a.isTrial) line = `${a.trialDaysLeft} day${a.trialDaysLeft === 1 ? '' : 's'} remaining in your free trial`;
-    else if (a.periodEnd && ['ACTIVE', 'CANCELLED', 'PAST_DUE', 'GRACE_PERIOD'].includes(a.status)) line = `${a.billingCycle === 'annual' ? 'Annual' : 'Monthly'} · ${a.status === 'CANCELLED' ? 'ends' : 'renews'} ${fmtDate(a.periodEnd)}`;
+    else if (a.periodEnd && ['ACTIVE', 'CANCELLED', 'PAST_DUE', 'GRACE_PERIOD'].includes(a.status)) line = `${a.billingCycle === 'annual' ? 'Annual' : 'Monthly'} · ${state.subscription?.autoRenew && !state.subscription?.cancelAtPeriodEnd ? 'renews' : 'ends'} ${fmtDate(a.periodEnd)}`;
     else if (a.status === 'EXPIRED') line = 'Your data is safe and view-only until you upgrade.';
     const limit = (k) => (plan ? a.limit(k) : 0);
     return `
@@ -202,6 +203,10 @@ function currentPlanCard(state) {
                 ${usageBar('Customers', a.usage.customer, limit('customer'))}
                 ${usageBar('Branches', a.usage.branch, plan && plan.features.includes('multiBranch') ? limit('branch') : 1)}
             </div>`}
+            ${state.subscription?.gatewaySubscriptionId ? `<p class="text-xs text-slate-400">Automatic renewal: ${state.subscription.autoRenew ? 'enabled' : 'cancelled'} · ${esc(state.subscription.mandateStatus || 'pending')}${state.subscription.nextChargeAt ? ` · First scheduled charge ${esc(fmtDate(state.subscription.nextChargeAt))}` : ''}</p>
+                ${state.subscription.scheduledPlanId ? `<p class="text-xs text-slate-400">Next cycle: ${esc(state.subscription.scheduledPlanId)} (${esc(state.subscription.scheduledBillingCycle)})</p>` : ''}
+                ${state.subscription.autoRenew && state.subscription.mandateStatus === 'created' && !isNativePaymentContext() ? `<button data-action="resume-auto-renewal" ${state.renewalBusy ? 'disabled' : ''} class="text-xs text-brand-300 underline">Continue renewal authorisation</button>` : ''}
+                ${state.subscription.autoRenew && !isNativePaymentContext() ? '<button data-action="cancel-auto-renewal" class="text-xs text-rose-300 underline">Cancel automatic renewal</button>' : ''}` : ''}
         </div>`;
 }
 
@@ -282,6 +287,7 @@ function paymentHistory(state) {
                             <p class="font-semibold text-slate-100 truncate">${esc((DEFAULT_PLANS[p.planId] || {}).name || p.planId)} · ${p.billingCycle === 'annual' ? 'Annual' : 'Monthly'}</p>
                             <p class="text-[10px] text-slate-500 truncate">${esc(fmtDate(p.paidAt || p.createdAt))}${p.method ? ` · ${esc(String(p.method).toUpperCase())}` : ''}${p.receiptNumber ? ` · ${esc(p.receiptNumber)}` : ''}</p>
                             ${p.status === 'FAILED' && p.failureReason ? `<p class="text-[10px] text-rose-400 truncate">${esc(p.failureReason)}</p>` : ''}
+                            ${p.requiresReview ? '<p class="text-[10px] text-amber-300">Payment received; subscription update awaiting support review.</p>' : ''}
                         </div>
                         <div class="flex items-center gap-2 shrink-0">
                             <span class="font-bold text-slate-100">${esc(formatINR(p.amount))}</span>
@@ -294,6 +300,10 @@ function paymentHistory(state) {
 }
 
 export function renderSubscription(state) {
+    if (isNativePaymentContext()) return `<div class="space-y-5" data-view="subscription">
+        ${sectionHeader('Subscription', 'Your current subscription')}${currentPlanCard(state)}${onboardingCard(state)}
+        <p class="text-xs text-slate-400">Subscription purchases are not available in this Android app. Existing subscriptions remain available.</p>
+        ${paymentHistory(state)}</div>`;
     state_plans_cache = state.plansCatalog || DEFAULT_PLANS;
     const plans = state_plans_cache;
     const cycle = state.billingCycle === 'annual' ? 'annual' : 'monthly';

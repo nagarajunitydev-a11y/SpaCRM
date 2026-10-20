@@ -49,8 +49,8 @@ export const razorpayGateway = {
 
             const rzp = new window.Razorpay({
                 key: order.keyId,
-                order_id: order.orderId,
-                amount: order.amountMinor,
+                ...(order.subscriptionId ? { subscription_id: order.subscriptionId }
+                    : { order_id: order.orderId, amount: order.amountMinor }),
                 currency: order.currency,
                 name: 'Qvrix GlowOS',
                 description: order.description,
@@ -60,6 +60,7 @@ export const razorpayGateway = {
                 handler: (resp) => done({
                     status: 'paid',
                     orderId: resp.razorpay_order_id,
+                    subscriptionId: resp.razorpay_subscription_id,
                     paymentId: resp.razorpay_payment_id,
                     signature: resp.razorpay_signature,
                 }),

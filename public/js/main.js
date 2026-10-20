@@ -55,7 +55,7 @@ import renderSubscription, { subscriptionBanner, onboardingCard, lockedFeatureVi
 import renderCheckout from './ui/views/checkout.js';
 import renderAdminSubscriptions from './ui/views/adminSubscriptions.js';
 import * as subscriptionService from './services/subscriptionService.js';
-import { purchase as purchasePlan, PaymentsUnavailable } from './services/payment/paymentService.js';
+import { purchase as purchasePlan, manageAutomaticRenewal, PaymentsUnavailable } from './services/payment/paymentService.js';
 import { DEFAULT_PLANS, FEATURES } from './core/plans.js';
 import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
 import renderReferrals, {
@@ -87,7 +87,8 @@ import { installExitGuard } from './core/exitGuard.js';
 import { TUTORIAL_ORDER } from './core/tutorialContent.js';
 import { hasSeenSetupGuide, markSetupGuideSeen } from './core/tutorialProgress.js';
 import { startTour, dismissTour, isTourActive, showSectionInfo } from './ui/tutorialOverlay.js';
-import { isAndroidTwa } from './core/platform.js';
+import { isAndroidTwa, isNativePaymentContext } from './core/platform.js';
+import { installAndroidRefresh } from './core/androidRefresh.js';
 
 const appEl = document.getElementById('app');
 
@@ -1473,12 +1474,14 @@ const actions = {
     /* -------------------- Subscription & checkout -------------------- */
 
     async 'select-plan'(el) {
+        if (isNativePaymentContext()) return;
         const state = store.getState();
         const planId = el.dataset.plan;
         const plan = (state.plansCatalog || DEFAULT_PLANS)[planId];
         if (!plan || !plan.paid) return;
         store.setState({
-            checkout: { planId, billingCycle: state.billingCycle === 'annual' ? 'annual' : 'monthly', method: 'upi', step: 'select', message: '' },
+            checkout: { planId, billingCycle: state.billingCycle === 'annual' ? 'annual' : 'monthly', method: 'upi', step: 'select', message: '',
+                renewalMode: state.subscription?.autoRenew ? 'automatic' : 'manual', idempotencyKey: crypto.randomUUID() },
             activeTab: 'checkout',
             isModalOpen: false,
         });
@@ -1492,7 +1495,31 @@ const actions = {
         const c = store.getState().checkout;
         if (!c || c.step === 'processing') return;
         const cycle = el.dataset.cycle === 'annual' ? 'annual' : 'monthly';
-        store.setState({ checkout: { ...c, billingCycle: cycle }, billingCycle: cycle });
+        store.setState({ checkout: { ...c, billingCycle: cycle, idempotencyKey: crypto.randomUUID() }, billingCycle: cycle });
+    },
+
+    async 'checkout-renewal'(el) {
+        const c = store.getState().checkout;
+        if (!c || c.step === 'processing') return;
+        store.setState({ checkout: { ...c, renewalMode: el.dataset.mode === 'automatic' ? 'automatic' : 'manual', idempotencyKey: crypto.randomUUID() } });
+    },
+
+    async 'cancel-auto-renewal'() {
+        const sub = store.getState().subscription;
+        if (!sub?.gatewaySubscriptionId) return;
+        const result = await manageAutomaticRenewal({ subscriptionId: sub.gatewaySubscriptionId, action: 'cancel' });
+        showNotification(result.message);
+    },
+
+    async 'resume-auto-renewal'() {
+        const state = store.getState();
+        if (state.renewalBusy || !state.subscription?.gatewaySubscriptionId) return;
+        store.setState({ renewalBusy: true });
+        try {
+            const result = await purchasePlan({ renewalMode: 'automatic', resumeSubscriptionId: state.subscription.gatewaySubscriptionId,
+                user: { email: state.currentUser?.email } });
+            showNotification(result.message, result.status === 'FAILED' ? 'error' : 'success');
+        } finally { store.setState({ renewalBusy: false }); }
     },
 
     async 'checkout-method'(el) {
@@ -1503,19 +1530,28 @@ const actions = {
 
     async 'checkout-reset'() {
         const c = store.getState().checkout;
-        if (c) store.setState({ checkout: { ...c, step: 'select', message: '' } });
+        if (c) store.setState({ checkout: { ...c, step: 'select', message: '', idempotencyKey: c.step === 'CANCELLED' ? crypto.randomUUID() : c.idempotencyKey } });
     },
 
     async 'confirm-payment'() {
+        if (isNativePaymentContext()) return;
         const state = store.getState();
         const c = state.checkout;
         if (!c || c.step === 'processing') return; // guards double-click / duplicate submit
         store.setState({ checkout: { ...c, step: 'processing', message: '' } });
         try {
+            if (c.renewalMode === 'automatic' && state.subscription?.autoRenew) {
+                const result = await manageAutomaticRenewal({ subscriptionId: state.subscription.gatewaySubscriptionId,
+                    action: 'change', planId: c.planId, billingCycle: c.billingCycle, idempotencyKey: c.idempotencyKey });
+                store.setState({ checkout: { ...c, step: 'PENDING', message: result.message } });
+                return;
+            }
             const result = await purchasePlan({
                 planId: c.planId,
                 billingCycle: c.billingCycle,
                 method: c.method,
+                renewalMode: c.renewalMode,
+                idempotencyKey: c.idempotencyKey,
                 salonId: state.currentSalonId || null,
                 user: { email: state.currentUser && state.currentUser.email },
             });
@@ -2799,6 +2835,7 @@ async function bootstrap() {
     renderApp();
     resolveSalonScope();
     registerServiceWorker();
+    if (isAndroidTwa()) installAndroidRefresh({ window, document, store, isTourActive });
     installExitGuard({
         hasOpenModal: () => store.getState().isModalOpen || isTourActive(),
         closeModal: () => {
