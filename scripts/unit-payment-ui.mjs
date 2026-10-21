@@ -41,5 +41,25 @@ const nativeSubscription = renderSubscription(state);
 assert(!nativeSubscription.includes('data-action="select-plan"'));
 assert(!nativeSubscription.includes('https://'));
 assert(nativeSubscription.includes('Existing subscriptions remain available'));
+for (const id of ['basic', 'standard', 'premium', 'business']) {
+    assert(nativeSubscription.includes(`data-plan-card="${id}"`), `Android must list the ${id} plan`);
+    assert(nativeSubscription.includes(`₹${DEFAULT_PLANS[id].priceMonthly.toLocaleString('en-IN')}`), `Android must show the ${id} price`);
+}
+assert(nativeSubscription.includes('data-action="billing-cycle"'), 'Android must offer monthly / annual options');
+
+// App builds with Google Play billing (user choice) purchase through Play's flow.
+const ready = { ...state, nativeBillingReady: true };
+const playCheckout = renderCheckout(ready);
+assert(playCheckout.includes('data-action="confirm-payment"') && playCheckout.includes('Continue to payment'));
+assert(playCheckout.includes('data-action="checkout-tax-state"') && playCheckout.includes('TAMIL NADU'), 'India reporting needs the GST state');
+assert(/data-action="confirm-payment" disabled /.test(playCheckout), 'Continue stays disabled until a state is chosen');
+assert(!/data-action="confirm-payment" disabled /.test(renderCheckout({ ...ready, checkout: { ...ready.checkout, taxState: 'KERALA' } })));
+assert(!playCheckout.includes('aria-label="Payment method"') && !playCheckout.includes('data-action="checkout-renewal"'),
+    'No gateway method picker or automatic-renewal option before Google Play\'s choice screen');
+const playPlans = renderSubscription(ready);
+assert(playPlans.includes('data-action="select-plan"') && !playPlans.includes('data-native-purchase-note'));
+const playBilled = renderSubscription({ ...ready, subscription: { billingSource: 'google_play', playProductId: 'glowos_standard', planId: 'standard', status: 'ACTIVE' },
+    access: { planId: 'standard', plan: DEFAULT_PLANS.standard, status: 'ACTIVE', usage: {}, limit: () => 1 } });
+assert(playBilled.includes('Managed in Google Play') && playBilled.includes('play.google.com/store/account/subscriptions?sku=glowos_standard'));
 delete globalThis.window;
 console.log('PAYMENT UI: manual checkout, recurring consent, scheduled changes, mandate options and native policy checks passed.');

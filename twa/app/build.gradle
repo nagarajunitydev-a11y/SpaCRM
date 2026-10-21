@@ -56,9 +56,9 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file("${rootProject.projectDir}/keys/luxeglow-release.keystore")
+            storeFile file(System.getenv('KEYSTORE_FILE') ?: "${rootProject.projectDir}/keys/luxeglow-release.keystore")
             storePassword System.getenv('KEYSTORE_PASSWORD') ?: ''
-            keyAlias 'luxeglow'
+            keyAlias System.getenv('KEY_ALIAS') ?: 'luxeglow'
             keyPassword System.getenv('KEY_PASSWORD') ?: ''
         }
     }
@@ -84,4 +84,8 @@ repositories {
 
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'libs')
+    // Google Play Billing (v8+ required for app updates) with user choice billing.
+    implementation 'com.android.billingclient:billing:8.0.0'
+    // Origin-restricted JavaScript bridge (WebMessageListener) for billing.
+    implementation 'androidx.webkit:webkit:1.14.0'
 }

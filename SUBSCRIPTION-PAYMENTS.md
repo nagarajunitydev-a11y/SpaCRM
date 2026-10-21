@@ -74,24 +74,56 @@ preserved. No database migration is required.
 
 ## Android and Google Play
 
-External subscription checkout is **disabled in the Android wrapper**. The UI
-retains trial/current-plan/history access without purchase links or website
-steering. The API blocks native WebView user agents and native platform headers;
-the wrapper also adds a persistent user-agent marker. Ordinary Android browser
-checkout remains available.
+The Android app is distributed on Google Play. Salon CRM subscriptions are
+"cloud software / business productivity" purchases, which Play's Payments
+policy requires to use Google Play billing; linking or steering to the website
+checkout is not allowed. For users in India the app therefore uses
+**alternative billing with user choice**: Google Play shows its choice screen
+and the user picks Google Play billing or Razorpay (UPI, cards, net banking,
+wallets).
 
-Google's current policy includes cloud/business-productivity subscriptions and
-in-app WebView/payment links. Alternative billing requires enrollment in an
-applicable program and meeting its additional requirements; geographic
-availability alone is insufficient. The app's enrollment was not verified and
-no bypass switch is provided. Native purchases require a separately reviewed
-Play Billing or enrolled alternative-billing integration, including its required
-choice UX/reporting and eligibility checks. Existing WebView/session/navigation
-and loading-screen behavior are otherwise retained.
+Flow (server-authoritative in both branches):
 
-Policy checked on 20 October 2026:
+1. `POST /api/subscription/play-prepare` checks the quote with the same rules
+   as the website and returns the Play product (`glowos_<planId>`, base plan
+   `monthly`/`annual`), an obfuscated account id and the launch mode
+   (`choice`, `alt-upgrade`, `alt-topup` for a same-plan renewal of an in-app
+   Razorpay series, or `play-upgrade`).
+2. The wrapper (`PlayBillingBridge.java`, Play Billing Library 8 with
+   `enableUserChoiceBilling`) launches Google Play. The bridge is exposed only
+   to main-frame scripts from the configured origin.
+3. **Razorpay chosen:** the external transaction token goes with the existing
+   `create-order` → Razorpay → `verify` flow. The order stores a server-only
+   `externalReports` record; once the payment is verified (or the webhook
+   captures it) it is reported to `externalTransactions` (PREPAID, GST split,
+   India state), retried by the daily cron. Renewals report against the
+   initial transaction id; upgrades get a new token.
+4. **Google Play chosen:** `POST /api/subscription/play-verify` re-reads the
+   purchase from the Play Developer API, requires the caller's obfuscated
+   account id, records the payment, updates the subscription and acknowledges
+   it. Renewals, cancellation, grace and expiry arrive through RTDN at
+   `POST /api/subscription/play-notify?secret=...` and are re-read from Google;
+   the cron re-syncs live purchases.
+
+Website checkout refuses to double-bill a live Google Play subscription.
+Automatic Razorpay mandates stay web-only; the app can cancel one. Old app
+builds without the bridge, and servers without the configuration below, keep
+the previous purchase-free behaviour (API returns `PLAY_BILLING_REQUIRED`).
+
+To go live: enroll in Play Console (**Settings → Alternative billing**, India),
+create the subscriptions/base plans at the catalog prices, invite a service
+account with financial and order permissions, create a Pub/Sub topic with a
+push subscription to `play-notify` and set it for RTDN, set the
+`GOOGLE_PLAY_*` variables in `.env.example`, then release the app update and
+test with license testers (`npm run test:payments`,
+`node scripts/e2e-android-billing.mjs` on a device). Refund reporting to
+Google is not implemented.
+
+Policy checked on 21 October 2026:
 [Google Play Payments](https://support.google.com/googleplay/android-developer/answer/9858738),
-[user-choice billing enrollment](https://support.google.com/googleplay/android-developer/answer/12570971).
+[alternative billing for India](https://support.google.com/googleplay/android-developer/answer/13306652),
+[user choice integration](https://developer.android.com/google/play/billing/alternative/alternative-billing-with-user-choice-in-app),
+[external transaction reporting](https://developer.android.com/google/play/billing/outside-gpb-backend).
 Provider contracts:
 [Razorpay integration and signature verification](https://razorpay.com/docs/payments/subscriptions/integration-guide/),
 [subscription webhooks](https://razorpay.com/docs/webhooks/subscriptions/),

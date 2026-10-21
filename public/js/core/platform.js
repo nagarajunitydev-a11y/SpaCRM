@@ -9,7 +9,13 @@
 const ANDROID_TWA_KEY = 'platform';
 const ANDROID_TWA_VALUE = 'android';
 
-/** Native checkout stays disabled until Play Billing or enrolled alternative billing is implemented. */
+/** Android application id (Google Play listing). */
+export const ANDROID_PACKAGE = 'com.luxeglow.crm';
+
+/**
+ * True inside the Play-distributed Android wrapper. Purchases there must go
+ * through Google Play billing / its user-choice flow (services/payment/playBilling.js).
+ */
 export function isNativePaymentContext() {
     return isAndroidTwa() || (typeof window !== 'undefined' && !!window.AndroidNative)
         || (typeof navigator !== 'undefined' && /QvrixGlowOSAndroid|;\s*wv\)/i.test(navigator.userAgent || ''));

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="BaseGlowOsTheme" parent="android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">#020617</item>
+    </style>
+    <style name="GlowOsTheme" parent="BaseGlowOsTheme" />
+</resources>

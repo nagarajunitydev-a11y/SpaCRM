@@ -3,7 +3,8 @@ import { createAdminDb, verifyRequestUser, AdminNotConfigured } from './adminDb.
 import { getGateway } from './gateways/index.js';
 import { GatewayNotConfigured } from './gateways/razorpay.js';
 import { createHandlers } from './handlers.js';
-import { isNativeCheckout } from './billingPolicy.js';
+import { isNativeCheckout, nativeCallAllowed } from './billingPolicy.js';
+import { createPlayClient, PlayNotConfigured } from './googlePlay.js';
 
 export const json = (status, body) => new Response(JSON.stringify(body), {
     status,
@@ -11,7 +12,7 @@ export const json = (status, body) => new Response(JSON.stringify(body), {
 });
 
 export function buildHandlers() {
-    return createHandlers({ db: createAdminDb(), gateway: getGateway() });
+    return createHandlers({ db: createAdminDb(), gateway: getGateway(), play: createPlayClient() });
 }
 
 /** Wrap an authenticated JSON endpoint. */
@@ -20,12 +21,13 @@ export function authedEndpoint(method) {
         try {
             const user = await verifyRequestUser(request);
             if (!user) return json(401, { error: 'Sign in required.' });
-            if (['createOrder', 'createRecurring', 'verifyRecurring', 'manageRecurring'].includes(method) && isNativeCheckout(request)) {
-                return json(403, { error: 'Subscription purchases are not available in this Android app.', code: 'PLAY_BILLING_REQUIRED' });
-            }
             const body = await request.json().catch(() => null);
             if (!body || typeof body !== 'object' || Array.isArray(body)) return json(400, { error: 'A JSON object is required.' });
-            const r = await buildHandlers()[method]({ uid: user.uid, email: user.email, body });
+            const native = isNativeCheckout(request);
+            if (native && !nativeCallAllowed(method, body)) {
+                return json(403, { error: 'Subscription purchases are not available in this Android app.', code: 'PLAY_BILLING_REQUIRED' });
+            }
+            const r = await buildHandlers()[method]({ uid: user.uid, email: user.email, body, native });
             return json(r.status, r.body);
         } catch (err) {
             return failure(err);
@@ -35,7 +37,7 @@ export function authedEndpoint(method) {
 
 export function failure(err) {
     if (err.httpStatus) return json(err.httpStatus, { error: err.message, code: err.code });
-    if (err instanceof GatewayNotConfigured || err instanceof AdminNotConfigured) {
+    if (err instanceof GatewayNotConfigured || err instanceof AdminNotConfigured || err instanceof PlayNotConfigured) {
         // Never pretend a payment worked when the server cannot talk to the gateway.
         return json(503, { error: 'Payments are not available right now.', code: 'NOT_CONFIGURED' });
     }

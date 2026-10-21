@@ -11,6 +11,7 @@
 import { esc, escAttr } from '../core/sanitize.js';
 import { icon } from './icons.js';
 import { normalizePhoneDigits } from '../core/validate.js';
+import { canAccessBranches } from '../core/featureAccess.js';
 
 /** Lucide icon element. */
 export function iconEl(name, cls = 'w-4 h-4') {
@@ -93,7 +94,7 @@ export function bottomNav(state) {
         { tab: 'referrals', label: 'Referrals', icon: 'gift' },
         { tab: 'services', label: 'Services', icon: 'sparkles' },
         { tab: 'staff', label: 'Staff', icon: 'user-check' },
-        { tab: 'branches', label: 'Branches', icon: 'git-branch' },
+        ...(canAccessBranches(state.access) ? [{ tab: 'branches', label: 'Branches', icon: 'git-branch' }] : []),
     ];
 
     const items = isOwner
@@ -133,7 +134,7 @@ export function desktopSidebar(state) {
         { tab: 'referrals', label: 'Referrals', icon: 'gift' },
         { tab: 'services', label: 'Services', icon: 'sparkles' },
         { tab: 'staff', label: 'Staff', icon: 'user-check' },
-        { tab: 'branches', label: 'Branches', icon: 'git-branch' },
+        ...(canAccessBranches(state.access) ? [{ tab: 'branches', label: 'Branches', icon: 'git-branch' }] : []),
         { tab: 'subscription', label: 'Subscription', icon: 'crown' },
     ];
 

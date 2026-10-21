@@ -33,7 +33,7 @@ function loadScript() {
 export const razorpayGateway = {
     id: 'razorpay',
 
-    async openCheckout(order, { method = 'any', user = {} } = {}) {
+    async openCheckout(order, { method = 'any', user = {}, inApp = false } = {}) {
         await loadScript();
         return new Promise((resolve) => {
             let settled = false;
@@ -57,6 +57,8 @@ export const razorpayGateway = {
                 prefill: { email: user.email || '', name: user.name || '' },
                 theme: { color: '#db2777' },
                 config: { display: { hide } },
+                // Inside the Android WebView, list installed UPI apps (opened via upi:// intents).
+                ...(inApp ? { webview_intent: true } : {}),
                 handler: (resp) => done({
                     status: 'paid',
                     orderId: resp.razorpay_order_id,

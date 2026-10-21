@@ -52,10 +52,12 @@ import renderSalonSetup from './ui/views/salonSetup.js';
 import renderBranches from './ui/views/branches.js';
 import { findDuplicateName, activeBranches, isBranchActive } from './core/branches.js';
 import renderSubscription, { subscriptionBanner, onboardingCard, lockedFeatureView } from './ui/views/subscription.js';
+import { canAccessBranches } from './core/featureAccess.js';
 import renderCheckout from './ui/views/checkout.js';
 import renderAdminSubscriptions from './ui/views/adminSubscriptions.js';
 import * as subscriptionService from './services/subscriptionService.js';
-import { purchase as purchasePlan, manageAutomaticRenewal, PaymentsUnavailable } from './services/payment/paymentService.js';
+import { purchase as purchasePlan, manageAutomaticRenewal, verifyPlayPurchase, PaymentsUnavailable } from './services/payment/paymentService.js';
+import { initPlayBilling } from './services/payment/playBilling.js';
 import { DEFAULT_PLANS, FEATURES } from './core/plans.js';
 import renderModalSheet, { renderCustomerSuggestions } from './ui/views/modals.js';
 import renderReferrals, {
@@ -290,7 +292,8 @@ function renderOwnerTab(state) {
         case 'checkout': return renderCheckout(state);
         case 'services': return renderServices(state);
         case 'staff': return renderStaff(state);
-        case 'branches': return renderBranches(state);
+        case 'branches':
+            return canAccessBranches(state.access) ? renderBranches(state) : lockedFeatureView(state, 'multiBranch');
         default: return onboardingCard(state) + renderDashboard(state);
     }
 }
@@ -1474,13 +1477,13 @@ const actions = {
     /* -------------------- Subscription & checkout -------------------- */
 
     async 'select-plan'(el) {
-        if (isNativePaymentContext()) return;
         const state = store.getState();
+        if (isNativePaymentContext() && !state.nativeBillingReady) return;
         const planId = el.dataset.plan;
         const plan = (state.plansCatalog || DEFAULT_PLANS)[planId];
         if (!plan || !plan.paid) return;
         store.setState({
-            checkout: { planId, billingCycle: state.billingCycle === 'annual' ? 'annual' : 'monthly', method: 'upi', step: 'select', message: '',
+            checkout: { planId, billingCycle: state.billingCycle === 'annual' ? 'annual' : 'monthly', method: 'upi', step: 'select', message: '', taxState: state.checkout?.taxState || '',
                 renewalMode: state.subscription?.autoRenew ? 'automatic' : 'manual', idempotencyKey: crypto.randomUUID() },
             activeTab: 'checkout',
             isModalOpen: false,
@@ -1522,6 +1525,12 @@ const actions = {
         } finally { store.setState({ renewalBusy: false }); }
     },
 
+    async 'checkout-tax-state'(el) {
+        const c = store.getState().checkout;
+        if (!c || c.step === 'processing') return;
+        store.setState({ checkout: { ...c, taxState: el.value } });
+    },
+
     async 'checkout-method'(el) {
         const c = store.getState().checkout;
         if (!c || c.step === 'processing') return;
@@ -1534,8 +1543,8 @@ const actions = {
     },
 
     async 'confirm-payment'() {
-        if (isNativePaymentContext()) return;
         const state = store.getState();
+        if (isNativePaymentContext() && !state.nativeBillingReady) return;
         const c = state.checkout;
         if (!c || c.step === 'processing') return; // guards double-click / duplicate submit
         store.setState({ checkout: { ...c, step: 'processing', message: '' } });
@@ -1552,6 +1561,7 @@ const actions = {
                 method: c.method,
                 renewalMode: c.renewalMode,
                 idempotencyKey: c.idempotencyKey,
+                taxState: c.taxState,
                 salonId: state.currentSalonId || null,
                 user: { email: state.currentUser && state.currentUser.email },
             });
@@ -1604,6 +1614,7 @@ const actions = {
     /** "Add Branch": opens the form unless the plan's branch limit is reached. */
     async 'add-branch'() {
         const access = store.getState().access;
+        if (!canAccessBranches(access)) return;
         const gate = access ? access.canCreate('branch') : { ok: true };
         if (!gate.ok) {
             showNotification(gate.reason, 'error');
@@ -1614,6 +1625,7 @@ const actions = {
 
     async 'toggle-branch'(el) {
         const state = store.getState();
+        if (!canAccessBranches(state.access)) return;
         const list = state.salonsList || [];
         const branch = list.find((s) => s.id === el.dataset.id);
         if (!branch) return;
@@ -1628,6 +1640,7 @@ const actions = {
     },
 
     async 'switch-branch'(el) {
+        if (!canAccessBranches(store.getState().access)) return;
         const branch = (store.getState().salonsList || []).find((s) => s.id === el.dataset.id);
         if (!branch || !isBranchActive(branch)) return;
         store.setState({ currentSalonId: branch.id, activeTab: 'dashboard' });
@@ -2633,7 +2646,7 @@ function attachDelegation() {
 
     appEl.addEventListener('change', (event) => {
         const el = event.target.closest('[data-action]');
-        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'quick-billing-edit-service', 'appointment-service-picker', 'edit-appointment-line-service', 'edit-appointment-custom-name', 'edit-appointment-custom-amount'].includes(el.dataset.action)) return;
+        if (!el || !['salon', 'appointment-filter', 'toggle-day-closed', 'attendance-date', 'attendance-month', 'attendance-staff-filter', 'quick-billing-edit-service', 'appointment-service-picker', 'edit-appointment-line-service', 'edit-appointment-custom-name', 'edit-appointment-custom-amount', 'checkout-tax-state'].includes(el.dataset.action)) return;
         const handler = actions[el.dataset.action];
         if (!handler) return;
         Promise.resolve(handler(el, event)).catch((err) => console.warn(err));
@@ -2836,6 +2849,13 @@ async function bootstrap() {
     resolveSalonScope();
     registerServiceWorker();
     if (isAndroidTwa()) installAndroidRefresh({ window, document, store, isTourActive });
+    // Google Play billing bridge (Play-distributed app builds that include it).
+    initPlayBilling({
+        onReady: (ready) => store.setState({ nativeBillingReady: ready }),
+        // A Google Play purchase that finished while the app was closed; the
+        // server also receives it through Play notifications.
+        onPurchase: ({ purchaseToken }) => { if (store.getState().currentUser) verifyPlayPurchase(purchaseToken).catch(() => {}); },
+    });
     installExitGuard({
         hasOpenModal: () => store.getState().isModalOpen || isTourActive(),
         closeModal: () => {

@@ -105,6 +105,12 @@ function makeAccess({ status, planId, plans, used, subscription, now, locked, un
     });
 }
 
+/** Branch management is shown only to salons on an active Business plan (or the demo). */
+export function canAccessBranches(access) {
+    if (!access) return false;
+    return access.unrestricted || (!access.locked && access.planId === 'business');
+}
+
 /** Locked-feature descriptor used by every "upgrade to unlock" screen. */
 export function lockInfo(access, feature) {
     const req = access.requiredPlan(feature);
@@ -117,4 +123,4 @@ export function lockInfo(access, feature) {
     };
 }
 
-export default { buildAccess, lockInfo };
+export default { buildAccess, canAccessBranches, lockInfo };

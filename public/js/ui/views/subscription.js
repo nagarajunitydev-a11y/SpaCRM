@@ -7,7 +7,7 @@
  */
 
 import { esc, escAttr } from '../../core/sanitize.js';
-import { isNativePaymentContext } from '../../core/platform.js';
+import { isNativePaymentContext, ANDROID_PACKAGE } from '../../core/platform.js';
 import { sectionHeader } from '../components.js';
 import { DEFAULT_PLANS, PLAN_IDS, FEATURES, planPrice, annualSavings, formatINR } from '../../core/plans.js';
 import { lockInfo } from '../../core/featureAccess.js';
@@ -206,7 +206,8 @@ function currentPlanCard(state) {
             ${state.subscription?.gatewaySubscriptionId ? `<p class="text-xs text-slate-400">Automatic renewal: ${state.subscription.autoRenew ? 'enabled' : 'cancelled'} · ${esc(state.subscription.mandateStatus || 'pending')}${state.subscription.nextChargeAt ? ` · First scheduled charge ${esc(fmtDate(state.subscription.nextChargeAt))}` : ''}</p>
                 ${state.subscription.scheduledPlanId ? `<p class="text-xs text-slate-400">Next cycle: ${esc(state.subscription.scheduledPlanId)} (${esc(state.subscription.scheduledBillingCycle)})</p>` : ''}
                 ${state.subscription.autoRenew && state.subscription.mandateStatus === 'created' && !isNativePaymentContext() ? `<button data-action="resume-auto-renewal" ${state.renewalBusy ? 'disabled' : ''} class="text-xs text-brand-300 underline">Continue renewal authorisation</button>` : ''}
-                ${state.subscription.autoRenew && !isNativePaymentContext() ? '<button data-action="cancel-auto-renewal" class="text-xs text-rose-300 underline">Cancel automatic renewal</button>' : ''}` : ''}
+                ${state.subscription.autoRenew ? '<button data-action="cancel-auto-renewal" class="text-xs text-rose-300 underline">Cancel automatic renewal</button>' : ''}` : ''}
+            ${state.subscription?.billingSource === 'google_play' ? `<p data-play-billed class="text-xs text-slate-400">Billed through Google Play · <a href="https://play.google.com/store/account/subscriptions?sku=${encodeURIComponent(state.subscription.playProductId || '')}&amp;package=${ANDROID_PACKAGE}" target="_blank" rel="noopener" class="text-brand-300 underline">Manage in Google Play</a></p>` : ''}
         </div>`;
 }
 
@@ -250,6 +251,11 @@ function planCard(plan, state, cycle) {
         if (!sub) cta = trialActivationButton(state) + trialActivationError(state);
         else if (a && a.isTrial) cta = `<button disabled class="w-full py-2.5 bg-slate-800 text-slate-400 text-[13px] font-semibold rounded-xl">Trial active · ${a.trialDaysLeft}d left</button>`;
         else cta = `<button disabled class="w-full py-2.5 bg-slate-800 text-slate-500 text-[13px] font-semibold rounded-xl">Trial used</button>`;
+    } else if (isNativePaymentContext() && !state.nativeBillingReady) {
+        // Plans are shown for comparison; app versions without Google Play billing cannot purchase.
+        cta = `<button disabled class="w-full py-2.5 bg-slate-800 text-slate-500 text-[13px] font-semibold rounded-xl">${isCurrent ? 'Current plan' : 'Not available in app'}</button>`;
+    } else if (isCurrent && sub?.billingSource === 'google_play' && sub.status !== 'EXPIRED') {
+        cta = '<button disabled class="w-full py-2.5 bg-slate-800 text-slate-400 text-[13px] font-semibold rounded-xl">Managed in Google Play</button>';
     } else if (isCurrent) {
         cta = `<button data-action="select-plan" data-plan="${escAttr(plan.id)}" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 text-[13px] font-semibold rounded-xl active:scale-95 touch-manipulation">Renew</button>`;
     } else {
@@ -300,10 +306,7 @@ function paymentHistory(state) {
 }
 
 export function renderSubscription(state) {
-    if (isNativePaymentContext()) return `<div class="space-y-5" data-view="subscription">
-        ${sectionHeader('Subscription', 'Your current subscription')}${currentPlanCard(state)}${onboardingCard(state)}
-        <p class="text-xs text-slate-400">Subscription purchases are not available in this Android app. Existing subscriptions remain available.</p>
-        ${paymentHistory(state)}</div>`;
+    const native = isNativePaymentContext();
     state_plans_cache = state.plansCatalog || DEFAULT_PLANS;
     const plans = state_plans_cache;
     const cycle = state.billingCycle === 'annual' ? 'annual' : 'monthly';
@@ -313,6 +316,7 @@ export function renderSubscription(state) {
             ${sectionHeader('Subscription', 'Plans built for salons in Tamil Nadu')}
             ${currentPlanCard(state)}
             ${onboardingCard(state)}
+            ${native && !state.nativeBillingReady ? '<p data-native-purchase-note class="text-xs text-slate-400">Subscription purchases are not available in this Android app. Existing subscriptions remain available.</p>' : ''}
             <div class="flex justify-center">
                 <div class="inline-flex bg-slate-900 border border-slate-800 rounded-xl p-1" role="group" aria-label="Billing cycle">
                     ${toggleBtn('monthly', 'Monthly')}${toggleBtn('annual', 'Annual', ' <span class="text-[9px] font-bold text-emerald-400 ml-1">2 months free</span>')}

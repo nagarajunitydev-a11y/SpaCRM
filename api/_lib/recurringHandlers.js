@@ -122,6 +122,7 @@ export function createRecurringHandlers({ db, gateway, now, currency, graceDays 
                 ...sub, planId: plan.planId, billingCycle: plan.billingCycle,
                 currentPeriodStart: start, currentPeriodEnd: end, periodAmount: plan.amountMinor / 100,
                 lastPaymentId: orderId, graceDays, updatedAt: t,
+                billingSource: 'razorpay', playSubscriptionId: null, playProductId: null,
                 status: sub.status === SUB_STATUS.SUSPENDED ? SUB_STATUS.SUSPENDED : SUB_STATUS.ACTIVE,
                 cancelAtPeriodEnd: sub.gatewaySubscriptionId === subscription.id
                     ? (!!latestRec.cancelRequested || terminal.has(latestRec.status)) : sub.cancelAtPeriodEnd,

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Match Android's existing system launch surface; no additional splash Activity. -->
+    <style name="GlowOsTheme" parent="BaseGlowOsTheme">
+        <item name="android:windowSplashScreenBackground">#020617</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/glowos_splash_icon</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+    </style>
+</resources>

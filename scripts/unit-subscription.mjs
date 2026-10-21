@@ -7,7 +7,7 @@
 import {
     DEFAULT_PLANS, PLAN_IDS, FEATURES, mergePlans, annualSavings, requiredPlanFor, planPrice,
 } from '../public/js/core/plans.js';
-import { buildAccess, lockInfo } from '../public/js/core/featureAccess.js';
+import { buildAccess, lockInfo, canAccessBranches } from '../public/js/core/featureAccess.js';
 import {
     newTrial, effectiveStatus, accessPlanId, trialDaysLeft, DAY_MS, addPeriod,
     applyPaymentSuccess, applyPaymentFailure, applyPaymentCancelled, applyRefund, quotePurchase,
@@ -68,6 +68,11 @@ t(acc(paidSub('business'), { branch: 3 }).canCreate('branch').ok, 'Business can 
 t(!acc(paidSub('business'), { branch: 10 }).canCreate('branch').ok, 'Business capped at maxBranches');
 const grand = acc(paidSub('standard'), { branch: 3 });
 t(grand.usage.branch === 3 && !grand.canCreate('branch').ok, 'existing multi-branch salon keeps its branches but cannot add more');
+t(canAccessBranches(acc(paidSub('business'))), 'Branches UI shown on an active Business plan');
+t(['basic', 'standard', 'premium'].every((id) => !canAccessBranches(acc(paidSub(id)))), 'Branches UI hidden on Basic / Standard / Premium');
+t(!canAccessBranches(acc(newTrial('o', NOW))) && !canAccessBranches(acc(null)) && !canAccessBranches(null), 'Branches UI hidden for trial, missing or pending access');
+t(!canAccessBranches(acc(paidSub('business', { currentPeriodEnd: NOW - 30 * DAY_MS }))), 'Branches UI hidden once the Business plan has expired');
+t(canAccessBranches(buildAccess({ subscription: null, plans: DEFAULT_PLANS, now: NOW, unrestricted: true })), 'Branches UI shown in unrestricted demo mode');
 
 /* ---------- trial ---------- */
 const trial = newTrial('o', NOW);

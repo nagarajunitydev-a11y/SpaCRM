@@ -20,8 +20,12 @@ let requests = 0;
 let intercepting = true;
 const pending = new Map();
 const refreshSource = readFileSync(new URL('../public/js/core/androidRefresh.js', import.meta.url), 'utf8').replaceAll('export ', '');
-const fixture = () => `<!doctype html><html><head><title>Deployment ${version}</title></head><body>
-<p>Controlled production response ${version}</p><script type="module">
+const fixture = () => `<!doctype html><html><head><title>Deployment ${version}</title><link rel="icon" href="data:,"><script>
+// Synthetic HTTPS responses have no real worker/cache state to migrate.
+if(navigator.serviceWorker) navigator.serviceWorker.getRegistrations=async()=>[];
+if(window.caches) caches.keys=async()=>[];
+</script></head><body>
+<div id="app"><p>Controlled production response ${version}</p></div><script type="module">
 ${refreshSource}
 const listeners = new Set();
 let state = {mode:'firebase',authReady:true,network:true,userRole:'salon_owner',activeTab:'dashboard'};

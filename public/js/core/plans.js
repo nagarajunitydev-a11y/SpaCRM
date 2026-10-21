@@ -90,6 +90,17 @@ export const TRIAL_DAYS = 30;
 /** Days of continued access after a paid period ends without renewal. */
 export const GRACE_DAYS = 3;
 
+/** Valid `userTaxAddress.administrativeArea` values for India (Google Play Developer API; used for in-app GST reporting). */
+export const INDIA_TAX_STATES = [
+    'ANDAMAN AND NICOBAR ISLANDS', 'ANDHRA PRADESH', 'ARUNACHAL PRADESH', 'ASSAM', 'BIHAR', 'CHANDIGARH',
+    'CHHATTISGARH', 'DADRA AND NAGAR HAVELI AND DAMAN AND DIU', 'DELHI', 'GOA', 'GUJARAT', 'HARYANA',
+    'HIMACHAL PRADESH', 'JAMMU AND KASHMIR', 'JHARKHAND', 'KARNATAKA', 'KERALA', 'LADAKH', 'LAKSHADWEEP',
+    'MADHYA PRADESH', 'MAHARASHTRA', 'MANIPUR', 'MEGHALAYA', 'MIZORAM', 'NAGALAND', 'ODISHA', 'PUDUCHERRY',
+    'PUNJAB', 'RAJASTHAN', 'SIKKIM', 'TAMIL NADU', 'TELANGANA', 'TRIPURA', 'UTTAR PRADESH', 'UTTARAKHAND',
+    'WEST BENGAL',
+];
+
+
 /** Merge Firestore overrides (rows from `plans`) over the defaults. */
 export function mergePlans(rows) {
     const merged = {};

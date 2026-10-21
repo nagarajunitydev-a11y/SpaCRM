@@ -22,6 +22,7 @@
 import { mergePlans, formatINR } from '../../public/js/core/plans.js';
 import { billingError, checkoutRequest, hash, requireOwner, validId } from './checkoutRequests.js';
 import { createRecurringHandlers, configuredGrace } from './recurringHandlers.js';
+import { createPlayHandlers } from './playHandlers.js';
 import {
     PAY_STATUS, quotePurchase, applyPaymentSuccess, applyPaymentFailure,
     applyPaymentCancelled, applyRefund, receiptNumberFor, effectiveStatus, SUB_STATUS,
@@ -34,8 +35,9 @@ const evPath = (uid, id) => `subscriptions/${uid}/events/${id}`;
 const ok = (body, status = 200) => ({ status, body });
 const fail = (status, error, code) => ({ status, body: { error, ...(code ? { code } : {}) } });
 
-export function createHandlers({ db, gateway, now = () => Date.now(), currency = 'INR', graceDays = configuredGrace() }) {
+export function createHandlers({ db, gateway, play, now = () => Date.now(), currency = 'INR', graceDays = configuredGrace() }) {
     const recurring = createRecurringHandlers({ db, gateway, now, currency, graceDays });
+    const playBilling = createPlayHandlers({ db, play, now, graceDays });
     async function loadPlans() {
         return mergePlans(await db.list('plans'));
     }
@@ -94,24 +96,42 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
             });
             if (result.sub && !result.duplicate) Object.assign(result.sub, { graceDays,
                 renewalMode: 'manual', autoRenew: false, gatewaySubscriptionId: null, mandateStatus: null,
+                billingSource: 'razorpay', playSubscriptionId: null, playProductId: null,
                 nextChargeAt: null, scheduledPlanId: null, scheduledBillingCycle: null, scheduledChangeAt: null });
             return result;
         }, info.paymentId);
     }
 
+    /** In-app (alternative billing) orders are reported to Google; the cron retries failures. */
+    async function reportPaid(orderId) {
+        try { await playBilling.reportOrder(orderId); }
+        catch (error) { console.error('[play-report]', orderId, error.message); }
+    }
+
     const handlers = {
         ...recurring,
+        playPrepare: playBilling.playPrepare,
+        playVerify: playBilling.playVerify,
+        playNotify: playBilling.playNotify,
+        playReconcile: playBilling.playReconcile,
+        async createRecurring(args) {
+            await playBilling.assertNotPlayManaged(await db.get(subPath(args.uid)));
+            return recurring.createRecurring(args);
+        },
         /* ---------------------------------------------------------- */
         /** POST create-order — price comes from the server catalog.   */
-        async createOrder({ uid, email, body }) {
+        async createOrder({ uid, email, body, native = false }) {
             const { planId, billingCycle, salonId = null } = body || {};
             const owned = await requireOwner(db, uid, salonId);
+            await playBilling.assertNotPlayManaged(owned);
             if (owned?.autoRenew) return fail(409, 'Cancel automatic renewal before making a manual payment.', 'AUTO_RENEW_EXISTS');
             const plans = await loadPlans();
             const sub = await db.get(subPath(uid));
             const t = now();
             const quote = quotePurchase(sub, planId, billingCycle, plans, t);
             if (!quote.ok) return fail(quote.code === 'DOWNGRADE_BLOCKED' ? 409 : 400, quote.error, quote.code);
+            // From the Play-distributed app a Razorpay order needs Google's user-choice token.
+            const report = native ? await playBilling.nativeOrderPlan({ uid, sub, body, planId, billingCycle }) : null;
 
             if (salonId) {
                 const salon = await db.get(`salons/${salonId}`);
@@ -120,7 +140,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
 
             gateway.publicKey(); // Reject missing/live-disabled keys before reserving a checkout.
             return ok(await checkoutRequest({ db, uid, key: body?.idempotencyKey,
-                fingerprint: JSON.stringify({ planId, billingCycle, salonId, mode: 'manual' }), now: t, execute: async () => {
+                fingerprint: JSON.stringify({ planId, billingCycle, salonId, mode: 'manual', ...(native ? { native } : {}) }), now: t, execute: async () => {
                 const order = await gateway.createOrder({
                     amountMinor: quote.amount * 100,
                     currency,
@@ -154,6 +174,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                 await db.transaction(async (tx) => {
                     tx.set(payPath(uid, order.id), payment);
                     tx.set(`paymentOrders/${order.id}`, { uid, createdAt: t });
+                    if (report) tx.set(`externalReports/${order.id}`, { ...report, uid, orderId: order.id, status: 'awaiting_payment', createdAt: t });
                 });
 
                 return {
@@ -198,6 +219,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                     const r = await activate(uid, orderId, {
                         paymentId, amountMinor: gp.amountMinor, currency: gp.currency, method: gp.method,
                     });
+                    await reportPaid(orderId);
                     if (r.payment?.requiresReview) return ok({ status: 'PENDING', reviewRequired: true, message: 'Payment received. Support review is required because your subscription changed during checkout.' }, 202);
                     return ok({ status: PAY_STATUS.SUCCESS, duplicate: !!r.duplicate, subscription: publicSub(r.sub || await db.get(subPath(uid))) });
                 } catch (err) {
@@ -246,6 +268,7 @@ export function createHandlers({ db, gateway, now = () => Date.now(), currency =
                                 await activate(map.uid, ev.orderId, {
                                     paymentId: ev.paymentId, amountMinor: ev.amountMinor, currency: ev.currency, method: ev.method,
                                 });
+                                await reportPaid(ev.orderId);
                             } catch (err) {
                                 if (err.code !== 'AMOUNT_MISMATCH') throw err;
                                 // Never activate on a mismatched amount; log it for the admin.

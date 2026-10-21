@@ -2,6 +2,7 @@ package com.luxeglow.crm;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Dialog;
 import android.app.DownloadManager;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
@@ -16,6 +17,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.Message;
 import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
@@ -37,17 +39,29 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.FrameLayout;
-import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+
+import java.net.URISyntaxException;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 
 /** Thin HTTPS-only container for hosted Qvrix GlowOS. No web CRM assets are bundled. */
 public class LauncherActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 41;
     private static final String CACHE_MIGRATION_PREFERENCES = "spacrm_wrapper";
     private static final String CACHE_MIGRATION_KEY = "web_cache_migration_v2";
+    /** Schemes handed to other apps: links, contacts, and UPI apps used by the payment sheet. */
+    private static final Set<String> EXTERNAL_SCHEMES = new HashSet<>(Arrays.asList(
+            "https", "http", "mailto", "tel", "sms", "upi", "tez", "phonepe", "paytmmp", "gpay", "credpay", "bhim"));
     private WebView webView;
-    private ImageView loadingScreen;
+    private LoadingScreenView loadingScreen;
     private LinearLayout errorPanel;
     private TextView errorDetail;
     private ValueCallback<Uri[]> pendingFileChooser;
@@ -55,8 +69,13 @@ public class LauncherActivity extends Activity {
     private boolean pageLoadFailed;
     private boolean refreshOnResume;
     private boolean returningFromExternalActivity;
+    private PlayBillingBridge billing;
+    /** True only while the payment sheet is open; it may open bank / 3-D Secure windows. */
+    private boolean checkoutActive;
+    private int loadGeneration;
     private final Handler loadHandler = new Handler(Looper.getMainLooper());
     private final Runnable loadTimeout = () -> showError("Loading took too long. Check your connection and retry.");
+    private final Runnable contentProbe = this::checkInitialContent;
     private final OnBackInvokedCallback backCallback = this::handleBackNavigation;
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -91,16 +110,12 @@ public class LauncherActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.parseColor("#020617"));
         webView = new WebView(this);
+        webView.setBackgroundColor(Color.parseColor("#020617"));
         root.addView(webView, new FrameLayout.LayoutParams(-1, -1));
-        loadingScreen = new ImageView(this);
-        loadingScreen.setImageResource(R.drawable.loading_screen);
-        // Keep the supplied artwork and lettering intact on different screens.
-        loadingScreen.setScaleType(ImageView.ScaleType.FIT_CENTER);
-        loadingScreen.setBackgroundColor(Color.parseColor("#020617"));
-        loadingScreen.setContentDescription(getString(R.string.loading_screen_description));
-        loadingScreen.setClickable(true);
+        loadingScreen = new LoadingScreenView(this);
         root.addView(loadingScreen, new FrameLayout.LayoutParams(-1, -1));
         errorPanel = new LinearLayout(this);
+        errorPanel.setBackgroundColor(Color.parseColor("#020617"));
         errorPanel.setOrientation(LinearLayout.VERTICAL);
         errorPanel.setGravity(Gravity.CENTER);
         errorPanel.setPadding(48, 48, 48, 48);
@@ -127,17 +142,20 @@ public class LauncherActivity extends Activity {
         settings.setLoadWithOverviewMode(true); settings.setUseWideViewPort(true); settings.setSupportMultipleWindows(false);
         CookieManager cookies = CookieManager.getInstance(); cookies.setAcceptCookie(true); cookies.setAcceptThirdPartyCookies(webView, true);
         webView.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return request.isForMainFrame() && blockUntrustedNavigation(request.getUrl()); }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                // App links (e.g. upi://) from the payment frame cannot load in a WebView; hand them to the app.
+                return (request.isForMainFrame() || !isWebScheme(request.getUrl())) && blockUntrustedNavigation(request.getUrl());
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, String url) { return blockUntrustedNavigation(Uri.parse(url)); }
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+                loadGeneration++;
                 pageLoadFailed = false;
-                loadingScreen.setVisibility(View.VISIBLE); errorPanel.setVisibility(View.GONE);
+                showLoading(); errorPanel.setVisibility(View.GONE);
+                loadHandler.removeCallbacks(contentProbe);
                 loadHandler.removeCallbacks(loadTimeout);
                 loadHandler.postDelayed(loadTimeout, 30000);
             }
             @Override public void onPageFinished(WebView view, String url) {
-                loadHandler.removeCallbacks(loadTimeout);
-                loadingScreen.setVisibility(View.GONE);
                 if (!pageLoadFailed && isAllowedUrl(Uri.parse(url))) removeLegacyPwaCacheOnce();
             }
             @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) { if (request.isForMainFrame()) showError("Check your internet connection and try again."); }
@@ -145,6 +163,9 @@ public class LauncherActivity extends Activity {
             @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, android.net.http.SslError error) { handler.cancel(); showError("A secure connection to Qvrix GlowOS could not be established."); }
         });
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
+                return checkoutActive && openPaymentWindow(resultMsg);
+            }
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (pendingFileChooser != null) pendingFileChooser.onReceiveValue(null);
                 pendingFileChooser = callback;
@@ -165,15 +186,70 @@ public class LauncherActivity extends Activity {
         // explicitly agreed to leave. The WebView is locked to a single
         // trusted HTTPS origin (see isAllowedUrl), so exposing this is safe.
         webView.addJavascriptInterface(new ExitBridge(), "AndroidNative");
+        // Google Play Billing (user choice) for subscription purchases, only for
+        // main-frame scripts from the configured origin.
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            billing = new PlayBillingBridge(this, this::setCheckoutActive);
+            WebViewCompat.addWebMessageListener(webView, "AndroidBilling", Collections.singleton(originOf(homeUri)), billing);
+        }
+    }
+
+    private static String originOf(Uri uri) {
+        return uri.getScheme() + "://" + uri.getHost() + (uri.getPort() == -1 ? "" : ":" + uri.getPort());
+    }
+
+    private static boolean isWebScheme(Uri uri) {
+        String scheme = uri.getScheme();
+        return "https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme);
+    }
+
+    /** Pop-up windows are enabled only while checkout is open; otherwise links behave as before. */
+    private void setCheckoutActive(boolean active) {
+        checkoutActive = active;
+        webView.getSettings().setSupportMultipleWindows(active);
+        webView.getSettings().setJavaScriptCanOpenWindowsAutomatically(active);
+    }
+
+    /** Bank / 3-D Secure / net-banking window opened by the payment sheet, shown full screen. */
+    @SuppressLint("SetJavaScriptEnabled")
+    private boolean openPaymentWindow(Message resultMsg) {
+        WebView popup = new WebView(this);
+        WebSettings settings = popup.getSettings();
+        settings.setJavaScriptEnabled(true); settings.setDomStorageEnabled(true); settings.setSupportMultipleWindows(false);
+        settings.setAllowFileAccess(false); settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true);
+        Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+        dialog.setContentView(popup);
+        dialog.setOnDismissListener(d -> popup.destroy());
+        popup.setWebViewClient(new WebViewClient() {
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                Uri uri = request.getUrl();
+                if ("https".equalsIgnoreCase(uri.getScheme())) return false;
+                openExternal(uri);
+                return true;
+            }
+            @Override public void onReceivedSslError(WebView view, SslErrorHandler handler, android.net.http.SslError error) { handler.cancel(); }
+        });
+        popup.setWebChromeClient(new WebChromeClient() {
+            @Override public void onCloseWindow(WebView window) { dialog.dismiss(); }
+        });
+        ((WebView.WebViewTransport) resultMsg.obj).setWebView(popup);
+        resultMsg.sendToTarget();
+        dialog.show();
+        return true;
     }
 
     /** Lets trusted, same-origin JS ask the Activity to close after the user confirms Exit. */
     private final class ExitBridge {
         @JavascriptInterface
         public void cacheMigrationComplete(boolean success) {
-            if (!success) return; // Retry on the next successful page load.
             runOnUiThread(() -> {
                 if (pageLoadFailed || webView.getUrl() == null || !isAllowedUrl(Uri.parse(webView.getUrl()))) return;
+                if (!success) {
+                    // Keep the existing retry-on-next-load migration behavior.
+                    checkInitialContent();
+                    return;
+                }
                 getSharedPreferences(CACHE_MIGRATION_PREFERENCES, MODE_PRIVATE)
                         .edit().putBoolean(CACHE_MIGRATION_KEY + ":" + homeUri.getHost(), true).apply();
                 webView.reload();
@@ -191,20 +267,36 @@ public class LauncherActivity extends Activity {
         // Keep external websites, contact links and payment-app handoffs outside
         // the WebView, which exposes the native exit bridge only to our origin.
         String scheme = uri.getScheme();
-        if (scheme != null && (scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http")
-                || scheme.equalsIgnoreCase("mailto") || scheme.equalsIgnoreCase("tel")
-                || scheme.equalsIgnoreCase("sms") || scheme.equalsIgnoreCase("upi"))) {
-            try {
-                returningFromExternalActivity = true;
-                startActivity(new Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE));
-            } catch (ActivityNotFoundException e) {
-                returningFromExternalActivity = false;
-                android.widget.Toast.makeText(this, "No app is available to open this link.", android.widget.Toast.LENGTH_SHORT).show();
-            }
+        if (scheme != null && (EXTERNAL_SCHEMES.contains(scheme.toLowerCase(Locale.ROOT)) || scheme.equalsIgnoreCase("intent"))) {
+            openExternal(uri);
             return true;
         }
         showError("For your security, this app only opens the configured HTTPS Qvrix GlowOS site.");
         return true;
+    }
+
+    private void openExternal(Uri uri) {
+        Intent intent;
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if ("intent".equals(scheme)) {
+            // Payment-app handoff: never allow an explicit component or selector.
+            try { intent = Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME); }
+            catch (URISyntaxException e) { return; }
+            intent.setComponent(null);
+            intent.setSelector(null);
+        } else if (EXTERNAL_SCHEMES.contains(scheme)) {
+            intent = new Intent(Intent.ACTION_VIEW, uri);
+        } else {
+            return;
+        }
+        intent.addCategory(Intent.CATEGORY_BROWSABLE);
+        try {
+            returningFromExternalActivity = true;
+            startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            returningFromExternalActivity = false;
+            android.widget.Toast.makeText(this, "No app is available to open this link.", android.widget.Toast.LENGTH_SHORT).show();
+        }
     }
 
     private boolean isAllowedUrl(Uri uri) {
@@ -228,7 +320,10 @@ public class LauncherActivity extends Activity {
      */
     private void removeLegacyPwaCacheOnce() {
         SharedPreferences preferences = getSharedPreferences(CACHE_MIGRATION_PREFERENCES, MODE_PRIVATE);
-        if (preferences.getBoolean(CACHE_MIGRATION_KEY + ":" + homeUri.getHost(), false)) return;
+        if (preferences.getBoolean(CACHE_MIGRATION_KEY + ":" + homeUri.getHost(), false)) {
+            checkInitialContent();
+            return;
+        }
         webView.clearCache(true); // WebView HTTP/resource cache only.
         webView.evaluateJavascript(
                 "(async()=>{try{if('serviceWorker' in navigator){"
@@ -241,6 +336,37 @@ public class LauncherActivity extends Activity {
                 null);
     }
 
+    private void showLoading() {
+        loadingScreen.animate().cancel();
+        loadingScreen.setAlpha(1f);
+        loadingScreen.setVisibility(View.VISIBLE);
+    }
+
+    /** HTML finishing does not mean the asynchronous Firebase/SPA shell has rendered. */
+    private void checkInitialContent() {
+        if (pageLoadFailed || isDestroyed() || loadingScreen.getVisibility() != View.VISIBLE) return;
+        final int generation = loadGeneration;
+        loadHandler.removeCallbacks(contentProbe);
+        webView.evaluateJavascript("(()=>{const app=document.getElementById('app');"
+                + "return !!(app && app.childElementCount && app.getBoundingClientRect().height>0);})()", result -> {
+            if (generation != loadGeneration || pageLoadFailed || isDestroyed()) return;
+            if (!"true".equals(result)) {
+                loadHandler.postDelayed(contentProbe, 100);
+                return;
+            }
+            // Wait for the rendered DOM to reach the WebView compositor before revealing it.
+            webView.postVisualStateCallback(generation, new WebView.VisualStateCallback() {
+                @Override public void onComplete(long requestId) {
+                    if (generation != loadGeneration || pageLoadFailed || isDestroyed()) return;
+                    loadHandler.removeCallbacks(loadTimeout);
+                    loadingScreen.animate().alpha(0f).setDuration(180).withEndAction(() -> {
+                        if (generation == loadGeneration && !pageLoadFailed) loadingScreen.setVisibility(View.GONE);
+                    }).start();
+                }
+            });
+        });
+    }
+
     private boolean isOnline() {
         ConnectivityManager manager = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
         if (manager == null || manager.getActiveNetwork() == null) return false;
@@ -250,12 +376,14 @@ public class LauncherActivity extends Activity {
 
     private void loadHome() {
         if (!isOnline()) { showError("You appear to be offline. Connect to the internet and retry."); return; }
-        errorPanel.setVisibility(View.GONE); loadingScreen.setVisibility(View.VISIBLE); webView.loadUrl(homeUri.toString());
+        errorPanel.setVisibility(View.GONE); showLoading(); webView.loadUrl(homeUri.toString());
     }
 
     private void showError(String message) {
         pageLoadFailed = true;
         loadHandler.removeCallbacks(loadTimeout);
+        loadHandler.removeCallbacks(contentProbe);
+        loadingScreen.animate().cancel();
         loadingScreen.setVisibility(View.GONE); errorDetail.setText(message); errorPanel.setVisibility(View.VISIBLE);
     }
 
@@ -302,10 +430,12 @@ public class LauncherActivity extends Activity {
     }
     @Override protected void onDestroy() {
         loadHandler.removeCallbacks(loadTimeout);
+        loadHandler.removeCallbacks(contentProbe);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(backCallback);
         }
         if (pendingFileChooser != null) pendingFileChooser.onReceiveValue(null);
+        if (billing != null) billing.destroy();
         if (webView != null) webView.destroy();
         super.onDestroy();
     }
