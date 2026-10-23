@@ -1,0 +1,134 @@
+{
+  "inspectedAt": "2026-10-22T12:13:29.916Z",
+  "evidence": [
+    {
+      "name": "production-desktop-login",
+      "kind": "live public page; no authentication or mutations",
+      "width": 1440,
+      "height": 1000,
+      "title": "Qvrix GlowOS",
+      "url": "https://spacrm-two.vercel.app/",
+      "labels": "Qvrix GlowOS\n\nSign in to your Qvrix GlowOS account\n\nEMAIL ADDRESS\nPASSWORD\n\nForgot Password?\n\nSign In\n\nDon't have an account? Create New Account",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    {
+      "name": "production-android-query-login",
+      "kind": "live public page in Chrome mobile viewport; not the Android WebView",
+      "width": 412,
+      "height": 915,
+      "title": "Qvrix GlowOS",
+      "url": "https://spacrm-two.vercel.app/?platform=android",
+      "labels": "Qvrix GlowOS\n\nSign in to your Qvrix GlowOS account\n\nEMAIL ADDRESS\nPASSWORD\n\nForgot Password?\n\nSign In\nCreate Account",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif"
+    },
+    {
+      "name": "source-guided-tour-mobile",
+      "kind": "actual unchanged local demo guided-tour overlay; synthetic demo data",
+      "width": 412,
+      "height": 915
+    },
+    {
+      "name": "android-webview-tls-error",
+      "kind": "actual existing installed Android WebView; TLS error observed; no authenticated content verification",
+      "applicationId": "com.luxeglow.crm",
+      "versionName": "1.0.5",
+      "versionCode": 6,
+      "androidApi": 37,
+      "width": 1080,
+      "height": 2400,
+      "labels": [
+        "Unable to load Qvrix GlowOS",
+        "A secure connection to Qvrix GlowOS could not be established.",
+        "Retry"
+      ]
+    },
+    {
+      "name": "source-dashboard-desktop",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 1440,
+      "height": 1000,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches\nSubscription\nHelp & Tours\nSign Out\nQvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nOVERVIEW\nYour Salon at a Glance\n\nToday Bookings\n\n0\n\nEst. Revenue\n\n₹0\n\nQuick Bill\nBook\nClient\nService\nStaff\nBooking Link\nToday\nThis Month\nLast Month\nToday Appointments\n0 bookings\nNo appointments scheduled for today.",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-dashboard-mobile",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 412,
+      "height": 915,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nOVERVIEW\nYour Salon at a Glance\n\nToday Bookings\n\n0\n\nEst. Revenue\n\n₹0\n\nQuick Bill\nBook\nClient\nService\nStaff\nBooking Link\nToday\nThis Month\nLast Month\nToday Appointments\n0 bookings\nNo appointments scheduled for today.\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-customers-desktop",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 1440,
+      "height": 1000,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches\nSubscription\nHelp & Tours\nSign Out\nQvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nClients\nAdd Client\nOlivia Wilde\n\n+1 555-0143\n\nolivia@example.com\n\nLVAWY88C\n\nJessica Alba\n\n+1 555-0199\n\njessica@example.com\n\nJESSW2DW",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-customers-mobile",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 412,
+      "height": 915,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nClients\nAdd Client\nOlivia Wilde\n\n+1 555-0143\n\nolivia@example.com\n\nLVAWY88C\n\nJessica Alba\n\n+1 555-0199\n\njessica@example.com\n\nJESSW2DW\n\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-quickBilling-desktop",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 1440,
+      "height": 1000,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches\nSubscription\nHelp & Tours\nSign Out\nQvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\n\nFast POS for walk-in clients\n\nBilling at Thu, 22 Oct, 05:53 pm\n\nDate & time are recorded automatically — no selection needed.\n\nPHONE NUMBER\n+91\n\nDigits only, up to 10. Matching clients appear below as you type.\n\nEnter the client's 10-digit mobile number. Existing clients are looked up automatically; a new number shows an inline name field right here.\n\nADD SERVICES\n\nSELECTED SERVICES\n\n0\n\nAdd one or more services to this bill.\n\nSubtotal\n₹0\nASSIGNED STYLIST (OPTIONAL)\nNot assigned\nNot assigned\nVictoria Sterling (Master Stylist)\nJulian Vance (Esthetician)\n\nDISCOUNT\n\nDISCOUNT TYPE\nNo discount\nPercentage (%)\nFixed Amount (₹)\nDISCOUNT VALUE\n\nApplied to this bill and saved for this client's future invoices. Capped so it can never exceed the bill amount.\n\nNo referral balance available (₹0)\n\nPAYMENT METHOD\nSelect a method\nCash\nUPI\nCard\nOther\nREFERENCE (OPTIONAL)\nInvoice total\n₹0\nReferral wallet\n- ₹0\nAmount due\n₹0\nWallet balance after\n₹0\n\nMaximum redeemable on this invoice: ₹0\n\nComplete Payment",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-quickBilling-mobile",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 412,
+      "height": 915,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\n\nFast POS for walk-in clients\n\nBilling at Thu, 22 Oct, 05:53 pm\n\nDate & time are recorded automatically — no selection needed.\n\nPHONE NUMBER\n+91\n\nDigits only, up to 10. Matching clients appear below as you type.\n\nEnter the client's 10-digit mobile number. Existing clients are looked up automatically; a new number shows an inline name field right here.\n\nADD SERVICES\n\nSELECTED SERVICES\n\n0\n\nAdd one or more services to this bill.\n\nSubtotal\n₹0\nASSIGNED STYLIST (OPTIONAL)\nNot assigned\nNot assigned\nVictoria Sterling (Master Stylist)\nJulian Vance (Esthetician)\n\nDISCOUNT\n\nDISCOUNT TYPE\nNo discount\nPercentage (%)\nFixed Amount (₹)\nDISCOUNT VALUE\n\nApplied to this bill and saved for this client's future invoices. Capped so it can never exceed the bill amount.\n\nNo referral balance available (₹0)\n\nPAYMENT METHOD\nSelect a method\nCash\nUPI\nCard\nOther\nREFERENCE (OPTIONAL)\nInvoice total\n₹0\nReferral wallet\n- ₹0\nAmount due\n₹0\nWallet balance after\n₹0\n\nMaximum redeemable on this invoice: ₹0\n\nComplete Payment\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-customer-modal-desktop",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 1440,
+      "height": 1000,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nQuick Billing / Walk-in\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches\nSubscription\nHelp & Tours\nSign Out\nQvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nClients\nAdd Client\nOlivia Wilde\n\n+1 555-0143\n\nolivia@example.com\n\nLVAWY88C\n\nJessica Alba\n\n+1 555-0199\n\njessica@example.com\n\nJESSW2DW\n\nAdd New Client\nFULL NAME\nPHONE\n+91\n\nEnter exactly 10 digits — e.g. 98765 43210.\n\nEMAIL\nDATE OF BIRTH (OPTIONAL)\nREFERRAL CODE (OPTIONAL)\n\nEnter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.\n\nSave Client",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    },
+    {
+      "name": "source-customer-modal-mobile",
+      "kind": "actual unchanged local web app in demo mode; existing guide-seen preference set for unobstructed reference; no Firebase data",
+      "width": 412,
+      "height": 915,
+      "title": "Qvrix GlowOS",
+      "url": "http://127.0.0.1:61862/",
+      "labels": "Qvrix GlowOS\n\nSALON OWNER\n\nLuxe Glow Flagship\nLuxe Glow SoHo\nClients\nAdd Client\nOlivia Wilde\n\n+1 555-0143\n\nolivia@example.com\n\nLVAWY88C\n\nJessica Alba\n\n+1 555-0199\n\njessica@example.com\n\nJESSW2DW\n\nHome\nBookings\nClients\nReferrals\nServices\nStaff\nBranches\nAdd New Client\nFULL NAME\nPHONE\n+91\n\nEnter exactly 10 digits — e.g. 98765 43210.\n\nEMAIL\nDATE OF BIRTH (OPTIONAL)\nREFERRAL CODE (OPTIONAL)\n\nEnter the code of the client who referred them. The reward is credited after their first qualifying paid appointment.\n\nSave Client",
+      "font": "\"Plus Jakarta Sans\", ui-sans-serif, system-ui, sans-serif",
+      "encoding": "UTF-8"
+    }
+  ]
+}

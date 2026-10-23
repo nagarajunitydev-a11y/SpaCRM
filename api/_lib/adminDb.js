@@ -71,13 +71,19 @@ export function createAdminDb() {
     };
 }
 
+// Native sync needs query reads inside transactions (for uniqueness/quotas).
+// Keep the existing billing adapter and its timestamp contract unchanged.
+export function getAdminFirestore() {
+    return getFirestore(app());
+}
+
 /** Verify the caller's Firebase ID token -> { uid, email } or null. */
-export async function verifyRequestUser(request) {
+export async function verifyRequestUser(request, checkRevoked = false) {
     const h = request.headers.get('authorization') || '';
     const m = /^Bearer (.+)$/.exec(h);
     if (!m) return null;
     try {
-        const d = await getAuth(app()).verifyIdToken(m[1]);
+        const d = await getAuth(app()).verifyIdToken(m[1], checkRevoked);
         return { uid: d.uid, email: d.email || '' };
     } catch {
         return null;

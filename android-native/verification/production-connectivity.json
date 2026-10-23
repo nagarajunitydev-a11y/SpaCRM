@@ -1,0 +1,11 @@
+{
+  "checkedAt": "2026-10-22T13:36:03.916Z",
+  "project": "crmapp-1299dddb",
+  "firebaseAuth": {
+    "http": 400,
+    "code": "INVALID_LOGIN_CREDENTIALS"
+  },
+  "subscriptionApi": {
+    "http": 404
+  }
+}

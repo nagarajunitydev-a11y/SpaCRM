@@ -14,6 +14,8 @@
         "deploy:all": "firebase deploy --only hosting,firestore:rules",
         "test:security": "firebase emulators:exec --config firebase.audit.json --project demo-spacrm-audit --only firestore \"node scripts/security-rules.mjs\"",
         "test:release": "npm test && npm run test:security",
+        "test:native-sync": "node scripts/unit-native-sync.mjs",
+        "test:native-sync:emulator": "firebase emulators:exec --config firebase.audit.json --project demo-spacrm-audit --only firestore \"node scripts/integration-native-sync.mjs\"",
         "test:payments": "node scripts/unit-payments.mjs && node scripts/unit-recurring-payments.mjs && node scripts/unit-payment-ui.mjs && node scripts/unit-play-billing.mjs",
         "test:payments:emulator": "firebase emulators:exec --config firebase.audit.json --project demo-spacrm-audit --only firestore \"node scripts/unit-recurring-payments.mjs\"",
         "test:payments:rules": "firebase emulators:exec --config firebase.audit.json --project demo-spacrm-audit --only firestore \"node scripts/security-payments.mjs\"",

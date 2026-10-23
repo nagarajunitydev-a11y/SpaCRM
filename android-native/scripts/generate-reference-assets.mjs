@@ -1,0 +1,21 @@
+// Run from any directory. Reads the existing web modules without modifying them.
+import { readFileSync, writeFileSync } from 'node:fs';
+import vm from 'node:vm';
+import { DEFAULT_PLANS, FEATURES, INDIA_TAX_STATES } from '../../public/js/core/plans.js';
+import { PREDEFINED_SERVICES } from '../../public/js/core/predefinedServices.js';
+import { DEFAULT_REFERRAL_SETTINGS } from '../../public/js/core/referral.js';
+import { DEFAULT_BOOKING_SETTINGS } from '../../public/js/core/bookingConfig.js';
+import { TUTORIALS } from '../../public/js/core/tutorialContent.js';
+import { discountAmountFor } from '../../public/js/core/discount.js';
+const assets = new URL('../app/src/main/assets/', import.meta.url);
+writeFileSync(new URL('reference-catalog.json', assets), JSON.stringify({ plans: DEFAULT_PLANS, features: FEATURES, taxStates: INDIA_TAX_STATES, services: PREDEFINED_SERVICES, referral: DEFAULT_REFERRAL_SETTINGS, booking: DEFAULT_BOOKING_SETTINGS, tutorials: TUTORIALS }, null, 2));
+const fixtures = [];
+for (const gross of [0, 1.005, 75, 99.995, 100, 199.99, 500, 1000]) for (const type of ['percentage', 'fixed', '']) for (const value of [0, 10, 50, 110]) fixtures.push({ gross, type, value, expected: discountAmountFor({ type, value }, gross) });
+writeFileSync(new URL('calculation-fixtures.json', assets), JSON.stringify(fixtures));
+const box = {}; vm.createContext(box);
+vm.runInContext(readFileSync(new URL('../../public/vendor/lucide.min.js', import.meta.url), 'utf8'), box);
+const iconPath = new URL('lucide.json', assets), names = Object.keys(JSON.parse(readFileSync(iconPath, 'utf8')));
+const icons = Object.fromEntries(names.map(name => [name, box.lucide[name.split('-').map(s => s[0].toUpperCase() + s.slice(1)).join('')]]));
+if (Object.values(icons).some(value => !value)) throw new Error('A referenced Lucide icon is missing.');
+writeFileSync(iconPath, JSON.stringify(icons));
+console.log(`Generated source catalogs, ${names.length} icons and ${fixtures.length} independent calculation fixtures.`);
